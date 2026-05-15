@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-redteam"
+version = "0.1.0"
+description = "Claude-driven agentic red-teaming and iterative retraining for tuberlens probes"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.100.0",
+    "claude-agent-sdk>=0.1.80",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.scripts]
+redteam = "agentic_redteam.cli:run_redteam_main"
+iterative-retrain = "agentic_redteam.cli:iterative_retrain_main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
