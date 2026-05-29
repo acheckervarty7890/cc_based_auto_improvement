@@ -1,16 +1,25 @@
-"""Claude-based judge: unbiased classification of a conversation into one of two labels.
+"""LLM-based judge: unbiased classification of a conversation into one of two labels.
 
 The judge is intentionally NOT told which class we are hoping for — it just classifies.
 Whether the probe was wrong (and in which direction) is computed by comparing the
 judge's label to the probe's prediction in the tool layer.
+
+Two backends are supported, selected by ``provider``:
+
+  - ``claude_sdk``  → Anthropic Python SDK (direct Anthropic API).
+  - ``openrouter``  → official ``openai`` SDK pointed at OpenRouter
+                      (``openai/chat/completions``).
+
+Both return the same ``JudgeVerdict``. The ``openai``/``anthropic`` SDKs are
+imported lazily so a config that uses only one provider doesn't require the
+other to be installed.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
-
-import anthropic
+from dataclasses import dataclass, field
+from typing import Any
 
 from agentic_redteam.persistence import Conversation
 
@@ -24,7 +33,7 @@ class JudgeVerdict:
 
 @dataclass
 class LLMJudge:
-    """Wraps the Anthropic SDK as a neutral classifier.
+    """Neutral classifier wrapping either the Anthropic SDK or OpenRouter.
 
     Returns the judge's predicted class label (one of `pos_class_label` /
     `neg_class_label`). The judge is not told which label the caller is hoping
@@ -35,17 +44,22 @@ class LLMJudge:
     system_prompt: str
     pos_class_label: str
     neg_class_label: str
+    provider: str = "claude_sdk"  # claude_sdk | openrouter
     max_tokens: int = 1024
-    _client: anthropic.Anthropic | None = None
+    _clients: dict[str, Any] = field(default_factory=dict)
 
-    def _client_or_init(self) -> anthropic.Anthropic:
-        if self._client is None:
-            self._client = anthropic.Anthropic()
-        return self._client
+    def warmup(self) -> None:
+        """Force-initialize the backing SDK client so concurrent calls don't race."""
+        if self.provider == "claude_sdk":
+            if "anthropic" not in self._clients:
+                import anthropic
+                self._clients["anthropic"] = anthropic.Anthropic()
+        elif self.provider == "openrouter":
+            if "openrouter" not in self._clients:
+                from agentic_redteam.openrouter_client import make_sync_client
+                self._clients["openrouter"] = make_sync_client()
 
     def evaluate(self, conversation: Conversation) -> JudgeVerdict:
-        client = self._client_or_init()
-
         messages, system = _build_judge_request(
             conversation,
             self.system_prompt,
@@ -55,17 +69,15 @@ class LLMJudge:
         if not messages:
             return JudgeVerdict(label="", reason="empty conversation", confidence=0)
 
-        response = client.messages.create(
-            model=self.model,
-            max_tokens=self.max_tokens,
-            system=system,
-            messages=messages,
-        )
-
-        text = ""
-        for block in response.content:
-            if block.type == "text":
-                text += block.text
+        if self.provider == "claude_sdk":
+            text = self._call_anthropic(system, messages)
+        elif self.provider == "openrouter":
+            text = self._call_openrouter(system, messages)
+        else:
+            raise ValueError(
+                f"Unknown judge provider: {self.provider!r} "
+                "(expected 'claude_sdk' or 'openrouter')"
+            )
 
         raw_label, reason, confidence = _parse_judge_json(text)
         normalized = _normalize_label(
@@ -76,6 +88,47 @@ class LLMJudge:
             reason=reason or text.strip()[:500],
             confidence=confidence,
         )
+
+    # ------------------------------------------------------------------ #
+    # Backends. Lazy SDK imports keep the alternative provider optional.
+    # ------------------------------------------------------------------ #
+
+    def _call_anthropic(self, system: str, messages: list[dict[str, str]]) -> str:
+        client = self._clients.get("anthropic")
+        if client is None:
+            import anthropic
+
+            client = anthropic.Anthropic()
+            self._clients["anthropic"] = client
+
+        response = client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            system=system,
+            messages=messages,
+        )
+        text = ""
+        for block in response.content:
+            if block.type == "text":
+                text += block.text
+        return text
+
+    def _call_openrouter(self, system: str, messages: list[dict[str, str]]) -> str:
+        client = self._clients.get("openrouter")
+        if client is None:
+            from agentic_redteam.openrouter_client import make_sync_client
+
+            client = make_sync_client()
+            self._clients["openrouter"] = client
+
+        chat_messages = [{"role": "system", "content": system}, *messages]
+        response = client.chat.completions.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            messages=chat_messages,
+        )
+        content = response.choices[0].message.content
+        return content or ""
 
 
 _JUDGE_FRAMING = (
@@ -93,14 +146,15 @@ def _build_judge_request(
     pos_class_label: str,
     neg_class_label: str,
 ) -> tuple[list[dict[str, str]], str]:
-    """Build the (messages, system) pair sent to the Anthropic API.
+    """Build the (messages, system) pair sent to the chat API.
 
-    The candidate's user/assistant messages are passed through as real
-    role-tagged API messages so the judge sees the transcript as multi-turn,
-    not as flat text inside one user message. Any candidate `system` turns are
-    dropped (the API takes `system` separately). A final user message with the
+    Candidate user/assistant turns pass through as real role-tagged API
+    messages so the judge sees the transcript as multi-turn, not as flat text
+    inside one user message. Any candidate ``system`` turns are dropped (the
+    API takes ``system`` separately). A final user message with the
     classification request is appended; if the transcript already ends with a
-    user turn, the request is merged into that turn to keep role alternation.
+    user turn, the request is merged into that turn to keep role alternation —
+    Anthropic requires it and OpenAI tolerates it.
     """
     msgs: list[dict[str, str]] = [
         {"role": m.role, "content": m.content}

@@ -1,0 +1,361 @@
+"""Collation-style preprocessing for red-team successes.
+
+Ports the two collation steps of tuberlens' ``collate_train_evaluate.py`` that
+are applied to the "extra" data before it is merged with the base training set:
+
+1. ``filter_dataset`` — drop confounders. A bag-of-words logistic-regression
+   classifier is fit on the records; the examples it predicts most confidently
+   (top ``filter_percentile``) are removed, on the theory that they are
+   separable by surface lexical cues rather than the underlying concept.
+2. ``generate_contrastive_dataset`` — for each record, ask an LLM to write a
+   similar-looking conversation belonging to the opposite class, yielding
+   contrastive pairs.
+
+Both functions are generalized to arbitrary class labels (the originals
+hard-coded ``"high-stakes"``/``"low-stakes"``): the caller passes
+``pos_class_label`` / ``neg_class_label``, which come from the probe metadata.
+
+Records are plain dicts: ``{text_key: [{"role", "content"}, ...], label_key: <label string>}``.
+The contrastive generator uses this repo's own LLM clients (Anthropic SDK or
+the OpenAI SDK pointed at OpenRouter) rather than litellm, runs requests on a
+thread pool, and caches generated pairs to disk keyed by the source
+conversation so accumulating red-team successes are not re-generated every
+iteration.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any, Sequence
+
+import numpy as np
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.linear_model import LogisticRegression
+
+
+# --------------------------------------------------------------------------- #
+# Shared record helpers
+# --------------------------------------------------------------------------- #
+
+
+def _extract_messages(record: dict, text_key: str) -> list[dict[str, str]]:
+    """Extract a list of ``{"role", "content"}`` messages from a record."""
+    value = record.get(text_key, "")
+    if isinstance(value, list):
+        out = []
+        for msg in value:
+            if isinstance(msg, dict):
+                out.append(
+                    {
+                        "role": str(msg.get("role", "user")),
+                        "content": str(msg.get("content", "")),
+                    }
+                )
+            else:
+                out.append({"role": "user", "content": str(msg)})
+        return out
+    return [{"role": "user", "content": str(value)}]
+
+
+def _extract_text(record: dict, text_key: str) -> str:
+    """Flatten a record's messages into one string for the bag-of-words classifier."""
+    messages = _extract_messages(record, text_key)
+    return " ".join(msg["content"] for msg in messages)
+
+
+def _render_transcript(messages: Sequence[dict[str, str]]) -> str:
+    return "\n".join(f"[{m['role']}] {m['content']}" for m in messages)
+
+
+# --------------------------------------------------------------------------- #
+# 1. Confounder filtering
+# --------------------------------------------------------------------------- #
+
+
+class BagOfWordsClassifier:
+    """A simple bag-of-words classifier for filtering confounded examples."""
+
+    def __init__(self) -> None:
+        self.vectorizer = CountVectorizer(
+            ngram_range=(1, 1),
+            max_features=20000,
+            min_df=3,
+            max_df=0.9,
+            binary=False,
+        )
+        self.clf = LogisticRegression(C=1.0, class_weight="balanced", random_state=42)
+        self._is_fitted = False
+
+    def fit(self, texts: Sequence[str], labels: Sequence[int]) -> "BagOfWordsClassifier":
+        X = self.vectorizer.fit_transform(texts)
+        self.clf.fit(X, labels)
+        self._is_fitted = True
+        return self
+
+    def predict_proba(self, texts: Sequence[str]) -> np.ndarray:
+        if not self._is_fitted:
+            raise ValueError("Classifier must be fitted first")
+        X = self.vectorizer.transform(texts)
+        return self.clf.predict_proba(X)
+
+
+def filter_dataset(
+    records: Sequence[dict],
+    pos_class_label: str,
+    filter_percentile: float = 0.8,
+    text_key: str = "inputs",
+    label_key: str = "labels",
+) -> list[dict]:
+    """Drop the examples a bag-of-words classifier predicts most confidently.
+
+    Generalized from tuberlens (which hard-coded ``"high-stakes"`` as the
+    positive class): ``pos_class_label`` defines the positive class; everything
+    else is treated as negative. If fewer than two classes are present (e.g.
+    single-error-type successes), the records are returned unchanged.
+    """
+    if not records:
+        return []
+
+    labels = np.array(
+        [1 if record.get(label_key) == pos_class_label else 0 for record in records]
+    )
+    if len(np.unique(labels)) < 2:
+        return list(records)
+
+    texts = [_extract_text(record, text_key) for record in records]
+    classifier = BagOfWordsClassifier().fit(texts, labels.tolist())
+    probs = classifier.predict_proba(texts)
+    confidence = np.max(probs, axis=1)
+
+    threshold = np.percentile(confidence, filter_percentile * 100)
+    return [record for record, conf in zip(records, confidence) if conf <= threshold]
+
+
+# --------------------------------------------------------------------------- #
+# 2. Contrastive pair generation
+# --------------------------------------------------------------------------- #
+
+
+def _generation_system_prompt(current_label: str, target_label: str) -> str:
+    return (
+        f'You are given a conversation/scenario labeled "{current_label}". Generate a '
+        f'similar-looking conversation/scenario that belongs to the "{target_label}" '
+        "class instead.\n\n"
+        "The new scenario should:\n"
+        "- Have similar structure and length\n"
+        "- Use similar language and style\n"
+        "- Preserve the conversational format (roles) if applicable\n"
+        f'- But clearly belong to "{target_label}" rather than "{current_label}"\n\n'
+        "Respond with a single JSON object using these keys:\n"
+        "- generated_messages: the new conversation as a list of message objects, each "
+        "with 'role' and 'content' string fields\n"
+        f'- explanation: a brief explanation of why it is "{target_label}"\n'
+        "Output only the JSON object, with no surrounding text."
+    )
+
+
+def _parse_json_object(text: str) -> dict | None:
+    """Best-effort parse of a single JSON object, tolerating code fences / prose."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        nl = text.find("\n")
+        if nl != -1 and text[:nl].strip().lower() in ("json", ""):
+            text = text[nl + 1 :]
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        start, end = text.find("{"), text.rfind("}")
+        if start == -1 or end <= start:
+            return None
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+    return data if isinstance(data, dict) else None
+
+
+class _ContrastiveLLM:
+    """Sync LLM caller for contrastive generation, over either provider."""
+
+    def __init__(self, provider: str, model: str, max_tokens: int) -> None:
+        self.provider = provider
+        self.model = model
+        self.max_tokens = max_tokens
+        self._client: Any = None
+
+    def _ensure_client(self) -> Any:
+        if self._client is None:
+            if self.provider == "claude_sdk":
+                import anthropic
+
+                self._client = anthropic.Anthropic()
+            elif self.provider == "openrouter":
+                from agentic_redteam.openrouter_client import make_sync_client
+
+                self._client = make_sync_client()
+            else:
+                raise ValueError(f"Unknown preprocessing provider: {self.provider!r}")
+        return self._client
+
+    def generate(
+        self, messages: list[dict[str, str]], current_label: str, target_label: str
+    ) -> dict | None:
+        client = self._ensure_client()
+        system = _generation_system_prompt(current_label, target_label)
+        user = (
+            f'Original "{current_label}" conversation:\n\n'
+            f"{_render_transcript(messages)}\n\n"
+            f'Now produce the "{target_label}" version as instructed.'
+        )
+        try:
+            if self.provider == "claude_sdk":
+                resp = client.messages.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    system=system,
+                    messages=[{"role": "user", "content": user}],
+                )
+                text = "".join(b.text for b in resp.content if b.type == "text")
+            else:
+                resp = client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                )
+                text = resp.choices[0].message.content or ""
+        except Exception as e:  # noqa: BLE001 — one bad generation shouldn't kill the run
+            print(f"  [contrastive] generation failed: {e}")
+            return None
+        return _parse_json_object(text)
+
+
+def _cache_key(messages: Sequence[dict[str, str]], target_label: str) -> str:
+    payload = json.dumps(
+        {"messages": list(messages), "target": target_label}, sort_keys=True
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _load_cache(cache_path: Path | None) -> dict[str, dict]:
+    if cache_path is None or not cache_path.exists():
+        return {}
+    cache: dict[str, dict] = {}
+    with cache_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "key" in row and "record" in row:
+                cache[row["key"]] = row["record"]
+    return cache
+
+
+def _append_cache(cache_path: Path | None, key: str, record: dict) -> None:
+    if cache_path is None:
+        return
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    with cache_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"key": key, "record": record}, ensure_ascii=False) + "\n")
+
+
+def generate_contrastive_dataset(
+    records: Sequence[dict],
+    *,
+    pos_class_label: str,
+    neg_class_label: str,
+    provider: str,
+    model: str,
+    max_concurrent: int = 50,
+    max_tokens: int = 2048,
+    text_key: str = "inputs",
+    label_key: str = "labels",
+    cache_path: str | Path | None = None,
+) -> list[dict]:
+    """Return ``records`` plus one opposite-class contrastive example per record.
+
+    Generalized from tuberlens to arbitrary ``pos_class_label`` /
+    ``neg_class_label``. Only records whose label is one of the two are eligible.
+    Generated pairs are cached to ``cache_path`` keyed by the source conversation,
+    so successes that were already processed in an earlier iteration are reused
+    instead of re-queried.
+    """
+    records = list(records)
+    valid = [r for r in records if r.get(label_key) in (pos_class_label, neg_class_label)]
+    if not valid:
+        print("No records with valid labels found; skipping contrastive generation.")
+        return records
+
+    cache_path = Path(cache_path) if cache_path is not None else None
+    cache = _load_cache(cache_path)
+
+    def _target(label: str) -> str:
+        return neg_class_label if label == pos_class_label else pos_class_label
+
+    # Partition into cache hits and the records that still need an LLM call.
+    generated: list[dict] = []
+    to_generate: list[tuple[int, dict, list[dict[str, str]], str, str]] = []
+    for idx, record in enumerate(valid):
+        messages = _extract_messages(record, text_key)
+        current_label = str(record.get(label_key, ""))
+        target_label = _target(current_label)
+        key = _cache_key(messages, target_label)
+        if key in cache:
+            generated.append(cache[key])
+        else:
+            to_generate.append((idx, record, messages, current_label, target_label))
+
+    if to_generate:
+        llm = _ContrastiveLLM(provider, model, max_tokens)
+        llm._ensure_client()  # initialize once before fan-out
+
+        def _work(item):
+            _idx, record, messages, current_label, target_label = item
+            response = llm.generate(messages, current_label, target_label)
+            if not response or "generated_messages" not in response:
+                return None
+            new_messages = _extract_messages(
+                {text_key: response["generated_messages"]}, text_key
+            )
+            if not new_messages:
+                return None
+            contrastive = {
+                text_key: new_messages,
+                label_key: target_label,
+                "original_messages": messages,
+                "original_label": current_label,
+                "generation_explanation": str(response.get("explanation", "")),
+                "generation_model": model,
+                "is_generated": True,
+            }
+            return _cache_key(messages, target_label), contrastive
+
+        workers = max(1, min(max_concurrent, len(to_generate)))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for result in pool.map(_work, to_generate):
+                if result is None:
+                    continue
+                key, contrastive = result
+                generated.append(contrastive)
+                _append_cache(cache_path, key, contrastive)
+
+    label_counts: dict[str, int] = {}
+    for record in generated:
+        lbl = str(record.get(label_key, "unknown"))
+        label_counts[lbl] = label_counts.get(lbl, 0) + 1
+    print(
+        f"Contrastive generation: {len(generated)} contrastive examples "
+        f"from {len(valid)} source records; label distribution {label_counts}"
+    )
+
+    return records + generated

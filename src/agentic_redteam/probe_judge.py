@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+import io
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import torch
+
 from agentic_redteam.persistence import Conversation
+
+
+def _cpu_unpickle(f: io.BufferedIOBase) -> Any:
+    """Unpickle a torch-containing object, forcing all tensors to CPU."""
+    _orig = torch.storage._load_from_bytes
+    torch.storage._load_from_bytes = lambda b: torch.load(
+        io.BytesIO(b), map_location="cpu", weights_only=False
+    )
+    try:
+        return pickle.load(f)
+    finally:
+        torch.storage._load_from_bytes = _orig
 
 
 @dataclass
@@ -27,7 +42,9 @@ class ProbeJudge:
         if not probe_path.exists():
             raise FileNotFoundError(f"Probe file not found: {probe_path}")
         with probe_path.open("rb") as f:
-            probe = pickle.load(f)
+            probe = _cpu_unpickle(f)
+        if hasattr(probe, "_classifier") and hasattr(probe._classifier, "model"):
+            probe._classifier.model.float()
         if probe.model_name is None:
             raise ValueError("Loaded probe has no model_name; cannot run inference.")
         if probe.layer is None:
@@ -60,6 +77,10 @@ class ProbeJudge:
 
             self._model = LLMModel.load(self.probe.model_name)
         return self._model
+
+    def warmup(self) -> None:
+        """Force-load the underlying LLM so concurrent sessions don't race on lazy init."""
+        self._ensure_model()
 
     def score(self, conversation: Conversation) -> float:
         from tuberlens.interfaces.dataset import Message as TLMessage
