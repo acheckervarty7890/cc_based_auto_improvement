@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Iterator
@@ -67,6 +68,7 @@ class AttemptRecord:
     attacker_model: str
     run_id: str
     round: int
+    iteration: int  # retrain cycle index (0-based); -1 for legacy rows written before this field
     error_type: str
     pos_class_label: str
     neg_class_label: str
@@ -91,6 +93,7 @@ class AttemptRecord:
             "attacker_model": self.attacker_model,
             "run_id": self.run_id,
             "round": int(self.round),
+            "iteration": int(self.iteration),
             "error_type": self.error_type,
             "pos_class_label": self.pos_class_label,
             "neg_class_label": self.neg_class_label,
@@ -111,6 +114,7 @@ class AttemptRecord:
             attacker_model=str(d["attacker_model"]),
             run_id=str(d["run_id"]),
             round=int(d["round"]),
+            iteration=int(d.get("iteration", -1)),
             error_type=str(d["error_type"]),
             pos_class_label=str(d["pos_class_label"]),
             neg_class_label=str(d["neg_class_label"]),
@@ -122,6 +126,7 @@ class JsonlStore:
     path: Path
     _seen: set[str] = field(default_factory=set, init=False)
     _success_count: int = field(default=0, init=False)
+    _total_count: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
         self.path = Path(self.path)
@@ -131,6 +136,7 @@ class JsonlStore:
                 self._seen.add(rec.sample.to_canonical_text())
                 if rec.success:
                     self._success_count += 1
+                self._total_count += 1
 
     def append(self, record: AttemptRecord) -> bool:
         """Append a record. Returns True if newly persisted, False if duplicate."""
@@ -142,6 +148,7 @@ class JsonlStore:
             f.write(record.to_jsonl_row() + "\n")
         if record.success:
             self._success_count += 1
+        self._total_count += 1
         return True
 
     def is_duplicate(self, conversation: Conversation) -> bool:
@@ -150,6 +157,10 @@ class JsonlStore:
     @property
     def success_count(self) -> int:
         return self._success_count
+
+    @property
+    def total_count(self) -> int:
+        return self._total_count
 
     def iter_all(self) -> Iterator[AttemptRecord]:
         if not self.path.exists():
@@ -170,3 +181,34 @@ class JsonlStore:
     ) -> list[AttemptRecord]:
         records = list(self.iter_successes() if only_successful else self.iter_all())
         return records[-limit:] if limit > 0 else records
+
+
+@dataclass
+class RunLogger:
+    """Append-only sidecar log for round lifecycle and per-submission error events.
+
+    Each ``log`` call opens the file, appends one JSON line, and closes it so
+    every event is durable even if the process is killed between calls.  A
+    ``round_start`` with no matching ``round_end`` in the log identifies a round
+    that was in-flight when the process died.
+
+    Typical event shapes:
+      {"event": "round_start",  "ts": …, "round": N, "iteration": I, "model": "…", "provider": "…"}
+      {"event": "round_end",    "ts": …, "round": N, "iteration": I, "model": "…",
+                                 "stop_reason": "…", "new_records": K, "new_successes": S}
+      {"event": "round_error",  "ts": …, "round": N, "iteration": I, "model": "…",
+                                 "stop_reason": "error:…", "new_records": K, "new_successes": S, "error": "…"}
+      {"event": "probe_error",  "ts": …, "round": N, "iteration": I, "model": "…", "error": "…"}
+      {"event": "dedup",        "ts": …, "round": N, "iteration": I, "model": "…"}
+    """
+
+    path: Path
+
+    def __post_init__(self) -> None:
+        self.path = Path(self.path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def log(self, event: str, **kwargs: Any) -> None:
+        row = {"event": event, "ts": time.time(), **kwargs}
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")

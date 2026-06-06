@@ -30,8 +30,9 @@ from agentic_redteam.persistence import (
     AttemptRecord,
     Conversation,
     JsonlStore,
+    RunLogger,
 )
-from agentic_redteam.probe_judge import ProbeJudge
+from agentic_redteam.probe_judge import ProbeJudge, ProbeScoringError
 
 MCP_SERVER_NAME = "redteam_tools"
 
@@ -47,7 +48,9 @@ class ToolContext:
     confidence_threshold: int = 0  # judge confidence below this hides rows from view_past_attempts
     persistence_from_last_rounds: int | None = None  # None = all rounds visible
     current_round: int = 0
+    current_iteration: int = 0  # retrain cycle index recorded on each AttemptRecord
     current_attacker_model: str = ""
+    run_logger: RunLogger | None = None
 
     def set_round(self, round_num: int) -> None:
         self.current_round = round_num
@@ -87,6 +90,13 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
         return {"error": f"invalid messages: {e}"}
 
     if ctx.store.is_duplicate(conv):
+        if ctx.run_logger is not None:
+            ctx.run_logger.log(
+                "dedup",
+                round=ctx.current_round,
+                iteration=ctx.current_iteration,
+                model=ctx.current_attacker_model,
+            )
         return {
             "duplicate": True,
             "note": "This conversation has already been submitted.",
@@ -94,10 +104,32 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
 
     # Run probe and judge in parallel in the thread pool — they're independent
     # and the judge LLM call is expensive.
-    (probe_score, predicts_positive), verdict = await asyncio.gather(
-        asyncio.to_thread(ctx.probe.evaluate, conv),
-        asyncio.to_thread(ctx.judge.evaluate, conv),
-    )
+    try:
+        (probe_score, predicts_positive), verdict = await asyncio.gather(
+            asyncio.to_thread(ctx.probe.evaluate, conv),
+            asyncio.to_thread(ctx.judge.evaluate, conv),
+        )
+    except ProbeScoringError as e:
+        # The probe's chat template couldn't tokenize this conversation (e.g.
+        # gemma's strict role alternation). Skip this one submission — report it
+        # back to the attacker so it can adjust, rather than crashing the run.
+        if ctx.run_logger is not None:
+            ctx.run_logger.log(
+                "probe_error",
+                round=ctx.current_round,
+                iteration=ctx.current_iteration,
+                model=ctx.current_attacker_model,
+                error=str(e),
+            )
+        return {
+            "error": f"probe could not score this conversation: {e}",
+            "note": (
+                "The conversation's message structure was rejected by the probe "
+                "model's chat template (e.g. roles must alternate user/assistant, "
+                "and the first turn must be a user turn). Resubmit with a valid "
+                "alternating structure."
+            ),
+        }
     probe_label = ctx.probe.label_for(predicts_positive)
     judge_label = verdict.label  # may be "" if judge response was unparseable
 
@@ -129,6 +161,7 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
         attacker_model=ctx.current_attacker_model,
         run_id=ctx.run_id,
         round=ctx.current_round,
+        iteration=ctx.current_iteration,
         error_type=ctx.probe.error_type,
         pos_class_label=ctx.probe.pos_class_label,
         neg_class_label=ctx.probe.neg_class_label,
