@@ -38,6 +38,8 @@ Config file shape:
     output:
       jsonl_path: results/redteam.jsonl
       run_id: null
+      comparison_csv: results/iter_run_comparison.csv   # optional (--eval); CLI flag overrides
+      activations_cache_dir: results/eval_activations    # optional (--eval); CLI flag overrides
     ---
 
     # Attacker
@@ -80,6 +82,26 @@ class AttackerConfig:
     concurrency: int = 1  # max parallel attacker sessions
     persistence_from_last_rounds: int | None = None  # None = show all rounds
     system_prompt: str = ""
+    # view_past_attempts knobs (see ViewSampler):
+    #   view_reshuffle: master switch for periodic random reshuffling. When False,
+    #     the attacker is instead shown the most-recent successful/unsuccessful
+    #     attempts (recency, not a random draw), and training seeds are used only
+    #     as a fallback for the successful half when there are no real successes.
+    #   view_reshuffle_interval: redraw the shown set every N submissions (only
+    #     used when view_reshuffle is True).
+    #   view_balance: when True, show ≈50/50 successful/unsuccessful (total = limit).
+    #   view_training_seeds: blend true-class training examples into the successful pool.
+    view_reshuffle: bool = True
+    view_reshuffle_interval: int = 20
+    view_balance: bool = True
+    view_training_seeds: bool = True
+    # round_summaries: when True (default), rounds run SEQUENTIALLY — round N+1 waits
+    #   for round N to finish, then the judge summarizes round N's attempts and that
+    #   (cumulative) summary is injected into later rounds' attacker system prompts.
+    #   When False, the legacy fully-concurrent scheduling is used (all round×model
+    #   sessions launched at once) and no summaries are produced. Models within a
+    #   round still run concurrently in both modes.
+    round_summaries: bool = True
     # The default provider applied to model entries given as a bare string.
     default_provider: Provider = "claude_sdk"
 
@@ -138,9 +160,43 @@ class ProbeConfig:
 
 
 @dataclass
+class EvalConfig:
+    """Dataset-loading transforms applied when reading the eval split JSONLs.
+
+    Both mirror tuberlens' ``LabelledDataset`` loader flags (and the
+    ``collate_train_evaluate.py`` eval step): they reshape each conversation
+    *as it is loaded for evaluation only* — training/retraining data is left
+    untouched, exactly as in the reference script.
+
+    - ``combine_consecutive_messages``: merge adjacent messages from the same
+      role into one.
+    - ``convert_tool_to_assistant``: rewrite ``tool`` messages as ``assistant``
+      messages (applied before combining).
+    - ``eval_max_samples``: balanced subsample size per eval split (``0`` =
+      full split). ``None`` means "unset in config" so the CLI falls back to
+      its ``--eval-max-samples`` default; the ``--eval-max-samples`` flag, when
+      passed, overrides this.
+    """
+
+    combine_consecutive_messages: bool = False
+    convert_tool_to_assistant: bool = False
+    eval_max_samples: int | None = None
+
+
+@dataclass
 class OutputConfig:
     jsonl_path: Path
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
+    # Optional eval-output paths (used by the iterative loop with --eval). When None,
+    # the CLI falls back to <results-dir>-derived defaults. CLI flags, when passed,
+    # take precedence over these.
+    comparison_csv: Path | None = None
+    activations_cache_dir: Path | None = None
+    # Optional cache dir for the base *training* split's activations (computed once
+    # per run, reused every retrain). When None, the CLI falls back to
+    # <probe-out-dir>/base_activation_cache; the --base-activation-cache-dir flag
+    # takes precedence over this.
+    base_activation_cache_dir: Path | None = None
 
 
 @dataclass
@@ -153,6 +209,8 @@ class RedteamConfig:
     # Optional: when present, filter_dataset + generate_contrastive_dataset are applied to
     # red-team successes on every retrain. When None, retraining skips preprocessing.
     preprocessing: PreprocessingConfig | None = None
+    # Dataset-loading transforms applied to eval splits only (see EvalConfig).
+    eval: EvalConfig = field(default_factory=EvalConfig)
 
     @property
     def true_class_label_for_success(self) -> str:
@@ -268,6 +326,7 @@ def load_config(path: str | Path) -> RedteamConfig:
     pr = frontmatter.get("probe") or {}
     o = frontmatter.get("output") or {}
     pp = frontmatter.get("preprocessing") or {}
+    ev = frontmatter.get("eval") or {}
 
     if "models" not in a or not a["models"]:
         raise ValueError("attacker.models must be a non-empty list")
@@ -319,6 +378,11 @@ def load_config(path: str | Path) -> RedteamConfig:
             rounds=int(a.get("rounds", 1)),
             concurrency=int(a.get("concurrency", 1)),
             persistence_from_last_rounds=persistence_from_last_rounds,
+            view_reshuffle=bool(a.get("view_reshuffle", True)),
+            view_reshuffle_interval=int(a.get("view_reshuffle_interval", 20)),
+            view_balance=bool(a.get("view_balance", True)),
+            view_training_seeds=bool(a.get("view_training_seeds", True)),
+            round_summaries=bool(a.get("round_summaries", True)),
             system_prompt=attacker_prompt,
             default_provider=attacker_default_provider,
         ),
@@ -343,7 +407,23 @@ def load_config(path: str | Path) -> RedteamConfig:
         output=OutputConfig(
             jsonl_path=_resolve(o["jsonl_path"]),
             run_id=o.get("run_id") or uuid.uuid4().hex[:8],
+            comparison_csv=_resolve(o["comparison_csv"]) if o.get("comparison_csv") else None,
+            activations_cache_dir=(
+                _resolve(o["activations_cache_dir"]) if o.get("activations_cache_dir") else None
+            ),
+            base_activation_cache_dir=(
+                _resolve(o["base_activation_cache_dir"])
+                if o.get("base_activation_cache_dir")
+                else None
+            ),
         ),
         source_path=path,
         preprocessing=preprocessing,
+        eval=EvalConfig(
+            combine_consecutive_messages=bool(ev.get("combine_consecutive_messages", False)),
+            convert_tool_to_assistant=bool(ev.get("convert_tool_to_assistant", False)),
+            eval_max_samples=(
+                int(ev["eval_max_samples"]) if ev.get("eval_max_samples") is not None else None
+            ),
+        ),
     )

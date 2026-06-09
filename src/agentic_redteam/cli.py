@@ -21,6 +21,49 @@ from agentic_redteam.retrain import (
 )
 
 
+def _free_gpu() -> None:
+    """Release reserved GPU memory between heavy phases.
+
+    train/eval each load a gemma-sized LLM internally (tuberlens); on return the
+    model is dereferenced but torch's caching allocator keeps its GPU memory
+    reserved. Since every load uses device_map="auto" + max_memory=None and
+    re-infers the layer split from *free* GPU memory, that leftover reservation
+    pushes the next load into CPU/disk offload and ~5-10x slower forwards.
+    Collecting + emptying the cache between phases keeps each load on a clean GPU.
+    """
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
+def _latest_probe_iteration(probe_out_dir: Path) -> tuple[int, Path] | None:
+    """Return ``(N, path)`` for the highest-numbered ``probe_iter{N}.pkl`` in
+    ``probe_out_dir``, or ``None`` if no such file exists.
+
+    Used to resume an interrupted iterative run: ``probe_iter{i}.pkl`` is the
+    probe red-teamed at iteration ``i`` (``probe_iter0.pkl`` = initial), so the
+    latest one on disk is where the next iteration should pick up.
+    """
+    import re
+
+    best: tuple[int, Path] | None = None
+    for p in probe_out_dir.glob("probe_iter*.pkl"):
+        m = re.fullmatch(r"probe_iter(\d+)\.pkl", p.name)
+        if m is None:
+            continue
+        n = int(m.group(1))
+        if best is None or n > best[0]:
+            best = (n, p)
+    return best
+
+
 def run_redteam_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run one round of agentic red-teaming against a tuberlens probe."
@@ -52,6 +95,7 @@ def run_redteam_main(argv: list[str] | None = None) -> int:
         base_round = args.round * config.attacker.rounds
         summaries = run_redteam_sync(
             config, base_round_num=base_round, error_type=et, jsonl_path=jsonl_path,
+            iteration=args.round,
         )
         for s in summaries:
             print(
@@ -74,6 +118,14 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         "--iterations", type=int, default=2, help="Number of red-team + retrain cycles (n)"
     )
     parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="If probe_iterN.pkl files already exist in --probe-out-dir, resume from the "
+        "latest one (red-team it next) instead of training/warm-starting iter0. "
+        "Pass --no-resume to force a fresh run from the start.",
+    )
+    parser.add_argument(
         "--base-training-data",
         type=Path,
         required=True,
@@ -84,7 +136,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         "--test-size",
         type=float,
         default=0.2,
-        help="Fraction of the training data held out for validation (create_train_test_split)",
+        help="Fraction of the training data held out for validation (stable_train_test_split)",
     )
     parser.add_argument(
         "--split-field",
@@ -97,6 +149,14 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         type=Path,
         default=Path("probes"),
         help="Where to write probes (probe_iter0.pkl = initial, probe_iterN.pkl per cycle)",
+    )
+    parser.add_argument(
+        "--base-activation-cache-dir",
+        type=Path,
+        default=None,
+        help="Cache dir for the base training split's activations (computed once, reused "
+        "every retrain). Overrides output.base_activation_cache_dir in config; "
+        "default <probe-out-dir>/base_activation_cache.",
     )
     parser.add_argument(
         "--layer", type=int, default=None, help="Layer to probe; overrides probe.layer in config"
@@ -124,8 +184,9 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--eval-max-samples",
         type=int,
-        default=DEFAULT_EVAL_MAX_SAMPLES,
-        help="Balanced subsample size per eval split (used with --eval); 0 = full split",
+        default=None,
+        help="Balanced subsample size per eval split (used with --eval); 0 = full split. "
+        f"Overrides eval.eval_max_samples in config (default {DEFAULT_EVAL_MAX_SAMPLES})",
     )
     parser.add_argument(
         "--seed",
@@ -143,7 +204,29 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         "--activations-cache-dir",
         type=Path,
         default=None,
-        help="Cache dir for eval activations (default <results-dir>/eval_activations)",
+        help="Cache dir for eval activations; overrides output.activations_cache_dir in "
+        "config (default <results-dir>/eval_activations)",
+    )
+    parser.add_argument(
+        "--comparison-csv",
+        type=Path,
+        default=None,
+        help="Path for the cross-round eval comparison CSV; overrides output.comparison_csv "
+        "in config (default <results-dir>/iter_run_comparison.csv)",
+    )
+    parser.add_argument(
+        "--combine-consecutive-messages",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Merge adjacent same-role messages in both the training data and eval splits; "
+        "overrides eval.combine_consecutive_messages in config",
+    )
+    parser.add_argument(
+        "--convert-tool-to-assistant",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Rewrite tool messages as assistant messages in both the training data and "
+        "eval splits; overrides eval.convert_tool_to_assistant in config",
     )
     args = parser.parse_args(argv)
 
@@ -154,19 +237,70 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
     error_types = config.probe.error_types
     layer = args.layer if args.layer is not None else config.probe.layer
     arch = args.probe_arch if args.probe_arch is not None else config.probe.architecture
-    eval_max_samples = args.eval_max_samples if args.eval_max_samples > 0 else None
+    # Precedence: --eval-max-samples flag > config eval.eval_max_samples > default.
+    # After resolution, 0 means "full split" (→ None).
+    if args.eval_max_samples is not None:
+        raw_eval_max_samples = args.eval_max_samples
+    elif config.eval.eval_max_samples is not None:
+        raw_eval_max_samples = config.eval.eval_max_samples
+    else:
+        raw_eval_max_samples = DEFAULT_EVAL_MAX_SAMPLES
+    eval_max_samples = raw_eval_max_samples if raw_eval_max_samples > 0 else None
+    # CLI flags (BooleanOptionalAction, default None) override the config eval: section.
+    combine_consecutive_messages = (
+        args.combine_consecutive_messages
+        if args.combine_consecutive_messages is not None
+        else config.eval.combine_consecutive_messages
+    )
+    convert_tool_to_assistant = (
+        args.convert_tool_to_assistant
+        if args.convert_tool_to_assistant is not None
+        else config.eval.convert_tool_to_assistant
+    )
+    # Write the resolved values back so the red-team scoring path (which reads
+    # config.eval inside run_redteam → ProbeJudge.load) honors --[no-]… overrides
+    # too, not just the train/eval calls below.
+    config.eval.combine_consecutive_messages = combine_consecutive_messages
+    config.eval.convert_tool_to_assistant = convert_tool_to_assistant
     contrastive_cache_path = args.probe_out_dir / "contrastive_cache.jsonl"
+    # Precedence: --base-activation-cache-dir flag > config output.base_activation_cache_dir
+    # > <probe-out-dir>-derived default.
+    base_activation_cache_dir = (
+        args.base_activation_cache_dir
+        or config.output.base_activation_cache_dir
+        or (args.probe_out_dir / "base_activation_cache")
+    )
     if config.preprocessing is not None:
         print(
             "Preprocessing enabled: filter_dataset + generate_contrastive_dataset "
             f"({config.preprocessing.model} via {config.preprocessing.provider})"
         )
+    if combine_consecutive_messages or convert_tool_to_assistant:
+        print(
+            "Dataset message transforms (training + eval + red-team scoring): "
+            f"combine_consecutive_messages={combine_consecutive_messages}, "
+            f"convert_tool_to_assistant={convert_tool_to_assistant}"
+        )
 
-    # ---- Step 1: obtain the initial probe (warm-start if present, else train fresh) ----
-    if config.probe.path is not None and Path(config.probe.path).exists():
+    # ---- Step 1: obtain the initial probe ----
+    # Resume first: if a previous run already wrote probe_iterN.pkl files into
+    # --probe-out-dir, pick up from the latest one (red-team it next) instead of
+    # retraining/warm-starting iter0. start_iter is the iteration index whose
+    # input probe is current_probe_path (probe_iter{i}.pkl feeds iteration i).
+    resume = _latest_probe_iteration(args.probe_out_dir) if args.resume else None
+    if resume is not None:
+        start_iter, current_probe_path = resume
+        print(
+            f"Resuming from existing probe iteration {start_iter}: {current_probe_path} "
+            f"(red-teaming will start at iteration {start_iter}). "
+            "Pass --no-resume for a fresh run."
+        )
+    elif config.probe.path is not None and Path(config.probe.path).exists():
+        start_iter = 0
         current_probe_path = Path(config.probe.path)
         print(f"Warm-starting from existing probe: {current_probe_path}")
     else:
+        start_iter = 0
         missing = [
             name
             for name, value in (
@@ -197,11 +331,19 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             probe_spec=arch,
             test_size=args.test_size,
             split_field=args.split_field,
+            seed=args.seed,
+            base_activation_cache_dir=base_activation_cache_dir,
+            combine_consecutive_messages=combine_consecutive_messages,
+            convert_tool_to_assistant=convert_tool_to_assistant,
             verbose=True,
         )
+        _free_gpu()  # release the training model's GPU memory before eval/red-team reload
 
-    activations_cache_dir = args.activations_cache_dir or (
-        args.results_dir / "eval_activations"
+    # Precedence: CLI flag > config output: section > <results-dir>-derived default.
+    activations_cache_dir = (
+        args.activations_cache_dir
+        or config.output.activations_cache_dir
+        or (args.results_dir / "eval_activations")
     )
     eval_results: dict = {}
 
@@ -216,18 +358,27 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             activations_cache_dir,
             max_samples=eval_max_samples,
             seed=args.seed,
+            combine_consecutive_messages=combine_consecutive_messages,
+            convert_tool_to_assistant=convert_tool_to_assistant,
         )
         eval_results[label] = df
         print(df.to_string(index=False))
+        _free_gpu()  # release the eval model's GPU memory before the next phase reloads
 
-    _maybe_eval("iter0", current_probe_path)
+    _maybe_eval(f"iter{start_iter}", current_probe_path)
 
-    print(f"\nInitial probe: {current_probe_path}")
+    print(f"\nStarting probe (iteration {start_iter}): {current_probe_path}")
     print(f"Error types: {error_types}")
     print(f"Rounds per error type: {config.attacker.rounds}")
+    if start_iter >= args.iterations:
+        print(
+            f"\nNothing to do: --iterations={args.iterations} but already resumed at "
+            f"iteration {start_iter}. Increase --iterations to continue, or --no-resume "
+            "to restart from scratch."
+        )
 
-    # ---- Steps 2-4, repeated n times ----
-    for i in range(args.iterations):
+    # ---- Steps 2-4, repeated until we reach --iterations total cycles ----
+    for i in range(start_iter, args.iterations):
         print(f"\n########## ITERATION {i} ##########")
         config.probe.path = current_probe_path
         base_round = i * config.attacker.rounds
@@ -238,6 +389,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             print(f"\n--- Error type: {et} → {jsonl_path} ---")
             summaries = run_redteam_sync(
                 config, base_round_num=base_round, error_type=et, jsonl_path=jsonl_path,
+                iteration=i, base_training_data_path=args.base_training_data,
             )
             et_new = sum(s.new_successes for s in summaries)
             iteration_new_total += et_new
@@ -247,6 +399,9 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
 
         jsonl_paths = [config.jsonl_path_for(et) for et in error_types]
         new_probe_path = args.probe_out_dir / f"probe_iter{i + 1}.pkl"
+        postprocessed_out_path = (
+            args.probe_out_dir / f"redteam_postprocessed_iter{i + 1}.jsonl"
+        )
         result = retrain_probe(
             jsonl_path=jsonl_paths,
             base_probe_path=current_probe_path,
@@ -256,14 +411,21 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             probe_spec=args.probe_arch,
             preprocessing=config.preprocessing,
             contrastive_cache_path=contrastive_cache_path,
+            postprocessed_out_path=postprocessed_out_path,
+            min_judge_confidence=config.judge.confidence_threshold,
             test_size=args.test_size,
             split_field=args.split_field,
+            seed=args.seed,
+            base_activation_cache_dir=base_activation_cache_dir,
+            combine_consecutive_messages=combine_consecutive_messages,
+            convert_tool_to_assistant=convert_tool_to_assistant,
             verbose=True,
         )
         print(
             f"Iteration {i}: trained on {result.n_training_samples_total} samples "
             f"({result.n_redteam_samples} from red-team) → {result.new_probe_path}"
         )
+        _free_gpu()  # release the retrain model's GPU memory before eval/next red-team
         current_probe_path = new_probe_path
         _maybe_eval(f"iter{i + 1}", current_probe_path)
 
@@ -278,7 +440,12 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         comparison = pd.concat(rows, ignore_index=True)
         print("\n===== COMPARISON ACROSS ROUNDS =====")
         print(comparison.to_string(index=False))
-        out_csv = args.results_dir / "iter_run_comparison.csv"
+        out_csv = (
+            args.comparison_csv
+            or config.output.comparison_csv
+            or (args.results_dir / "iter_run_comparison.csv")
+        )
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
         comparison.to_csv(out_csv, index=False)
         print(f"\nSaved comparison table to {out_csv}")
 

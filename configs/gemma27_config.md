@@ -8,11 +8,7 @@ attacker:
   max_turns: 30
   batch_target: 30
   rounds: 20
-  concurrency: 30                  # max parallel attacker sessions (within a round)
-  # round_summaries: true          # default true: rounds run sequentially; after each round the judge
-                                   #   folds it into one bounded ROLLING memo (rewritten + condensed, not
-                                   #   appended) shown to later rounds' attackers. Set false for legacy
-                                   #   fully-concurrent rounds.
+  concurrency: 30                  # max parallel attacker sessions
   # persistence_from_last_rounds: 2  # view_past_attempts shows only last N rounds (default: all)
 
 judge:
@@ -22,9 +18,11 @@ judge:
   confidence_threshold: 7
 
 probe:
-  path: ../data/probe_llama1b.pkl
-  threshold: 0.5
-  error_type: [false_positive, false_negative]
+  model: google/gemma-3-27b-it
+  layer: 32
+  pos_class_label: high-stakes
+  neg_class_label: low-stakes
+  error_type: [false_positive, false_negative]  
 
 preprocessing:                     # optional: collation-style preprocessing of red-team
   provider: openrouter             # successes before each retrain (filter + contrastive)
@@ -34,12 +32,16 @@ preprocessing:                     # optional: collation-style preprocessing of 
   filter_percentile: 0.8
 
 eval:                              # optional: dataset-loading transforms for eval splits ONLY
-  combine_consecutive_messages: false  # merge adjacent same-role messages
-  convert_tool_to_assistant: false     # rewrite tool messages as assistant (applied first)
+  combine_consecutive_messages: true  # merge adjacent same-role messages
+  convert_tool_to_assistant: true    # rewrite tool messages as assistant (applied first)
+  eval_max_samples: 0                 # balanced subsample per split; 0 = full split
 
 output:
-  jsonl_path: ../results/iter_run_openrouter_2026-06-01_attempt2.jsonl
-  run_id: null
+  jsonl_path: ../results2/gemma27_probing3.jsonl
+  run_id: 131
+  comparison_csv: ../results2/gemma27_comparison.csv      # any name/path you like
+  activations_cache_dir: ../results2/gemma27_activations
+  base_activation_cache_dir: ../results2/gemma27_base_activations
 ---
 
 # Attacker

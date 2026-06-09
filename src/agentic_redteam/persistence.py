@@ -182,6 +182,103 @@ class JsonlStore:
         records = list(self.iter_successes() if only_successful else self.iter_all())
         return records[-limit:] if limit > 0 else records
 
+    def records_for_round(self, round_num: int) -> list[AttemptRecord]:
+        """All attempts whose global ``round`` equals ``round_num`` (chronological).
+
+        ``round`` is the global round number (``iteration * rounds + round_idx``),
+        so it is unique across iterations within one JSONL — filtering by it alone
+        does not mix in another iteration's rows.
+        """
+        return [rec for rec in self.iter_all() if rec.round == round_num]
+
+
+@dataclass
+class RoundSummary:
+    """A judge-written summary of one round's attempts, shown to later attackers."""
+
+    round: int
+    iteration: int
+    error_type: str
+    text: str
+    n_attempts: int
+    n_successes: int
+
+    def to_jsonl_row(self) -> str:
+        return json.dumps(
+            {
+                "round": int(self.round),
+                "iteration": int(self.iteration),
+                "error_type": self.error_type,
+                "text": self.text,
+                "n_attempts": int(self.n_attempts),
+                "n_successes": int(self.n_successes),
+            },
+            ensure_ascii=False,
+        )
+
+
+@dataclass
+class SummaryStore:
+    """A single **rolling** judge memo for the current run, with a JSONL sidecar.
+
+    One :class:`SummaryStore` is built per ``run_redteam`` call — i.e. per
+    ``(iteration, error_type)`` — so the memo naturally **resets per iteration**.
+    The judge does NOT append a fresh block each round; instead it rewrites one
+    bounded memo, folding the new round's findings into the prior memo and
+    condensing (see ``LLMJudge.summarize_round(prior_summary=...)``). So the memo's
+    size stays roughly constant no matter how many rounds run, rather than growing
+    linearly. ``current`` exposes the latest memo to feed back into the next
+    update; ``render`` wraps it for the attacker system prompt. The optional sidecar
+    JSONL is append-only (one row per round's memo snapshot) purely for diagnostics —
+    ``render`` only reflects the latest in-memory memo.
+    """
+
+    path: Path | None = None
+    _current: str = field(default="", init=False)
+    _count: int = field(default=0, init=False)
+
+    def __post_init__(self) -> None:
+        if self.path is not None:
+            self.path = Path(self.path)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def update(self, summary: RoundSummary) -> None:
+        """Replace the rolling memo with this round's condensed memo; log a snapshot."""
+        self._current = summary.text
+        self._count += 1
+        if self.path is not None:
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(summary.to_jsonl_row() + "\n")
+
+    @property
+    def current(self) -> str:
+        """The latest rolling memo (fed back into the next round's update)."""
+        return self._current
+
+    def __len__(self) -> int:
+        return self._count
+
+    def render(self) -> str:
+        """The rolling memo wrapped as a system-prompt section.
+
+        Returns "" when no memo exists yet (the first round of a run), so the
+        caller can omit the section entirely.
+        """
+        if not self._current:
+            return ""
+        parts = [
+            "## Strategy memo from earlier rounds",
+            (
+                "An independent judge maintains this running memo — updated and "
+                "condensed after each earlier round — of what has and hasn't induced "
+                "the target misprediction so far. Use it to steer your strategy. "
+                "To inspect specific past conversations in detail, call "
+                "view_past_attempts."
+            ),
+            self._current,
+        ]
+        return "\n\n".join(parts)
+
 
 @dataclass
 class RunLogger:

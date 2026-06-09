@@ -16,10 +16,34 @@ don't need it loadable.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
+
+def extract_openrouter_error(response: Any) -> str | None:
+    """Pull an error message out of a response that carried no ``choices``.
+
+    OpenRouter returns HTTP 200 with an ``{"error": {...}}`` body (and no
+    ``choices``) when the upstream provider rate-limits, errors, or trips
+    moderation. The OpenAI SDK parses that into a completion object whose
+    ``choices`` is ``None`` and stashes the raw error under ``error`` /
+    ``model_extra["error"]``. Returns a human-readable message, or ``None`` if
+    no error detail is present.
+    """
+    err = getattr(response, "error", None)
+    if err is None:
+        extra = getattr(response, "model_extra", None) or {}
+        if isinstance(extra, dict):
+            err = extra.get("error")
+    if err is None:
+        return None
+    if isinstance(err, dict):
+        message = err.get("message")
+        return message if message else json.dumps(err)
+    return str(err)
 
 
 def _resolve_api_key() -> str:

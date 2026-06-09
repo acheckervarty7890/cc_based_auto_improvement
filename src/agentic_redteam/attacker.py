@@ -18,15 +18,22 @@ from pathlib import Path
 
 from agentic_redteam.config import AttackerModel, RedteamConfig
 from agentic_redteam.llm_judge import LLMJudge
-from agentic_redteam.persistence import JsonlStore, RunLogger
+from agentic_redteam.persistence import (
+    JsonlStore,
+    RoundSummary,
+    RunLogger,
+    SummaryStore,
+)
 from agentic_redteam.probe_judge import ProbeJudge
 from agentic_redteam.tools import (
+    HANDLERS,
     ToolContext,
     allowed_tool_names,
     build_mcp_server,
     dispatch_tool_call,
     openai_tool_definitions,
 )
+from agentic_redteam.view_sampler import ViewSampler, load_true_class_seeds
 
 # Built-in Claude Code tools we explicitly disable so the agent can't escape
 # into the local filesystem or shell — it should only ever call our MCP tools.
@@ -55,9 +62,16 @@ class ModelRunSummary:
     stop_reason: str | None
 
 
-def _build_full_system_prompt(config: RedteamConfig, probe: ProbeJudge) -> str:
-    """Compose the attacker system prompt with concrete probe context appended."""
-    return (
+def _build_full_system_prompt(
+    config: RedteamConfig, probe: ProbeJudge, summaries_text: str = ""
+) -> str:
+    """Compose the attacker system prompt with concrete probe context appended.
+
+    When ``summaries_text`` is non-empty (cumulative per-round judge summaries from
+    earlier rounds of this run), it is appended as a final section so the attacker
+    is always shown what prior rounds learned.
+    """
+    prompt = (
         config.attacker.system_prompt.strip()
         + "\n\n"
         + "## Probe under attack\n"
@@ -73,6 +87,9 @@ def _build_full_system_prompt(config: RedteamConfig, probe: ProbeJudge) -> str:
         + "AND an independent judge would label the conversation as the true class above.\n"
         + "- Stop early once the target is met.\n"
     )
+    if summaries_text:
+        prompt += "\n" + summaries_text + "\n"
+    return prompt
 
 
 # --------------------------------------------------------------------------- #
@@ -100,8 +117,10 @@ async def _run_claude_sdk_model(
 
     server = build_mcp_server(ctx)
 
+    summaries_text = ctx.summary_store.render() if ctx.summary_store is not None else ""
+
     options = ClaudeAgentOptions(
-        system_prompt=_build_full_system_prompt(config, ctx.probe),
+        system_prompt=_build_full_system_prompt(config, ctx.probe, summaries_text),
         model=model_name,
         max_turns=config.attacker.max_turns,
         mcp_servers={"redteam": server},
@@ -148,6 +167,69 @@ def _parse_tool_args(raw: str | None) -> dict:
         return json.loads(raw)
     except json.JSONDecodeError:
         return {}
+
+
+def _iter_json_objects(text: str):
+    """Yield each top-level balanced ``{...}`` substring of ``text``.
+
+    Brace-matched and string-aware (braces inside JSON string literals don't
+    count), so it correctly captures a whole tool-call object including nested
+    ``parameters``. Unbalanced/truncated trailing objects are simply not yielded.
+    """
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start != -1:
+                yield text[start : i + 1]
+                start = -1
+
+
+def _extract_text_tool_calls(content: str | None, valid_names: set[str]) -> list[dict]:
+    """Recover tool calls a model emitted as text instead of structured tool_calls.
+
+    Weaker tool-use models (e.g. Llama-3.3-70B via OpenRouter) sometimes serialize
+    the call into the assistant's text channel — e.g. ``{"name": "submit_conversation",
+    "parameters": {...}}`` — rather than returning it in the API's ``tool_calls``
+    field, which silently drops the call. This scans the text for JSON objects that
+    name a known tool and rebuilds them. ``parameters`` or ``arguments`` (dict or
+    JSON string) are both accepted; ``arguments`` is normalized to a JSON **string**
+    so it flows through the same ``_parse_tool_args`` path as native calls. Returns
+    a list of ``{"name", "arguments"}`` dicts (ids are assigned by the caller).
+    """
+    if not content:
+        return []
+    calls: list[dict] = []
+    for candidate in _iter_json_objects(content):
+        try:
+            obj = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if not isinstance(obj, dict) or obj.get("name") not in valid_names:
+            continue
+        raw_args = obj.get("parameters", obj.get("arguments", {}))
+        arguments = raw_args if isinstance(raw_args, str) else json.dumps(
+            raw_args, ensure_ascii=False
+        )
+        calls.append({"name": obj["name"], "arguments": arguments})
+    return calls
 
 
 # OpenRouter occasionally returns a 200 with an error envelope and no choices
@@ -216,8 +298,13 @@ async def _run_openrouter_model(
     client = make_async_client()
     tools = openai_tool_definitions()
 
+    summaries_text = ctx.summary_store.render() if ctx.summary_store is not None else ""
+
     messages: list[dict] = [
-        {"role": "system", "content": _build_full_system_prompt(config, ctx.probe)},
+        {
+            "role": "system",
+            "content": _build_full_system_prompt(config, ctx.probe, summaries_text),
+        },
         {"role": "user", "content": "Begin."},
     ]
 
@@ -243,39 +330,51 @@ async def _run_openrouter_model(
                 snippet = text_content.strip().replace("\n", " ")
                 print(f"[{model_name}] {snippet[:200]}")
 
-            tool_calls = msg.tool_calls or []
-            for tc in tool_calls:
-                print(f"[{model_name}] tool_use: {tc.function.name}")
+            # Normalize native structured tool_calls into a uniform dispatch list.
+            dispatch_calls = [
+                {"id": tc.id, "name": tc.function.name, "arguments": tc.function.arguments}
+                for tc in (msg.tool_calls or [])
+            ]
+            for c in dispatch_calls:
+                print(f"[{model_name}] tool_use: {c['name']}")
+
+            # Fallback: if the model emitted no structured tool_calls, try to recover
+            # a tool call it serialized into the text channel instead (common with
+            # weaker OpenRouter models). Synthesize ids so the follow-up tool messages
+            # below reference a tool_calls entry we also attach to the assistant turn,
+            # keeping the message history protocol-valid.
+            if not dispatch_calls:
+                for i, c in enumerate(_extract_text_tool_calls(msg.content, set(HANDLERS))):
+                    c["id"] = f"text_call_{turn}_{i}"
+                    print(f"[{model_name}] recovered tool call from text: {c['name']}")
+                    dispatch_calls.append(c)
 
             # Append assistant turn to history. tool_calls go inline alongside any
             # text content; OpenAI/OpenRouter accept null content with tool_calls.
             assistant_entry: dict = {"role": "assistant", "content": msg.content}
-            if tool_calls:
+            if dispatch_calls:
                 assistant_entry["tool_calls"] = [
                     {
-                        "id": tc.id,
+                        "id": c["id"],
                         "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
+                        "function": {"name": c["name"], "arguments": c["arguments"]},
                     }
-                    for tc in tool_calls
+                    for c in dispatch_calls
                 ]
             messages.append(assistant_entry)
 
-            if not tool_calls:
-                # No tool call → the agent has nothing further to do.
+            if not dispatch_calls:
+                # No tool call (structured or recoverable from text) → nothing to do.
                 stop_reason = finish_reason or "stop"
                 break
 
-            for tc in tool_calls:
-                args = _parse_tool_args(tc.function.arguments)
-                result = await dispatch_tool_call(ctx, tc.function.name, args)
+            for c in dispatch_calls:
+                args = _parse_tool_args(c["arguments"])
+                result = await dispatch_tool_call(ctx, c["name"], args)
                 messages.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc.id,
+                        "tool_call_id": c["id"],
                         "content": json.dumps(result, ensure_ascii=False),
                     }
                 )
@@ -317,6 +416,8 @@ async def run_one_model(
     round_num: int,
     iteration: int = 0,
     run_logger: RunLogger | None = None,
+    view_sampler: ViewSampler | None = None,
+    summary_store: SummaryStore | None = None,
 ) -> ModelRunSummary:
     """Run the attacker loop once for a single (model, provider) pair."""
 
@@ -329,6 +430,8 @@ async def run_one_model(
         persistence_from_last_rounds=config.attacker.persistence_from_last_rounds,
         current_iteration=iteration,
         run_logger=run_logger,
+        view_sampler=view_sampler,
+        summary_store=summary_store,
     )
     ctx.set_round(round_num)
     ctx.set_attacker_model(attacker_model.name)
@@ -417,12 +520,79 @@ async def run_one_model(
     )
 
 
+async def _summarize_round(
+    *,
+    judge: LLMJudge,
+    store: JsonlStore,
+    summary_store: SummaryStore | None,
+    run_logger: RunLogger | None,
+    round_num: int,
+    iteration: int,
+    error_type: str,
+    true_class_label: str,
+) -> None:
+    """Have the judge summarize one finished round; append it to ``summary_store``.
+
+    Failures are logged and swallowed — a summarization hiccup must not abort the
+    rotation; later rounds simply proceed without this round's summary.
+    """
+    if summary_store is None:
+        return
+    records = store.records_for_round(round_num)
+    if not records:
+        return
+    try:
+        text = await asyncio.to_thread(
+            judge.summarize_round,
+            records,
+            round_num=round_num,
+            error_type=error_type,
+            true_class_label=true_class_label,
+            prior_summary=summary_store.current,
+        )
+    except Exception as e:  # noqa: BLE001 — never let a summary failure kill the run
+        text = ""
+        if run_logger is not None:
+            run_logger.log(
+                "summary_error",
+                round=round_num,
+                iteration=iteration,
+                error=f"{type(e).__name__}: {e}",
+            )
+    if not text:
+        return
+    n_succ = sum(1 for r in records if r.success)
+    summary_store.update(
+        RoundSummary(
+            round=round_num,
+            iteration=iteration,
+            error_type=error_type,
+            text=text,
+            n_attempts=len(records),
+            n_successes=n_succ,
+        )
+    )
+    if run_logger is not None:
+        run_logger.log(
+            "summary",
+            round=round_num,
+            iteration=iteration,
+            n_attempts=len(records),
+            n_successes=n_succ,
+        )
+    print(
+        f"=== Round {round_num} summarized "
+        f"({len(records)} attempts, {n_succ} successful) ==="
+    )
+
+
 async def run_redteam(
     config: RedteamConfig,
     base_round_num: int = 0,
     error_type: str | None = None,
     jsonl_path: Path | None = None,
     iteration: int = 0,
+    base_training_data_path: Path | str | None = None,
 ) -> list[ModelRunSummary]:
     """Run the full attacker rotation across all rounds; appends to the shared JSONL log.
 
@@ -433,6 +603,9 @@ async def run_redteam(
             lists multiple error types and the caller picks one at a time).
         jsonl_path: Override the JSONL output path (used for per-error-type files).
         iteration: Retrain-cycle index recorded on every AttemptRecord this run produces.
+        base_training_data_path: Base training JSONL. When given (and
+            ``attacker.view_training_seeds``), true-class examples from it are blended
+            into the "successful" pool shown by view_past_attempts as reference seeds.
     """
     et = error_type or config.probe.error_type
     jpath = jsonl_path or config.output.jsonl_path
@@ -457,6 +630,36 @@ async def run_redteam(
     store = JsonlStore(path=jpath)
     run_logger = RunLogger(path=jpath.with_suffix(".runlog.jsonl"))
 
+    # Shared sampler for view_past_attempts: balanced + reshuffled + (optionally)
+    # seeded with true-class training examples. Built once so all concurrent
+    # sessions share the same reshuffle cadence and pool.
+    seeds = (
+        load_true_class_seeds(base_training_data_path, probe.true_class_label)
+        if base_training_data_path is not None and config.attacker.view_training_seeds
+        else []
+    )
+    target_wrong_label = (
+        probe.pos_class_label if et == "false_positive" else probe.neg_class_label
+    )
+    view_sampler = ViewSampler(
+        store=store,
+        seeds=seeds,
+        true_class_label=probe.true_class_label,
+        target_wrong_label=target_wrong_label,
+        reshuffle=config.attacker.view_reshuffle,
+        reshuffle_interval=config.attacker.view_reshuffle_interval,
+        balance=config.attacker.view_balance,
+        blend_seeds=config.attacker.view_training_seeds,
+    )
+
+    # Per-round judge summaries (reset per run = per (iteration, error_type)). Only
+    # built when enabled; rendered into later rounds' attacker system prompts.
+    summary_store = (
+        SummaryStore(path=jpath.with_suffix(".summaries.jsonl"))
+        if config.attacker.round_summaries
+        else None
+    )
+
     # Force lazy-load before parallel sessions to avoid init races.
     probe.warmup()
     judge.warmup()
@@ -474,17 +677,43 @@ async def run_redteam(
                 round_num=round_num,
                 iteration=iteration,
                 run_logger=run_logger,
+                view_sampler=view_sampler,
+                summary_store=summary_store,
             )
 
-    tasks: list[asyncio.Task] = []
-    for round_idx in range(config.attacker.rounds):
-        global_round = base_round_num + round_idx
-        for attacker_model in config.attacker.models:
-            tasks.append(asyncio.create_task(
-                _run_with_sem(attacker_model, global_round)
-            ))
-
-    results = await asyncio.gather(*tasks)
+    if config.attacker.round_summaries:
+        # Sequential rounds: round N+1 only starts after round N has finished AND
+        # been summarized, so each round's attacker sees a cumulative summary of all
+        # earlier rounds. Models within a round still run concurrently.
+        results: list[ModelRunSummary] = []
+        for round_idx in range(config.attacker.rounds):
+            global_round = base_round_num + round_idx
+            round_tasks = [
+                asyncio.create_task(_run_with_sem(model, global_round))
+                for model in config.attacker.models
+            ]
+            results.extend(await asyncio.gather(*round_tasks))
+            # Skip the final round: its summary would never be shown (no later round,
+            # and summaries reset next iteration), so don't pay for that judge call.
+            if round_idx < config.attacker.rounds - 1:
+                await _summarize_round(
+                    judge=judge,
+                    store=store,
+                    summary_store=summary_store,
+                    run_logger=run_logger,
+                    round_num=global_round,
+                    iteration=iteration,
+                    error_type=et,
+                    true_class_label=probe.true_class_label,
+                )
+    else:
+        # Legacy: launch all round×model sessions at once, no summaries.
+        tasks = [
+            asyncio.create_task(_run_with_sem(model, base_round_num + round_idx))
+            for round_idx in range(config.attacker.rounds)
+            for model in config.attacker.models
+        ]
+        results = list(await asyncio.gather(*tasks))
 
     # Free the probe's gemma-sized LLM before returning so the next phase
     # (retrain/eval) reloads onto a clean GPU. device_map="auto" re-infers the
@@ -502,6 +731,7 @@ def run_redteam_sync(
     error_type: str | None = None,
     jsonl_path: Path | None = None,
     iteration: int = 0,
+    base_training_data_path: Path | str | None = None,
 ) -> list[ModelRunSummary]:
     return asyncio.run(
         run_redteam(
@@ -510,5 +740,6 @@ def run_redteam_sync(
             error_type=error_type,
             jsonl_path=jsonl_path,
             iteration=iteration,
+            base_training_data_path=base_training_data_path,
         )
     )

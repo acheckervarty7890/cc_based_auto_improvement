@@ -60,6 +60,27 @@ def _extract_messages(record: dict, text_key: str) -> list[dict[str, str]]:
     return [{"role": "user", "content": str(value)}]
 
 
+def _is_well_formed_conversation(messages: Sequence[dict[str, str]]) -> bool:
+    """True if ``messages`` is a valid user-first, alternating user/assistant chat.
+
+    Contrastive generation occasionally yields malformed conversations — most
+    commonly when the provider *refuses* the generation request and returns its
+    refusal as a single ``assistant`` message with no ``user`` turn. Such a
+    conversation has no valid chat-template rendering: model chat templates
+    (e.g. Gemma's) require the conversation to start with ``user`` and alternate
+    user/assistant, so it raises "Conversation roles must alternate ..." at
+    activation time. Reject these here so they're skipped (and not cached) rather
+    than poisoning the red-team training set.
+    """
+    if not messages:
+        return False
+    for i, msg in enumerate(messages):
+        expected = "user" if i % 2 == 0 else "assistant"
+        if msg.get("role") != expected:
+            return False
+    return True
+
+
 def _extract_text(record: dict, text_key: str) -> str:
     """Flatten a record's messages into one string for the bag-of-words classifier."""
     messages = _extract_messages(record, text_key)
@@ -327,7 +348,11 @@ def generate_contrastive_dataset(
             new_messages = _extract_messages(
                 {text_key: response["generated_messages"]}, text_key
             )
-            if not new_messages:
+            # Drop malformed generations (e.g. a provider refusal returned as a
+            # lone assistant message) — they have no valid chat-template rendering
+            # and would crash activation extraction. Returning None skips the
+            # record and, crucially, avoids caching the junk.
+            if not _is_well_formed_conversation(new_messages):
                 return None
             contrastive = {
                 text_key: new_messages,
