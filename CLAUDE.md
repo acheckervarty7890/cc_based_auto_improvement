@@ -39,7 +39,15 @@ The end-to-end loop:
    the probe must predict the positive class and the judge must pick the
    negative class.
 4. Every attempt is appended to a JSONL log.
-5. The retraining script converts JSONL successes into a tuberlens
+5. With `attacker.round_summaries` enabled (the default), rounds run
+   **sequentially**: at the end of each round the **judge** reads all of that
+   round's attempts (successful and not) and folds them into a single **rolling
+   strategy memo** — it rewrites and condenses the prior memo rather than
+   appending, so the memo stays bounded (~200 words) no matter how many rounds
+   run. That memo is injected into the system prompt of every later round's
+   attacker, which is always shown it and can still call `view_past_attempts`
+   for specific conversations. The memo resets per iteration (and per error type).
+6. The retraining script converts JSONL successes into a tuberlens
    `LabelledDataset` — each sample labelled with the **judge's predicted
    class** (the judge is the source of truth; `error_type` is only used as a
    fallback for old rows missing `judge_label`). Optionally concatenates with
@@ -116,13 +124,30 @@ scratch using the `probe:` fields (`model`, `layer`, `pos_class_label`,
 and every retrained probe on the local eval splits and writes a cross-round
 comparison CSV.
 
-Validation is always derived by splitting the training data via tuberlens'
-`create_train_test_split` (`--test-size`, default 0.2; optional `--split-field`) —
-there is no external validation-file flag. `--seed` (default 42) seeds the
-train/val split and the (reproducible) eval subsampling; `--eval-max-samples`
+Validation is always derived by splitting the training data via this repo's
+`stable_train_test_split` (`--test-size`, default 0.2; optional `--split-field`) —
+there is no external validation-file flag. **The split is content-deterministic, not
+RNG-based**: each sample's train-vs-val side is a pure function of its own content
+(or its `split_field` value) plus `--seed`, so the base samples land identically
+every iteration even as red-team successes accumulate. `--seed` (default 42) seeds
+that split and the (reproducible) eval subsampling; `--eval-max-samples`
 (default 100, `0` = full split) sets the balanced subsample size per eval split.
 When the config has a `preprocessing:` section, red-team successes are run through
 `filter_dataset` + `generate_contrastive_dataset` before each retrain.
+
+Because the base train/val split is fixed across iterations, the base training
+split's activations are cached to disk (`--base-activation-cache-dir` flag, or
+`output.base_activation_cache_dir` in config; default
+`<probe-out-dir>/base_activation_cache`) and computed **once for the whole run** —
+the initial training populates the cache and every retrain reuses it. The growing
+red-team set is also cached in the same dir, but **per conversation** (the set
+changes every iteration, so a whole-set blob like the base one would never hit):
+a success first seen in iteration k is forwarded once and reused by every later
+retrain, so each retrain only computes its *newly-seen* successes.
+`--[no-]combine-consecutive-messages` /
+`--[no-]convert-tool-to-assistant` (or the config `eval:` knobs) apply to **both the
+training data and the eval splits**, so the probe trains and is scored on the same
+message representation.
 
 ## Architecture
 
@@ -142,6 +167,17 @@ attacker:
   batch_target: int
   rounds: int                         # fresh LLM sessions per model (default 1)
   persistence_from_last_rounds: int   # view_past_attempts window (default: all)
+  view_reshuffle: bool                # view_past_attempts: periodic random reshuffle on/off (default true).
+                                      #   when false, show most-recent success/fail attempts (recency),
+                                      #   and use training seeds only as a fallback for the successful half
+  view_reshuffle_interval: int        # view_past_attempts: redraw every N submissions (default 20; reshuffle=true only)
+  view_balance: bool                  # view_past_attempts: ≈50/50 success/fail, total=limit (default true)
+  view_training_seeds: bool           # view_past_attempts: blend true-class training examples (default true)
+  round_summaries: bool               # default true → rounds run SEQUENTIALLY; after each finished round the
+                                      #   judge folds it into one bounded ROLLING memo (rewritten + condensed,
+                                      #   not appended), injected into later rounds' attacker system prompts.
+                                      #   false → legacy fully-concurrent scheduling, no memo. Models within a
+                                      #   round are concurrent either way.
 judge:
   provider: claude_sdk | openrouter
   model: <model>
@@ -165,7 +201,13 @@ preprocessing:                        # OPTIONAL: collation-style preprocessing 
   max_concurrent: int                 # contrastive generation fan-out (default 50)
   max_tokens: int                     # per contrastive generation (default 2048)
   filter_percentile: float            # filter_dataset keep-threshold (default 0.8)
-output:   { jsonl_path, run_id }
+eval:                                 # OPTIONAL: dataset message transforms applied to BOTH
+  combine_consecutive_messages: bool  # training data AND eval splits (default false) — merge
+  convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
+output:   { jsonl_path, run_id,
+            comparison_csv,             # OPTIONAL eval-output path (--eval); CLI --comparison-csv overrides
+            activations_cache_dir,      # OPTIONAL eval activation cache (--eval); CLI --activations-cache-dir overrides
+            base_activation_cache_dir } # OPTIONAL training (base-split) activation cache; CLI --base-activation-cache-dir overrides
 ```
 
 Each attacker model entry can be a bare string (inherits `attacker.provider`)
@@ -194,10 +236,29 @@ canonical text on append (no duplicate row for the same conversation), and
 preloads any prior records on init so re-running against the same JSONL keeps
 the success counter and dedup set warm. Each row carries
 `{sample, probe_score, probe_predicts_positive, judge_label, judge_reason,
-success, attacker_model, run_id, round, error_type, pos_class_label,
+success, attacker_model, run_id, round, iteration, error_type, pos_class_label,
 neg_class_label}` — `judge_label` is the class label the judge picked
 (human-readable, e.g. "high-stakes"), or `""` if the judge response was
-unparseable.
+unparseable. `iteration` is the 0-based retrain-cycle index (the CLI threads it
+through `run_redteam(..., iteration=)` → `ToolContext.current_iteration`); rows
+written before this field existed read back as `-1`. Note `round` is the
+*global* round number (`iteration * rounds + round_idx`), so `iteration` is now
+explicit rather than only recoverable as `round // rounds`.
+
+Also hosts `JsonlStore.records_for_round(round_num)` (all attempts for one global
+round, used to summarize it) and the rolling-memo storage: `RoundSummary`
+(`{round, iteration, error_type, text, n_attempts, n_successes}`) plus
+`SummaryStore`. A `SummaryStore` is built **once per `run_redteam` call** (i.e. per
+`(iteration, error_type)`), so the memo **resets per iteration**. It holds a single
+rolling memo string, not a list: `update()` *replaces* `current` with each round's
+condensed memo (the judge folds the new round into the prior memo — see
+`LLMJudge.summarize_round(prior_summary=...)`) and, if given a `path`, appends a
+per-round snapshot to a JSONL sidecar (`<jsonl>.summaries.jsonl`) for diagnostics;
+`current` feeds the latest memo back into the next update; `render()` wraps it as the
+"## Strategy memo from earlier rounds" system-prompt block (or `""` before the first
+memo exists). Because the judge rewrites-and-condenses instead of appending, the
+memo stays bounded (~200 words) regardless of round count — it does **not** grow
+linearly. The sidecar is diagnostics-only — `render()` reflects only the latest memo.
 
 ### `agentic_redteam/probe_judge.py`
 Wraps a pickled tuberlens probe. Lazily loads `tuberlens.model.LLMModel` on first
@@ -207,6 +268,15 @@ circuit before invoking the (expensive) Claude judge when the probe is right.
 The probe carries `pos_class_label`, `neg_class_label`, and `description` as
 metadata, which everything downstream reads off the loaded object — never
 duplicate these in code.
+
+The model is loaded with `model_kwargs={"offload_buffers": True}` so that when
+`device_map="auto"` offloads layers (e.g. gemma-3-27b), buffers offload too
+instead of warning / risking OOM. `release()` drops the loaded LLM and runs
+`gc.collect()` + `torch.cuda.empty_cache()` — call it when a phase is done with
+the probe (the attacker does, after each rotation) so the next phase reloads onto
+a clean GPU. This matters because every load re-infers the `device_map="auto"`
+layer split from *free* GPU memory at load time, so a leftover copy forces the
+next load into CPU/disk offload and ~5-10x slower forwards. See `cli._free_gpu`.
 
 ### `agentic_redteam/llm_judge.py`
 **Unbiased classifier** that works with either provider. When
@@ -218,6 +288,17 @@ for. Expects strict JSON output (`{"label", "reason", "confidence"}`); parses
 with code-fence stripping + brace extraction fallback; normalizes
 case-insensitively against the probe's pos/neg class labels. Returns
 `JudgeVerdict(label, reason, confidence)`.
+
+The same judge also maintains the **rolling strategy memo** via
+`summarize_round(records, *, round_num, error_type, true_class_label,
+prior_summary="")`: it renders every attempt of the round (status, attacker model,
+probe vs. judge label, judge reason, and per-message-truncated transcript) plus the
+`prior_summary` into one user message and asks the judge — under a dedicated
+`_SUMMARY_SYSTEM` prompt, not the classification one — to **rewrite and condense**
+the prior memo with the new round's findings (merge duplicates, drop superseded
+notes), capped at `_SUMMARY_WORD_BUDGET` (~200) words. So the memo is bounded, not
+cumulative. Reuses the same `_call_anthropic` / `_call_openrouter` backends; returns
+`prior_summary` unchanged for an empty round.
 
 ### `agentic_redteam/openrouter_client.py`
 Thin factory around `openai.OpenAI` / `openai.AsyncOpenAI` pointed at
@@ -248,14 +329,43 @@ deduplication, and JSONL persistence happen exactly once inside the handlers.
   no short-circuit. Computes `success` as: probe and judge labels disagree
   *and* the disagreement direction matches the configured `error_type`.
   Persists every attempt with the judge's label included.
-- `view_past_attempts(only_successful, limit)` — reads the shared store so
-  later attacker models in a rotation can learn from earlier ones.
+- `view_past_attempts(only_successful, limit)` — delegates to the shared
+  `ViewSampler` (see `view_sampler.py`) so later attacker models in a rotation
+  can learn from earlier ones. The default (`only_successful=false`) view is a
+  **balanced** ~50/50 mix of successful/unsuccessful attempts (total = `limit`,
+  backfilling from the other side when one is short), **blended** with true-class
+  training-set examples on the successful side (tagged `success=True`,
+  `attacker_model="__training_seed__"`), and **periodically reshuffled** (a fresh
+  seeded random draw every `attacker.view_reshuffle_interval` submissions, stable
+  within an interval). Setting `attacker.view_reshuffle: false` turns off the random
+  reshuffle entirely: the attacker is then shown the **most-recent** successful and
+  unsuccessful attempts (recency, not a random draw), and training seeds are used
+  **only as a fallback** for the successful half when there are no real successes yet
+  (rather than always blended). There is **no judge-confidence filter** here — confidence
+  gating lives only in the training path (`retrain_probe(min_judge_confidence=)`).
 - `get_probe_info()` — returns probe metadata.
 
 A `ToolContext` is the closure shared by all three tools — it holds the probe,
-judge, store, run id, and the currently-active round + attacker model. The
-attacker module updates `current_attacker_model` and `current_round` before
-each model run so JSONL rows attribute correctly.
+judge, store, run id, the currently-active round + attacker model, and the shared
+`view_sampler`. The attacker module updates `current_attacker_model` and
+`current_round` before each model run so JSONL rows attribute correctly.
+`confidence_threshold` is still recorded on the context but is **no longer used to
+filter `view_past_attempts`** (it only feeds the training-path gate).
+
+### `agentic_redteam/view_sampler.py`
+`ViewSampler` — one shared instance per rotation (built in `run_redteam`) backing
+`view_past_attempts`. Holds the shared `JsonlStore`, the true-class training seeds
+(`load_true_class_seeds`, read from the base training JSONL, filtered to
+`probe.true_class_label`), and the reshuffle/balance knobs from `attacker:`
+(`view_reshuffle`, `view_reshuffle_interval`, `view_balance`, `view_training_seeds`).
+When `view_reshuffle` is false, `sample()` skips the random draw and instead returns
+the most-recent attempts per side, with seeds used only as a fallback for the
+successful half. The reshuffle
+RNG is keyed on `(rng_seed, interval_idx)` — independent of the global RNG, so the
+draw is reproducible regardless of drift. The base training path is threaded in via
+`run_redteam(base_training_data_path=)` ← `run_redteam_sync` ← the iterative CLI
+(`args.base_training_data`); the one-shot `run_redteam_main` passes none, so seeds
+degrade to empty.
 
 Tool naming for the allow-list: `mcp__redteam_tools__<tool>`. The MCP server
 name (`redteam_tools`) is exported as `MCP_SERVER_NAME`.
@@ -285,14 +395,33 @@ picks the driver by `model.provider`:
 
 A fresh `ToolContext` is built per model run (with round/model labels set), but
 all runs share the same `JsonlStore` so dedup and the success counter persist
-across rotation.
+across rotation. `run_redteam` builds one shared `ProbeJudge` for the whole
+rotation and calls `probe.release()` once `asyncio.gather` finishes, freeing the
+probe's LLM (gemma-sized) GPU memory before the next phase (retrain/eval) reloads
+the base model — without it, two copies pile up and the retrain offload-thrashes.
+
+**Round scheduling.** When `attacker.round_summaries` is on (default), `run_redteam`
+runs rounds **sequentially** — for each round it launches that round's models
+concurrently (bounded by `concurrency`), `await`s them, then calls
+`_summarize_round` (judge folds the round into the rolling memo via
+`summary_store.update`, passing `summary_store.current` as `prior_summary`) before
+starting the next round. The final round is *not* summarized (nothing would consume
+it). Each model run renders `ctx.summary_store.render()` into its system prompt at
+session start, so sequential ordering guarantees round N sees the memo distilled
+from rounds 0..N-1. `_summarize_round` swallows judge failures (logged to the runlog
+as `summary_error`) so a summarization hiccup never aborts the rotation. When
+`round_summaries` is off, the legacy path launches **all** round×model sessions at
+once with no memo. Note this trades throughput for the memo signal: with `rounds:
+20, concurrency: 30` the legacy path runs all 20 rounds in parallel; sequential runs
+them one at a time.
 
 ### `agentic_redteam/retrain.py`
 Converts successful JSONL records into a tuberlens `LabelledDataset` — labelled
 with the canonical enum value (`"positive"` / `"negative"`) corresponding to the
-*true* class for the run's `error_type`. Optionally concatenates with a base
-training dataset (`LabelledDataset.load_from(path, pos_class_label, neg_class_label)`)
-via `LabelledDataset.concatenate([base, redteam])`. By default `_infer_probe_spec`
+*true* class for the run's `error_type`. The base training dataset
+(`LabelledDataset.load_from(path, pos_class_label, neg_class_label)`) and the
+red-team set are **split independently** and combined per side at activation time
+(see the caching paragraph below), not pre-concatenated. By default `_infer_probe_spec`
 walks the loaded probe's `_classifier.probe_architecture` (or the SklearnProbe
 shape, or the difference-of-means/LDA shape) to reconstruct the `ProbeSpec` so the
 retrained probe matches the original's architecture and hyperparameters. Pass
@@ -311,17 +440,62 @@ conversion, shared by `retrain_probe` and `train_initial_probe`).
 `collate_train_evaluate.train_high_stakes_probe` but with the concept passed in
 rather than hardcoded.
 
-Both `retrain_probe` and `train_initial_probe` derive the validation set by
-splitting the (post-concatenation) training data via tuberlens'
-`create_train_test_split(test_size, split_field)` — there is no external
-validation-file path. When `retrain_probe` is given a `preprocessing` config, the
+Both `retrain_probe` and `train_initial_probe` derive the validation set with
+`stable_train_test_split(dataset, test_size, split_field, seed)` — a
+**content-deterministic** replacement for tuberlens' RNG-based
+`create_train_test_split`. Each sample's train-vs-val side is
+`sha256(seed : content)` (or the `split_field` value) thresholded at `test_size`,
+independent of dataset size or order, so the base samples land identically every
+iteration; class balance is preserved in expectation. There is no external
+validation-file path.
+
+**Activation caching (base-blob + red-team per-sample).** Because the base split is
+fixed, the base train/val activations are cached on disk and reused across the whole
+run. The red-team set grows every iteration, so it is cached at a **different
+granularity**: per conversation (a single whole-set blob like the base one would get
+a fresh key each iteration and never hit). `retrain_probe` / `train_initial_probe`
+split base and red-team separately, then `_train_with_cached_base_activations`
+re-hosts the tail of tuberlens' `train_probe`: it activates each sub-dataset (base via
+tuberlens' `get_activations(save_path=...)` blob cache — a hit calls
+`LLMModel.load_activations` and needs no model; the red-team set via
+`_activate_redteam_cached`, which partitions by per-conversation cache hit, loads the
+hits from disk, batch-computes only the misses, and writes each new row back as its
+own blob), merges per side with `LabelledDataset.concatenate` (which pads +
+concatenates the activation tensors), then calls `ProbeFactory.build` on the
+pre-activated datasets. The heavy `LLMModel` loads **lazily** — a full cache hit with
+no uncached red-team samples loads no model at all. `_base_activation_cache_paths`
+keys the base cache on a hash of the base data file +
+`model | layer | seed | test_size | split_field | combine | convert`;
+`_redteam_activation_cache_path` keys each red-team blob on the conversation's own
+(transformed) messages + `model | layer | combine | convert`. Per-conversation
+caching is **correct across iterations because the underlying LLM is frozen** (only
+the probe head is retrained), so a conversation's layer activation is identical
+regardless of which iteration computes it — even when `preprocessing` keeps/drops
+different records or mints new contrastive pairs each iteration, each is keyed by its
+own final content. Since `get_activations` / `load_activations` load *by path without
+validating inputs*, any change that would alter the activations changes the key (no
+silent stale reuse). Both caches are disabled when `base_activation_cache_dir=None`.
+
+**Training-time message transforms.** `combine_consecutive_messages` /
+`convert_tool_to_assistant` apply to the training data too (not just eval): the
+base data gets them via `load_from`, and the in-memory red-team set via
+`_apply_message_transforms` (convert tool→assistant first, then combine, matching
+`load_from` order). They're part of the activation cache key.
+
+When `retrain_probe` is given a `preprocessing` config, the
 red-team successes are first run through `_build_redteam_dataset`, which mirrors the
 collation step of tuberlens' pipeline applied to the "extra" data: `filter_dataset`
 (drop confounders) then `generate_contrastive_dataset` (add opposite-class pairs),
 keyed off the probe's pos/neg labels. The contrastive pairs are cached to disk
 (`contrastive_cache_path`) so successes accumulated across iterations aren't
 re-generated. With no `preprocessing`, the plain `_records_to_labelled_dataset`
-path (judge label → canonical class) is used unchanged.
+path (judge label → canonical class) is used unchanged. When given a
+`postprocessed_out_path`, `retrain_probe` also dumps the resulting red-team
+`LabelledDataset` (the postprocessed red-team samples **only** — base training
+data excluded) to that JSONL via `_dump_labelled_dataset` (`{id, inputs, label}`
+rows) before concatenation, giving a per-iteration snapshot of exactly what
+red-team data trained each probe. The iterative CLI writes
+`<probe-out-dir>/redteam_postprocessed_iter{N}.jsonl` per cycle.
 
 ### `agentic_redteam/preprocessing.py`
 Ports the collation preprocessing of tuberlens' `collate_train_evaluate.py`,
@@ -339,8 +513,9 @@ only pay for newly-seen conversations. `label_dataset` (LLM relabel) is intentio
 
 ### `agentic_redteam/evaluation.py`
 `evaluate_probe(probe_path, eval_dataset_dir, activations_cache_dir, splits=None,
-max_samples=100, seed=42)` scores one probe on local eval split JSONLs (default
-`DEFAULT_EVAL_SPLITS = ["anthropic", "mts"]`) via tuberlens `get_performances`,
+max_samples=100, seed=42, combine_consecutive_messages=False,
+convert_tool_to_assistant=False)` scores one probe on local eval split JSONLs (default
+`DEFAULT_EVAL_SPLITS = ["anthropic", "mt", "mts", "toolace"]`) via tuberlens `get_performances`,
 returning a per-split DataFrame. It calls `seed_everything(seed)` (ported from
 tuberlens) and then balances each split to `max_samples` via
 `subsample_balanced_subset(n_per_class=max_samples // 2)` (`max_samples=None` → full
@@ -349,6 +524,14 @@ eval — which is what keeps the path-keyed activation cache correct, since
 `get_activations` reloads by file path **without** checking the inputs match. The
 cache filename embeds `max_samples`/`seed` (`acts_n{N}_seed{S}.pt`) so a different
 subsample config can't silently reuse stale activations.
+`combine_consecutive_messages` / `convert_tool_to_assistant` are tuberlens
+`LabelledDataset` loader transforms forwarded into `load_from` for the eval splits
+(merge adjacent same-role messages; rewrite `tool`→`assistant`, the latter applied
+first). **Unlike tuberlens' `collate_train_evaluate.py`, where these are eval-time
+only, this repo applies the same values to the training data as well** (see
+`retrain.py`) so the probe trains and is scored on the same message representation.
+Exposed via the config `eval:` section (`EvalConfig`) and overridable per-run by the
+`--[no-]combine-consecutive-messages` / `--[no-]convert-tool-to-assistant` CLI flags.
 
 ### `agentic_redteam/cli.py`
 Two entry points: `run_redteam_main` (one round against an existing probe) and
@@ -358,10 +541,25 @@ file, else `train_initial_probe` from `--base-training-data`; **(2)** red-team i
 across all `error_types`; **(3)** `retrain_probe` on base data ∪ successes;
 **(4)** optionally `evaluate_probe` (gated by `--eval`); then repeat 2–4 for
 `--iterations` n. It rewrites `config.probe.path` to the freshest probe before
-each round, and (with `--eval`) writes `results/iter_run_comparison.csv`. It calls
+each round, and (with `--eval`) writes the cross-round comparison CSV. That CSV
+path and the eval-activations cache dir each resolve by the precedence **CLI flag
+(`--comparison-csv` / `--activations-cache-dir`) > config `output:`
+(`comparison_csv` / `activations_cache_dir`) > `<results-dir>`-derived default**
+(`<results-dir>/iter_run_comparison.csv`, `<results-dir>/eval_activations`); the
+config paths resolve relative to the config file. It calls
 `seed_everything(--seed)` up front, threads `config.preprocessing` +
-`<probe-out-dir>/contrastive_cache.jsonl` + `--test-size` / `--split-field` into the
-train/retrain calls, and passes `--eval-max-samples` / `--seed` into `evaluate_probe`.
+`<probe-out-dir>/contrastive_cache.jsonl` + `--test-size` / `--split-field` / `--seed`
+into the train/retrain calls. The base (training) activation cache dir resolves by
+precedence **`--base-activation-cache-dir` flag > config `output.base_activation_cache_dir`
+> `<probe-out-dir>/base_activation_cache` default**, and passes `--eval-max-samples` / `--seed` into
+`evaluate_probe`. `_free_gpu()` (`gc.collect()` + `torch.cuda.empty_cache()`) is
+called after the initial training, after each `_maybe_eval`, and after each retrain
+so reserved GPU memory is returned between heavy phases (each tuberlens
+`device_map="auto"` load re-infers its layer split from *free* GPU memory). The
+`combine_consecutive_messages` / `convert_tool_to_assistant` config knobs are
+resolved against the `--[no-]…` CLI flags (`BooleanOptionalAction`, default `None`
+→ config value) and forwarded into **both** the train/retrain calls and
+`evaluate_probe`.
 
 ## Conventions to preserve
 
@@ -387,6 +585,23 @@ train/retrain calls, and passes `--eval-max-samples` / `--seed` into `evaluate_p
 - **Tool functions return the `{"content": [{"type": "text", "text": ...}]}`
   shape exactly.** Anything else breaks the Claude Agent SDK's tool result
   streaming.
+- **Free GPU memory between heavy phases.** Every tuberlens load uses
+  `device_map="auto"` + `max_memory=None`, re-inferring the layer split from
+  *free* GPU memory at load time; torch's caching allocator holds freed memory as
+  reserved. So a model left resident from a previous phase forces the next load
+  into CPU/disk offload (~5-10x slower). Release models and clear the cache
+  between phases: `ProbeJudge.release()` after red-teaming, `cli._free_gpu()`
+  after train/eval/retrain.
+- **Activation caches load by path without validating inputs.** The eval cache
+  (`evaluation.py`, key embeds `max_samples`/`seed`), the base-blob training cache
+  (`retrain._base_activation_cache_paths`, key embeds the base file hash +
+  `model`/`layer`/`seed`/`test_size`/`split_field`/transform flags), and the
+  per-conversation red-team cache (`retrain._redteam_activation_cache_path`, key
+  embeds the conversation's own messages + `model`/`layer`/transform flags) all
+  rely on the **key** to prevent silent stale reuse. Anything new that changes
+  which samples are selected or how they're tokenized must be folded into the key.
+  Red-team caching is per-conversation, not a whole-set blob, **specifically so it
+  survives the set growing each iteration** — don't "simplify" it to a single blob.
 - **Use `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`** as
   the canonical model IDs for the rotation. Don't append date suffixes to opus
   or sonnet — only Haiku 4.5 currently requires the dated form.
