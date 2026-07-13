@@ -8,7 +8,8 @@ attacker:
   max_turns: 30
   batch_target: 30
   rounds: 20
-  concurrency: 30                  # max parallel attacker sessions
+  concurrency: 10
+  session_per_model: 10                  # max parallel attacker sessions
   # persistence_from_last_rounds: 2  # view_past_attempts shows only last N rounds (default: all)
   view_reshuffle: false            # show most-recent success/fail attempts (recency), seeds as fallback only
 

@@ -166,6 +166,13 @@ attacker:
   max_turns: int
   batch_target: int
   rounds: int                         # fresh LLM sessions per model (default 1)
+  concurrency: int                    # max parallel attacker sessions (default 1)
+  sessions_per_model: int             # concurrent copies of EACH model launched within each round
+                                      #   (default 1). >1 parallelizes the same model without duplicating
+                                      #   it in `models` and without turning off round_summaries; still
+                                      #   bounded by `concurrency`. All copies share the JsonlStore (dedup)
+                                      #   and write with the same round number, so their attempts fold into
+                                      #   that round's summary.
   persistence_from_last_rounds: int   # view_past_attempts window (default: all)
   view_reshuffle: bool                # view_past_attempts: periodic random reshuffle on/off (default true).
                                       #   when false, show most-recent success/fail attempts (recency),
@@ -178,6 +185,16 @@ attacker:
                                       #   not appended), injected into later rounds' attacker system prompts.
                                       #   false → legacy fully-concurrent scheduling, no memo. Models within a
                                       #   round are concurrent either way.
+  interface: tools | prompt           # how the attacker is driven (default tools). "prompt" = classical
+                                      #   no-tool prompting: the model gets NO tools; instead get_probe_info
+                                      #   is baked into the system prompt and view_past_attempts is injected
+                                      #   as text after every submission, and the model must output ONE
+                                      #   candidate conversation per turn (fenced ```json array of {role,
+                                      #   content}) which is scored through the same probe+judge path. Only
+                                      #   supported for openrouter models — load_config raises if any model
+                                      #   resolves to claude_sdk under interface: prompt.
+  view_limit: int                     # prompt mode only: size of the view_past_attempts sample injected each
+                                      #   turn (default 10). Mirrors the tools-mode view_past_attempts limit.
 judge:
   provider: claude_sdk | openrouter
   model: <model>
@@ -372,7 +389,9 @@ name (`redteam_tools`) is exported as `MCP_SERVER_NAME`.
 
 ### `agentic_redteam/attacker.py`
 Dispatcher + rotation. For each `AttackerModel` in `config.attacker.models`,
-picks the driver by `model.provider`:
+picks the driver by `model.provider` — except when `config.attacker.interface ==
+"prompt"` and the model is `openrouter`, which routes to the prompt driver
+instead (`run_one_model`):
 
 - **`claude_sdk`** — `_run_claude_sdk_model` wraps `ClaudeSDKClient`. Critical
   sandbox configuration:
@@ -392,6 +411,25 @@ picks the driver by `model.provider`:
   → append the result as a `role: "tool"` message → repeat until the assistant
   emits no tool calls, the batch target is hit, or `max_turns` is reached.
   No MCP server is constructed on this path.
+
+- **`openrouter` + `interface: prompt`** — `_run_openrouter_prompt_model` drives
+  the same model with **no tools** (`_openrouter_create_with_retry(..., tools=None)`).
+  The system prompt is `_build_full_system_prompt(...)` (which already bakes in the
+  probe metadata `get_probe_info` would return) plus `_PROMPT_MODE_INSTRUCTIONS`
+  (output exactly ONE candidate conversation per turn as a fenced ```json array of
+  `{role, content}`). Each turn: parse the reply with `_extract_conversation`
+  (fenced block → balanced `[...]` → whole text; `_coerce_messages` validates
+  role+content and also accepts a `{"messages": [...]}` wrapper); on parse failure,
+  nudge and retry the turn; on success, score it through the same
+  `dispatch_tool_call(ctx, "submit_conversation", ...)` path as tools mode, then feed
+  back `_render_submission_feedback` (probe vs. judge verdict, duplicate/error notes,
+  running success count) followed by a freshly injected `_render_injected_view` —
+  `view_past_attempts` rendered as text, `attacker.view_limit` rows, since the model
+  can't call it. Assistant text is coerced to `""` before being appended so a
+  null-content turn can't make the next request protocol-invalid. Respects
+  `batch_target` (shared success counter) and `max_turns` (one submission per turn).
+  This path is **openrouter-only** — `load_config` rejects `interface: prompt` with a
+  `claude_sdk` model. No MCP server is constructed.
 
 A fresh `ToolContext` is built per model run (with round/model labels set), but
 all runs share the same `JsonlStore` so dedup and the success counter persist
@@ -414,6 +452,21 @@ as `summary_error`) so a summarization hiccup never aborts the rotation. When
 once with no memo. Note this trades throughput for the memo signal: with `rounds:
 20, concurrency: 30` the legacy path runs all 20 rounds in parallel; sequential runs
 them one at a time.
+
+**`sessions_per_model`** multiplies the per-round fan-out: both the sequential and
+legacy branches launch `sessions_per_model` tasks for *each* model (`for _ in
+range(config.attacker.sessions_per_model)` in the round-task comprehension), so N>1
+runs N independent concurrent sessions of the same model within a round **without**
+duplicating it in `models` and **without** disabling `round_summaries` — the rounds
+stay sequential and the memo is unaffected. All copies share the one `JsonlStore`
+(dedup-by-canonical-text, so two siblings that hit the same conversation don't
+double-write) and record the **same** `round`/`attacker_model`, so their attempts all
+fold into that round's summary. Two consequences to plan for: (1) set `concurrency ≥
+sessions_per_model × len(models)` or the copies queue on the semaphore instead of
+running in parallel; (2) `batch_target` is checked against the **shared** success
+counter (`ctx.store.success_count`), so N siblings collectively stop at ~`batch_target`
+successes per round, not `N × batch_target` — it's a shared round budget, not
+per-session.
 
 ### `agentic_redteam/retrain.py`
 Converts successful JSONL records into a tuberlens `LabelledDataset` — labelled

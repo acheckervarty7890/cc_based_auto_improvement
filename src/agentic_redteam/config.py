@@ -61,8 +61,10 @@ import yaml
 
 ErrorType = Literal["false_positive", "false_negative"]
 Provider = Literal["claude_sdk", "openrouter"]
+Interface = Literal["tools", "prompt"]
 
 _VALID_PROVIDERS = ("claude_sdk", "openrouter")
+_VALID_INTERFACES = ("tools", "prompt")
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,13 @@ class AttackerConfig:
     batch_target: int = 10
     rounds: int = 1
     concurrency: int = 1  # max parallel attacker sessions
+    # sessions_per_model: concurrent copies of EACH model launched within each round.
+    #   >1 runs multiple independent sessions of the same model in parallel (still
+    #   bounded by `concurrency`), without duplicating the model in `models` and
+    #   without disabling round_summaries — the rounds stay sequential, so the rolling
+    #   memo is unaffected. All copies share the JsonlStore (dedup) and write with the
+    #   same round number, so their attempts fold into that round's summary.
+    sessions_per_model: int = 1
     persistence_from_last_rounds: int | None = None  # None = show all rounds
     system_prompt: str = ""
     # view_past_attempts knobs (see ViewSampler):
@@ -102,6 +111,17 @@ class AttackerConfig:
     #   sessions launched at once) and no summaries are produced. Models within a
     #   round still run concurrently in both modes.
     round_summaries: bool = True
+    # interface: how the attacker is driven (OpenRouter only for "prompt").
+    #   "tools" (default) — the model is handed the three tools and calls them itself.
+    #   "prompt" — classical no-tool mode: no tool schemas are sent. The model emits one
+    #     candidate conversation per turn as a fenced JSON block; the probe info and a
+    #     view_past_attempts sample are injected into the prompt each turn (always shown,
+    #     not called by the model). The submitted conversation still runs through the exact
+    #     same probe+judge scoring/persistence path as tools mode.
+    interface: Interface = "tools"
+    # view_limit: number of past attempts injected each turn in prompt mode (matches the
+    #   tools-mode fallback of 10). Unused in tools mode, where the model picks the count.
+    view_limit: int = 10
     # The default provider applied to model entries given as a bare string.
     default_provider: Provider = "claude_sdk"
 
@@ -273,6 +293,14 @@ def _validate_provider(value: str, where: str) -> Provider:
     return value  # type: ignore[return-value]
 
 
+def _validate_interface(value: str, where: str) -> Interface:
+    if value not in _VALID_INTERFACES:
+        raise ValueError(
+            f"{where}: interface must be one of {_VALID_INTERFACES!r}, got {value!r}"
+        )
+    return value  # type: ignore[return-value]
+
+
 def _parse_attacker_models(
     raw_models: list, default_provider: Provider
 ) -> list[AttackerModel]:
@@ -330,6 +358,8 @@ def load_config(path: str | Path) -> RedteamConfig:
 
     if "models" not in a or not a["models"]:
         raise ValueError("attacker.models must be a non-empty list")
+    if int(a.get("sessions_per_model", 1)) < 1:
+        raise ValueError("attacker.sessions_per_model must be >= 1")
     if "model" not in j:
         raise ValueError("judge.model is required")
     if "jsonl_path" not in o:
@@ -338,6 +368,19 @@ def load_config(path: str | Path) -> RedteamConfig:
     attacker_default_provider = _validate_provider(
         str(a.get("provider", "claude_sdk")), "attacker.provider"
     )
+    attacker_interface = _validate_interface(
+        str(a.get("interface", "tools")), "attacker.interface"
+    )
+    attacker_models = _parse_attacker_models(list(a["models"]), attacker_default_provider)
+    # "prompt" (no-tool) mode is implemented only on the OpenRouter driver; the
+    # claude_sdk path is MCP/tool-native and has no analog.
+    if attacker_interface == "prompt" and any(
+        m.provider == "claude_sdk" for m in attacker_models
+    ):
+        raise ValueError(
+            "attacker.interface: 'prompt' mode is only supported for openrouter models, "
+            "but one or more models resolve to provider 'claude_sdk'."
+        )
     judge_provider = _validate_provider(
         str(j.get("provider", "claude_sdk")), "judge.provider"
     )
@@ -372,17 +415,20 @@ def load_config(path: str | Path) -> RedteamConfig:
 
     return RedteamConfig(
         attacker=AttackerConfig(
-            models=_parse_attacker_models(list(a["models"]), attacker_default_provider),
+            models=attacker_models,
             max_turns=int(a.get("max_turns", 30)),
             batch_target=int(a.get("batch_target", 10)),
             rounds=int(a.get("rounds", 1)),
             concurrency=int(a.get("concurrency", 1)),
+            sessions_per_model=int(a.get("sessions_per_model", 1)),
             persistence_from_last_rounds=persistence_from_last_rounds,
             view_reshuffle=bool(a.get("view_reshuffle", True)),
             view_reshuffle_interval=int(a.get("view_reshuffle_interval", 20)),
             view_balance=bool(a.get("view_balance", True)),
             view_training_seeds=bool(a.get("view_training_seeds", True)),
             round_summaries=bool(a.get("round_summaries", True)),
+            interface=attacker_interface,
+            view_limit=int(a.get("view_limit", 10)),
             system_prompt=attacker_prompt,
             default_provider=attacker_default_provider,
         ),
