@@ -43,8 +43,8 @@ probe:
   description: A linear probe on Llama-3.2-1B-Instruct detecting whether the conversation is high-stakes.
 
 output:
-  jsonl_path: ../results_clone_test/arm1_reshuffle.jsonl
-  run_id: clone_A1
+  jsonl_path: ../results_clone_test/arm1_seed44.jsonl
+  run_id: clone_A1_s44
 ---
 
 # Attacker

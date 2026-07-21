@@ -1,15 +1,26 @@
 ---
 # ============================================================================
-# CLONE-TEST ARM 1 — RESHUFFLE ON
-#   view_reshuffle: true, view_reshuffle_interval: 10, view_limit: 4
-#   → periodic random draw across all history (breaks the recency clone loop)
-# Differs from arm0 ONLY in the view_reshuffle knobs, so any change in the
-# clone rate is attributable to reshuffle alone. See arm0 for the full rationale.
+# CLONE-TEST ARM 3 — GUARD + BROADCAST (teach the rejection, don't just block it)
+#   = arm2 (near_dup_guard: true) PLUS near_dup_broadcast: true
+# Differs from arm2 ONLY in near_dup_broadcast, so arm2-vs-arm3 isolates the
+# effect of *showing* rejections to the attacker (block vs. block+teach). And
+# arm0-vs-arm2-vs-arm3 is a clean ladder: nothing → block → block+broadcast.
 #
-# Run (per arm), from repo root:
-#   .venv_claude/bin/python scripts/iterative_retrain.py configs/clone_test_arm1.md \
+# near_dup_broadcast: when the guard rejects a candidate, its opening turn is
+# remembered on the SHARED store (in-memory only, never written to the JSONL —
+# so it never pollutes the scored-attempts dataset or the clone metric) and
+# injected into every session's prompt as a "recently rejected as too-similar —
+# avoid these" block. So a rejection from any of the 30 sessions steers all of
+# them off that exhausted template, instead of the rejection being an ephemeral
+# per-turn note visible only to the session that made it.
+#
+# Attacker + judge prompts are IDENTICAL to arm0/arm1/arm2.
+#
+# Run, from repo root:
+#   .venv_claude/bin/python scripts/iterative_retrain.py configs/clone_test_arm3.md \
 #     --iterations 1 --base-training-data data/hs_ls_200.jsonl \
-#     --probe-out-dir probes/clone_test_arm1 --seed 42
+#     --probe-out-dir probes/clone_test_arm3 --seed 42
+# (or use scripts/run_clone_seeds.sh, which sweeps the arms across seeds.)
 # Then score with scripts/clone_rate.py (see its --help).
 # ============================================================================
 attacker:
@@ -20,11 +31,13 @@ attacker:
   view_limit: 4                   # held EQUAL across arms
   max_turns: 5
   batch_target: 30
-  rounds: 6                       # >1 so the view sampler has cross-round history to reshuffle
+  rounds: 6                       # >1 so the view sampler has cross-round history
   concurrency: 5                  # >= sessions_per_model * len(models)
   sessions_per_model: 5           # >1 so there is cross-session history — required for the knob to bite
-  view_reshuffle: true            # <<< ARM 1: periodic random reshuffle
-  view_reshuffle_interval: 10     # <<< redraw the shown set every 10 submissions
+  view_reshuffle: false           # recency — SAME as arm0/arm2
+  near_dup_guard: true            # SAME as arm2: reject near-dup-of-success at submit time
+  near_dup_threshold: 0.8         # SAME as arm2
+  near_dup_broadcast: true        # <<< ARM 3: also SHOW the rejections to all sessions
 
 judge:
   provider: openrouter
@@ -43,8 +56,8 @@ probe:
   description: A linear probe on Llama-3.2-1B-Instruct detecting whether the conversation is high-stakes.
 
 output:
-  jsonl_path: ../results_clone_test/arm1_reshuffle.jsonl
-  run_id: clone_A1
+  jsonl_path: ../results_clone_test/arm3_broadcast.jsonl
+  run_id: clone_A3
 ---
 
 # Attacker

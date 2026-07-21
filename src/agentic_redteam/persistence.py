@@ -5,8 +5,23 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import asdict, dataclass, field
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterator
+
+# How many leading characters of the first user message are compared for the
+# submit-time near-duplicate guard. Matches scripts/clone_rate.py so the guard
+# and the offline clone metric measure "cloniness" the same way.
+_NEAR_DUP_PREFIX = 600
+
+
+def first_user_text(conversation: "Conversation") -> str:
+    """First user-turn content (fallback: first message). Mirrors clone_rate.first_user."""
+    msgs = conversation.messages
+    for m in msgs:
+        if m.role == "user":
+            return m.content.strip()
+    return msgs[0].content.strip() if msgs else ""
 
 
 @dataclass(frozen=True)
@@ -127,6 +142,22 @@ class JsonlStore:
     _seen: set[str] = field(default_factory=set, init=False)
     _success_count: int = field(default=0, init=False)
     _total_count: int = field(default=0, init=False)
+    # Truncated first-user text of every persisted SUCCESS, kept in memory so the
+    # submit-time near-duplicate guard (near_duplicate_success) is O(#successes)
+    # per submission without re-reading the JSONL. Preloaded from disk on init.
+    _success_first_users: list[str] = field(default_factory=list, init=False)
+    # In-memory ring of recently guard-rejected near-duplicate openers, shared across
+    # the rotation so ALL sessions can be shown "recently rejected as too-similar"
+    # (near_dup_broadcast). NOT persisted to the JSONL — a within-run steering signal
+    # only, so it never pollutes the scored-attempts dataset or the clone metric.
+    _recent_near_dup_rejects: list[str] = field(default_factory=list, init=False)
+    # Openers of submissions currently BEING scored (reserved by try_reserve_opener,
+    # cleared by release_opener). The near-dup guard checks persisted successes UNION
+    # these in-flight openers, so two concurrent sessions can't both slip a re-skin
+    # through in the window between the guard check and the append. No lock is needed:
+    # try_reserve_opener does its check-and-reserve synchronously (no await inside), and
+    # asyncio's cooperative scheduling can't interleave another coroutine mid-method.
+    _inflight_openers: list[str] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         self.path = Path(self.path)
@@ -136,6 +167,9 @@ class JsonlStore:
                 self._seen.add(rec.sample.to_canonical_text())
                 if rec.success:
                     self._success_count += 1
+                    self._success_first_users.append(
+                        first_user_text(rec.sample)[:_NEAR_DUP_PREFIX]
+                    )
                 self._total_count += 1
 
     def append(self, record: AttemptRecord) -> bool:
@@ -148,11 +182,99 @@ class JsonlStore:
             f.write(record.to_jsonl_row() + "\n")
         if record.success:
             self._success_count += 1
+            self._success_first_users.append(
+                first_user_text(record.sample)[:_NEAR_DUP_PREFIX]
+            )
         self._total_count += 1
         return True
 
     def is_duplicate(self, conversation: Conversation) -> bool:
         return conversation.to_canonical_text() in self._seen
+
+    @staticmethod
+    def _is_near(opener: str, pool: list[str], threshold: float) -> bool:
+        # autojunk=False: difflib's autojunk heuristic (on for sequences >200
+        # chars) derives its junk set from the SECOND argument, making
+        # ratio(a,b) != ratio(b,a). Our openers are ~250-400 chars, so with the
+        # default heuristic the guard's candidate-first order under-measured
+        # similarity (e.g. 0.30 vs 0.84 for a genuine near-dup) and almost never
+        # fired. Disabling autojunk makes the ratio symmetric and order-independent,
+        # and matches scripts/clone_rate.py so the guard enforces the same metric
+        # the clone rate is scored on.
+        return any(
+            SequenceMatcher(None, opener, p, autojunk=False).ratio() >= threshold
+            for p in pool
+        )
+
+    def near_duplicate_success(self, conversation: Conversation, threshold: float) -> bool:
+        """True if ``conversation``'s first user turn is a near-duplicate (difflib
+        ratio >= ``threshold``) of any already-persisted SUCCESS.
+
+        This is the submit-time clone guard: it catches re-skinned winning
+        templates (same opening scenario, swapped nouns/numbers) that exact-text
+        dedup misses. Compared against successes only — near-duplicates of past
+        failures don't inflate the success clone rate and blocking them would
+        needlessly narrow exploration. A ``threshold >= 1.0`` disables it.
+
+        NOTE: this checks persisted successes ONLY (no in-flight set), so under
+        concurrency two simultaneous re-skins can both pass. Concurrent callers
+        should use :meth:`try_reserve_opener` instead, which closes that race.
+        """
+        if threshold >= 1.0 or not self._success_first_users:
+            return False
+        cand = first_user_text(conversation)[:_NEAR_DUP_PREFIX]
+        if not cand:
+            return False
+        return self._is_near(cand, self._success_first_users, threshold)
+
+    def try_reserve_opener(self, conversation: Conversation, threshold: float) -> bool:
+        """Atomically decide the near-dup guard AND reserve this opener.
+
+        Returns True (proceed) if the candidate's first user turn is not a near-
+        duplicate of any persisted SUCCESS *or any in-flight submission*, having
+        recorded it as in-flight. Returns False (reject) otherwise, changing nothing.
+
+        This is the race-safe form of :meth:`near_duplicate_success`: because it is
+        a single synchronous method with no ``await`` inside, asyncio's cooperative
+        scheduling runs the whole check-and-reserve without interleaving another
+        coroutine — so two concurrent sessions that submit the same re-skin can't
+        both pass (the first reserves the opener; the second sees it in-flight and is
+        rejected). The caller MUST pair a True return with :meth:`release_opener` in
+        a ``finally`` so the reservation is dropped once scoring completes. A
+        ``threshold >= 1.0`` disables the guard (always reserves, never rejects).
+        """
+        cand = first_user_text(conversation)[:_NEAR_DUP_PREFIX]
+        if threshold < 1.0 and cand and (
+            self._is_near(cand, self._success_first_users, threshold)
+            or self._is_near(cand, self._inflight_openers, threshold)
+        ):
+            return False
+        self._inflight_openers.append(cand)
+        return True
+
+    def release_opener(self, conversation: Conversation) -> None:
+        """Drop this conversation's opener from the in-flight set (pair with reserve)."""
+        cand = first_user_text(conversation)[:_NEAR_DUP_PREFIX]
+        try:
+            self._inflight_openers.remove(cand)
+        except ValueError:
+            pass
+
+    def record_near_dup_reject(self, conversation: Conversation) -> None:
+        """Remember a guard-rejected candidate's opener for the broadcast view.
+
+        In-memory only (never written to the JSONL); bounded to the most recent
+        200 rejections so the list can't grow without limit on a long run.
+        """
+        self._recent_near_dup_rejects.append(first_user_text(conversation)[:_NEAR_DUP_PREFIX])
+        if len(self._recent_near_dup_rejects) > 200:
+            del self._recent_near_dup_rejects[:-200]
+
+    def recent_near_dup_rejects(self, limit: int) -> list[str]:
+        """Most-recent guard-rejected openers (up to ``limit``; ``limit<=0`` = all)."""
+        if limit <= 0:
+            return list(self._recent_near_dup_rejects)
+        return self._recent_near_dup_rejects[-limit:]
 
     @property
     def success_count(self) -> int:

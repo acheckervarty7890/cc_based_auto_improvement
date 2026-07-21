@@ -83,7 +83,14 @@ def cluster(texts, tau: float, prefix: int):
         for j in range(i + 1, len(texts)):
             if used[j]:
                 continue
-            if difflib.SequenceMatcher(None, trunc[i], trunc[j]).ratio() >= tau:
+            # autojunk=False so the ratio is symmetric and order-independent:
+            # difflib's autojunk heuristic (on for >200-char strings) keys its
+            # junk set off the second argument, so ratio(a,b) != ratio(b,a) for
+            # our ~250-400 char openers, which made clustering depend on file
+            # order and undercount clones. Must match the guard's _is_near.
+            if difflib.SequenceMatcher(
+                None, trunc[i], trunc[j], autojunk=False
+            ).ratio() >= tau:
                 members.append(j)
                 used[j] = True
         clusters.append(members)

@@ -185,6 +185,79 @@ def restrict_to_cached(rows, cache_dir, model, layer, combine, convert,
 
 
 # --------------------------------------------------------------------------- #
+# Cached-activation eval (no model load)
+# --------------------------------------------------------------------------- #
+
+
+def _eval_cache_stem(max_samples, seed) -> str:
+    """Filename stem evaluate_probe/get_performances write per split (see evaluation.py)."""
+    return f"acts_n{max_samples}_seed{seed}.pt" if max_samples is not None else "acts_full.pt"
+
+
+def offline_eval_feasible(eval_dataset_dir, activations_cache_dir, max_samples, seed):
+    """Return (ok, splits, missing) — whether every split has a cached activation blob."""
+    eval_dataset_dir = Path(eval_dataset_dir)
+    activations_cache_dir = Path(activations_cache_dir)
+    splits = sorted(p.stem for p in eval_dataset_dir.glob("*.jsonl"))
+    stem = _eval_cache_stem(max_samples, seed)
+    missing = [n for n in splits if not (activations_cache_dir / f"{n}-{stem}").exists()]
+    return (bool(splits) and not missing), splits, missing
+
+
+def evaluate_probe_offline(
+    probe_path, eval_dataset_dir, activations_cache_dir, *,
+    max_samples, seed, combine, convert, splits=None,
+):
+    """Score a probe on the eval splits using ONLY the cached activation blobs.
+
+    Mirrors agentic_redteam.evaluation.evaluate_probe, but pre-loads each split's
+    cached ``<name>-<stem>.pt`` (via ``LLMModel.load_activations`` — no model
+    instance) and assigns it to the dataset *before* calling ``get_performances``.
+    That makes ``"activations" in dataset.other_fields`` true, so get_performances
+    never enters its ``LLMModel.load`` branch — zero gemma loads. Row order matches
+    the cache because the dataset is rebuilt with the same deterministic
+    ``load_from`` (+ seeded ``subsample_balanced_subset``) that wrote it.
+    """
+    import pickle
+
+    from tuberlens.evaluation import get_performances
+    from tuberlens.interfaces.dataset import LabelledDataset, subsample_balanced_subset
+    from tuberlens.model import LLMModel
+
+    from agentic_redteam.evaluation import seed_everything
+
+    eval_dataset_dir = Path(eval_dataset_dir)
+    activations_cache_dir = Path(activations_cache_dir)
+    if splits is None:
+        splits = sorted(p.stem for p in eval_dataset_dir.glob("*.jsonl"))
+    with open(probe_path, "rb") as f:
+        probe = pickle.load(f)
+
+    seed_everything(seed)  # same ordering guarantee as evaluate_probe (subsample determinism)
+    stem = _eval_cache_stem(max_samples, seed)
+    eval_datasets = {}
+    for name in splits:
+        ds = LabelledDataset.load_from(
+            eval_dataset_dir / f"{name}.jsonl",
+            pos_class_label=probe.pos_class_label,
+            neg_class_label=probe.neg_class_label,
+            combine_consecutive_messages=combine,
+            convert_tool_to_assistant=convert,
+        )
+        if max_samples is not None:
+            ds = subsample_balanced_subset(ds, n_per_class=max_samples // 2)
+        acts = LLMModel.load_activations(activations_cache_dir / f"{name}-{stem}")
+        ds = ds.assign(
+            activations=acts.activations,
+            attention_mask=acts.attention_mask,
+            input_ids=acts.input_ids,
+        )
+        eval_datasets[name] = ds
+    # activations already present on every dataset → get_performances loads no model
+    return get_performances(probe, eval_datasets)
+
+
+# --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
 
@@ -226,6 +299,11 @@ def main(argv=None):
     ap.add_argument(
         "--allow-uncached", action="store_true",
         help="do NOT restrict to cache-backed successes (may load gemma + call the API)",
+    )
+    ap.add_argument(
+        "--offline-eval", action=argparse.BooleanOptionalAction, default=True,
+        help="score probes off cached eval activations with NO gemma load (default on); "
+        "auto-falls back to online eval if any split's activation cache is missing",
     )
     args = ap.parse_args(argv)
 
@@ -306,7 +384,20 @@ def main(argv=None):
     if not pools:
         sys.exit("no usable success pools")
 
-    # ---- Sweep n: subsample → retrain (cached) → eval (cached). ----
+    # Decide eval mode once: offline (cached activations, no gemma load) if requested
+    # and every split has a cached activation blob; else fall back to online eval.
+    use_offline_eval = args.offline_eval
+    if args.offline_eval:
+        ok, _splits, missing = offline_eval_feasible(
+            args.eval_dataset_dir, eval_cache, eval_max, args.seed
+        )
+        use_offline_eval = ok
+        if ok:
+            print(f"  eval: OFFLINE (cached activations, no gemma load) — {len(_splits)} splits")
+        else:
+            print(f"  eval: online (falling back — missing cached activations: {missing})")
+
+    # ---- Sweep n: subsample → retrain (cached) → eval. ----
     import gc
 
     import pandas as pd
@@ -346,16 +437,28 @@ def main(argv=None):
             verbose=True,
         )
 
-        print(f"n={n_label}: eval {probe_out}")
-        df = evaluate_probe(
-            probe_out,
-            args.eval_dataset_dir,
-            eval_cache,
-            max_samples=eval_max,
-            seed=args.seed,
-            combine_consecutive_messages=combine,
-            convert_tool_to_assistant=convert,
-        )
+        print(f"n={n_label}: eval {probe_out}"
+              + ("  [offline]" if use_offline_eval else "  [online]"))
+        if use_offline_eval:
+            df = evaluate_probe_offline(
+                probe_out,
+                args.eval_dataset_dir,
+                eval_cache,
+                max_samples=eval_max,
+                seed=args.seed,
+                combine=combine,
+                convert=convert,
+            )
+        else:
+            df = evaluate_probe(
+                probe_out,
+                args.eval_dataset_dir,
+                eval_cache,
+                max_samples=eval_max,
+                seed=args.seed,
+                combine_consecutive_messages=combine,
+                convert_tool_to_assistant=convert,
+            )
         df = df.copy()
         df.insert(0, "n_per_cluster", n_label)
         df.insert(1, "n_success_selected", n_selected)

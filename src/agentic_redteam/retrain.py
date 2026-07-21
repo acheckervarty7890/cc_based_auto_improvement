@@ -76,6 +76,30 @@ def stable_train_test_split(
     return dataset[train_indices], dataset[test_indices]
 
 
+def stable_fraction_subsample(dataset, fraction: float, seed: int = 0):
+    """Deterministically keep a random ``fraction`` of a dataset's samples.
+
+    Content-addressed like ``stable_train_test_split``: each sample is kept iff a
+    uniform hash of *its own content* (namespaced by ``seed``) falls below
+    ``fraction``. So the selected subset is a pure function of the data + seed —
+    independent of dataset size or order — which means the base training samples
+    land identically every iteration (matching the repo's cache-correctness
+    convention) and class balance is preserved in expectation. The hash is
+    namespaced (``frac:{seed}``) so the draw is independent of the train/val split,
+    which hashes on the bare ``seed``. ``fraction >= 1.0`` is a no-op.
+    """
+    if fraction >= 1.0:
+        return dataset
+    if fraction <= 0.0:
+        raise ValueError(f"base_data_fraction must be in (0, 1]; got {fraction}")
+    keep = [
+        i
+        for i, messages in enumerate(dataset.inputs)
+        if _split_unit_interval(messages, None, seed=f"frac:{seed}") < fraction
+    ]
+    return dataset[keep]
+
+
 def _cpu_unpickle(f: io.BufferedIOBase) -> Any:
     """Unpickle a torch-containing object, forcing all tensors to CPU."""
     _orig = torch.storage._load_from_bytes
@@ -127,16 +151,19 @@ def _base_activation_cache_paths(
     split_field: str | None,
     combine_consecutive_messages: bool,
     convert_tool_to_assistant: bool,
+    base_data_fraction: float = 1.0,
 ) -> tuple[Path, Path]:
     """Return (train, val) cache paths for the *base* split's activations.
 
     The base train/val membership is a deterministic function of the base data
-    file, ``seed``, ``test_size`` and ``split_field`` (via stable_train_test_split),
-    and the activations themselves additionally depend on ``model_name``, ``layer``
-    and the message-loader transforms — so all of those are folded into the cache
-    key. tuberlens' ``get_activations`` loads a saved blob *by path without
-    validating the inputs*, so any change that would alter the base split or its
-    activations must change this key, or stale activations would be silently reused.
+    file, ``seed``, ``test_size``, ``split_field`` and ``base_data_fraction`` (via
+    stable_fraction_subsample + stable_train_test_split), and the activations
+    themselves additionally depend on ``model_name``, ``layer`` and the
+    message-loader transforms — so all of those are folded into the cache key.
+    tuberlens' ``get_activations`` loads a saved blob *by path without validating
+    the inputs*, so any change that would alter the base split or its activations
+    (including subsampling a different fraction) must change this key, or stale
+    activations would be silently reused.
     """
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -145,6 +172,7 @@ def _base_activation_cache_paths(
     h.update(
         f"|model={model_name}|layer={layer}|seed={seed}"
         f"|test_size={test_size}|split_field={split_field}"
+        f"|fraction={base_data_fraction}"
         f"|combine={combine_consecutive_messages}|convert={convert_tool_to_assistant}".encode(
             "utf-8"
         )
@@ -594,6 +622,7 @@ def _build_redteam_dataset(
         model=preprocessing.model,
         max_concurrent=preprocessing.max_concurrent,
         max_tokens=preprocessing.max_tokens,
+        max_retries=preprocessing.max_generation_retries,
         cache_path=contrastive_cache_path,
     )
     return _dicts_to_labelled_dataset(dicts, pos_label, neg_label)
@@ -613,6 +642,7 @@ def retrain_probe(
     test_size: float = 0.2,
     split_field: str | None = None,
     seed: int = 0,
+    base_data_fraction: float = 1.0,
     base_activation_cache_dir: str | Path | None = None,
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
@@ -655,6 +685,11 @@ def retrain_probe(
         split_field: Optional field to keep grouped together when splitting (passed to
             stable_train_test_split).
         seed: Seed for the deterministic train/val split (stable_train_test_split).
+        base_data_fraction: Fraction (0, 1] of the base training data to ingest,
+            selected by a deterministic content-addressed random subsample
+            (stable_fraction_subsample) applied *before* the train/val split.
+            1.0 (default) uses all of it. The fraction is folded into the base
+            activation cache key. Red-team successes are never subsampled.
         base_activation_cache_dir: If given, activations are cached here. The base
             training split is cached as a single blob (computed once for the whole run
             and reused every retrain). The growing red-team set is cached **per
@@ -755,7 +790,14 @@ def retrain_probe(
             combine_consecutive_messages=combine_consecutive_messages,
             convert_tool_to_assistant=convert_tool_to_assistant,
         )
+        n_loaded = len(base_dataset)
+        base_dataset = stable_fraction_subsample(base_dataset, base_data_fraction, seed)
         n_base = len(base_dataset)
+        if verbose and base_data_fraction < 1.0:
+            print(
+                f"Base data subsampled to fraction {base_data_fraction}: "
+                f"{n_loaded} → {n_base}"
+            )
         base_train, base_val = stable_train_test_split(
             base_dataset, test_size=test_size, split_field=split_field, seed=seed
         )
@@ -770,6 +812,7 @@ def retrain_probe(
                 split_field,
                 combine_consecutive_messages,
                 convert_tool_to_assistant,
+                base_data_fraction,
             )
 
     redteam_train = redteam_val = None
@@ -830,6 +873,7 @@ def train_initial_probe(
     test_size: float = 0.2,
     split_field: str | None = None,
     seed: int = 0,
+    base_data_fraction: float = 1.0,
     base_activation_cache_dir: str | Path | None = None,
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
@@ -853,6 +897,11 @@ def train_initial_probe(
         test_size: Fraction held out for validation via stable_train_test_split.
         split_field: Optional field to keep grouped together when splitting.
         seed: Seed for the deterministic train/val split (stable_train_test_split).
+        base_data_fraction: Fraction (0, 1] of the base training data to ingest,
+            selected by a deterministic content-addressed random subsample
+            (stable_fraction_subsample) applied before the train/val split. 1.0
+            (default) uses all of it; the fraction is folded into the activation
+            cache key.
         base_activation_cache_dir: If given, the base split's activations are cached here.
             Using the same dir as the retrains means the initial training populates the
             cache that every subsequent retrain reuses (base activations computed once).
@@ -875,7 +924,14 @@ def train_initial_probe(
         combine_consecutive_messages=combine_consecutive_messages,
         convert_tool_to_assistant=convert_tool_to_assistant,
     )
+    n_loaded = len(base_dataset)
+    base_dataset = stable_fraction_subsample(base_dataset, base_data_fraction, seed)
     if verbose:
+        if base_data_fraction < 1.0:
+            print(
+                f"Base data subsampled to fraction {base_data_fraction}: "
+                f"{n_loaded} → {len(base_dataset)}"
+            )
         print(f"Initial samples before split: {len(base_dataset)}")
         base_dataset.print_label_distribution()
 
@@ -897,6 +953,7 @@ def train_initial_probe(
             split_field,
             combine_consecutive_messages,
             convert_tool_to_assistant,
+            base_data_fraction,
         )
 
     probe = _train_with_cached_base_activations(

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Sequence
@@ -61,20 +62,29 @@ def _extract_messages(record: dict, text_key: str) -> list[dict[str, str]]:
 
 
 def _is_well_formed_conversation(messages: Sequence[dict[str, str]]) -> bool:
-    """True if ``messages`` is a valid user-first, alternating user/assistant chat.
+    """True if ``messages`` is a valid chat: optional leading ``system`` message,
+    then a user-first, alternating user/assistant body.
 
     Contrastive generation occasionally yields malformed conversations — most
     commonly when the provider *refuses* the generation request and returns its
     refusal as a single ``assistant`` message with no ``user`` turn. Such a
     conversation has no valid chat-template rendering: model chat templates
-    (e.g. Gemma's) require the conversation to start with ``user`` and alternate
+    require the (non-system) turns to start with ``user`` and alternate
     user/assistant, so it raises "Conversation roles must alternate ..." at
     activation time. Reject these here so they're skipped (and not cached) rather
     than poisoning the red-team training set.
+
+    A single leading ``system`` message is allowed and skipped before checking
+    alternation — it's standard and present in both the base training data and
+    prompt-mode red-team scenarios (which are ``[{system}, {user}]``). Rejecting
+    it here silently dropped every contrastive pair for such runs.
     """
     if not messages:
         return False
-    for i, msg in enumerate(messages):
+    body = messages[1:] if messages[0].get("role") == "system" else list(messages)
+    if not body:
+        return False
+    for i, msg in enumerate(body):
         expected = "user" if i % 2 == 0 else "assistant"
         if msg.get("role") != expected:
             return False
@@ -250,6 +260,13 @@ class _ContrastiveLLM:
                         {"role": "user", "content": user},
                     ],
                 )
+                if not resp.choices:
+                    # OpenRouter surfaces some upstream errors (rate limits, policy
+                    # blocks) as a 200 with an error body and no choices, rather than
+                    # raising — report it instead of an opaque subscript TypeError.
+                    err = (resp.model_dump() or {}).get("error")
+                    print(f"  [contrastive] no choices returned; error={err}")
+                    return None
                 text = resp.choices[0].message.content or ""
         except Exception as e:  # noqa: BLE001 — one bad generation shouldn't kill the run
             print(f"  [contrastive] generation failed: {e}")
@@ -299,6 +316,7 @@ def generate_contrastive_dataset(
     model: str,
     max_concurrent: int = 50,
     max_tokens: int = 2048,
+    max_retries: int = 2,
     text_key: str = "inputs",
     label_key: str = "labels",
     cache_path: str | Path | None = None,
@@ -310,6 +328,14 @@ def generate_contrastive_dataset(
     Generated pairs are cached to ``cache_path`` keyed by the source conversation,
     so successes that were already processed in an earlier iteration are reused
     instead of re-queried.
+
+    Each eligible record is retried up to ``max_retries`` times (i.e. up to
+    ``max_retries + 1`` LLM calls) when a generation fails — an LLM exception,
+    an unparseable/missing response, or a malformed (non-well-formed)
+    conversation. If it still fails after the retries, **both the source record
+    and its (missing) contrastive pair are dropped** from the returned data,
+    rather than keeping an unpaired source. Failed generations are never cached,
+    so a dropped source is re-attempted on the next iteration's retrain.
     """
     records = list(records)
     valid = [r for r in records if r.get(label_key) in (pos_class_label, neg_class_label)]
@@ -340,21 +366,20 @@ def generate_contrastive_dataset(
         llm = _ContrastiveLLM(provider, model, max_tokens)
         llm._ensure_client()  # initialize once before fan-out
 
-        def _work(item):
-            _idx, record, messages, current_label, target_label = item
+        def _attempt(messages, current_label, target_label):
+            """One generation attempt → contrastive dict, or None on any failure."""
             response = llm.generate(messages, current_label, target_label)
             if not response or "generated_messages" not in response:
                 return None
             new_messages = _extract_messages(
                 {text_key: response["generated_messages"]}, text_key
             )
-            # Drop malformed generations (e.g. a provider refusal returned as a
+            # Reject malformed generations (e.g. a provider refusal returned as a
             # lone assistant message) — they have no valid chat-template rendering
-            # and would crash activation extraction. Returning None skips the
-            # record and, crucially, avoids caching the junk.
+            # and would crash activation extraction.
             if not _is_well_formed_conversation(new_messages):
                 return None
-            contrastive = {
+            return {
                 text_key: new_messages,
                 label_key: target_label,
                 "original_messages": messages,
@@ -363,16 +388,40 @@ def generate_contrastive_dataset(
                 "generation_model": model,
                 "is_generated": True,
             }
-            return _cache_key(messages, target_label), contrastive
+
+        def _work(item):
+            """Retry a record up to ``max_retries`` times.
+
+            Returns ``("ok", record, key, contrastive)`` on success or
+            ``("fail", record, None, None)`` once every attempt has failed — the
+            caller drops the source of a failed record (and never caches junk).
+            """
+            _idx, record, messages, current_label, target_label = item
+            for attempt in range(max_retries + 1):
+                contrastive = _attempt(messages, current_label, target_label)
+                if contrastive is not None:
+                    return "ok", record, _cache_key(messages, target_label), contrastive
+                if attempt < max_retries:
+                    time.sleep(0.5 * (attempt + 1))  # brief backoff before retrying
+            return "fail", record, None, None
 
         workers = max(1, min(max_concurrent, len(to_generate)))
+        failed_source_ids: set[int] = set()
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            for result in pool.map(_work, to_generate):
-                if result is None:
-                    continue
-                key, contrastive = result
-                generated.append(contrastive)
-                _append_cache(cache_path, key, contrastive)
+            for status, record, key, contrastive in pool.map(_work, to_generate):
+                if status == "ok":
+                    generated.append(contrastive)
+                    _append_cache(cache_path, key, contrastive)
+                else:
+                    # Give up on this record after retries: drop its source too.
+                    failed_source_ids.add(id(record))
+
+        if failed_source_ids:
+            records = [r for r in records if id(r) not in failed_source_ids]
+            print(
+                f"  [contrastive] dropped {len(failed_source_ids)} source records "
+                f"(and their pairs) after {max_retries + 1} failed generation attempts"
+            )
 
     label_counts: dict[str, int] = {}
     for record in generated:

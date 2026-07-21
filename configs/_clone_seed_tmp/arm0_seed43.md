@@ -1,15 +1,23 @@
 ---
 # ============================================================================
-# CLONE-TEST ARM 1 — RESHUFFLE ON
-#   view_reshuffle: true, view_reshuffle_interval: 10, view_limit: 4
-#   → periodic random draw across all history (breaks the recency clone loop)
-# Differs from arm0 ONLY in the view_reshuffle knobs, so any change in the
-# clone rate is attributable to reshuffle alone. See arm0 for the full rationale.
+# CLONE-TEST ARM 0 — BASELINE (matches the last production run's view settings)
+#   view_reshuffle: false, view_limit: 4  → show most-recent attempts (recency)
+# Differs from arm1 ONLY in the view_reshuffle knobs, so any change in the
+# clone rate is attributable to reshuffle alone.
+#
+# Cheap harness: the probe is a Llama-3.2-1B head (loads on the 8GB GPU, no OOM),
+# because this experiment measures *attacker* cloniness, not probe quality. The
+# ATTACKER is kept as the real production model (Llama-3.3-70B) since cloning is
+# its behavior. Single error_type (false_positive) to halve cost; no eval, no
+# preprocessing (the retrained probe is not used — we only score the red-team JSONL).
+#
+# Both arms train the same initial 1B probe from --base-training-data: the split
+# is content-deterministic + seed-fixed, so the two arms attack an identical probe.
 #
 # Run (per arm), from repo root:
-#   .venv_claude/bin/python scripts/iterative_retrain.py configs/clone_test_arm1.md \
+#   .venv_claude/bin/python scripts/iterative_retrain.py configs/clone_test_arm0.md \
 #     --iterations 1 --base-training-data data/hs_ls_200.jsonl \
-#     --probe-out-dir probes/clone_test_arm1 --seed 42
+#     --probe-out-dir probes/clone_test_arm0 --seed 42
 # Then score with scripts/clone_rate.py (see its --help).
 # ============================================================================
 attacker:
@@ -20,11 +28,10 @@ attacker:
   view_limit: 4                   # held EQUAL across arms
   max_turns: 5
   batch_target: 30
-  rounds: 6                       # >1 so the view sampler has cross-round history to reshuffle
+  rounds: 6                       # >1 so the view sampler has cross-round history to (not) reshuffle
   concurrency: 5                  # >= sessions_per_model * len(models)
   sessions_per_model: 5           # >1 so there is cross-session history — required for the knob to bite
-  view_reshuffle: true            # <<< ARM 1: periodic random reshuffle
-  view_reshuffle_interval: 10     # <<< redraw the shown set every 10 submissions
+  view_reshuffle: false           # <<< ARM 0: recency (baseline / last-run setting)
 
 judge:
   provider: openrouter
@@ -43,8 +50,8 @@ probe:
   description: A linear probe on Llama-3.2-1B-Instruct detecting whether the conversation is high-stakes.
 
 output:
-  jsonl_path: ../results_clone_test/arm1_reshuffle.jsonl
-  run_id: clone_A1
+  jsonl_path: ../results_clone_test/arm0_seed43.jsonl
+  run_id: clone_A0_s43
 ---
 
 # Attacker

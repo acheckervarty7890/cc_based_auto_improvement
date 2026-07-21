@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+import time
 from pathlib import Path
 
 from agentic_redteam.attacker import run_redteam_sync
@@ -62,6 +64,21 @@ def _latest_probe_iteration(probe_out_dir: Path) -> tuple[int, Path] | None:
         if best is None or n > best[0]:
             best = (n, p)
     return best
+
+
+def _redteam_phase_marker_path(probe_out_dir: Path, iteration: int, error_type: str) -> Path:
+    """Path of the sentinel marking one ``(iteration, error_type)`` red-team phase
+    as **complete**.
+
+    ``probe_iter{N}.pkl`` is only written once the *retrain* finishes, so a run
+    interrupted between red-teaming and retraining leaves no probe for that cycle
+    and resume rewinds to the start of the iteration — re-running an already-
+    finished (and expensive) red-team pass. This finer-grained marker, written
+    after each error type's red-team rotation returns, lets resume skip a phase
+    whose successes are already persisted in the JSONL (append-only + dedup, so
+    the retrain reads them regardless). It is diagnostics-cheap JSON.
+    """
+    return probe_out_dir / f"redteam_done_iter{iteration}_{error_type}.marker"
 
 
 def run_redteam_main(argv: list[str] | None = None) -> int:
@@ -143,6 +160,15 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help="Optional field kept grouped together when splitting train/validation",
+    )
+    parser.add_argument(
+        "--base-data-fraction",
+        type=float,
+        default=1.0,
+        help="Fraction (0, 1] of the base training data to ingest, chosen by a "
+        "deterministic content-addressed random subsample (seeded by --seed) applied "
+        "before the train/val split. 1.0 (default) uses all of it. Red-team successes "
+        "are never subsampled.",
     )
     parser.add_argument(
         "--probe-out-dir",
@@ -229,6 +255,11 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         "eval splits; overrides eval.convert_tool_to_assistant in config",
     )
     args = parser.parse_args(argv)
+
+    if not 0.0 < args.base_data_fraction <= 1.0:
+        parser.error(
+            f"--base-data-fraction must be in (0, 1]; got {args.base_data_fraction}"
+        )
 
     config = load_config(args.config)
     args.probe_out_dir.mkdir(parents=True, exist_ok=True)
@@ -332,6 +363,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             test_size=args.test_size,
             split_field=args.split_field,
             seed=args.seed,
+            base_data_fraction=args.base_data_fraction,
             base_activation_cache_dir=base_activation_cache_dir,
             combine_consecutive_messages=combine_consecutive_messages,
             convert_tool_to_assistant=convert_tool_to_assistant,
@@ -386,6 +418,20 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         iteration_new_total = 0
         for et in error_types:
             jsonl_path = config.jsonl_path_for(et)
+            marker_path = _redteam_phase_marker_path(args.probe_out_dir, i, et)
+            # Phase-aware resume: a marker means this (iteration, error_type)
+            # red-team already finished on a prior run whose retrain was
+            # interrupted. Its successes are already in the JSONL, so skip the
+            # (expensive) rotation and let the retrain below pick them up. Only
+            # the resumed iteration can be in this state, and only when resuming
+            # (--no-resume must ignore stale markers and red-team afresh).
+            if resume is not None and i == start_iter and marker_path.exists():
+                print(
+                    f"\n--- Error type: {et} → {jsonl_path} ---\n"
+                    f"  Skipping red-team: phase already complete "
+                    f"({marker_path.name}); reusing saved successes."
+                )
+                continue
             print(f"\n--- Error type: {et} → {jsonl_path} ---")
             summaries = run_redteam_sync(
                 config, base_round_num=base_round, error_type=et, jsonl_path=jsonl_path,
@@ -394,6 +440,19 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             et_new = sum(s.new_successes for s in summaries)
             iteration_new_total += et_new
             print(f"  {et}: {et_new} new successes across {len(summaries)} model-rounds")
+            # Record phase completion so a future resume can skip this rotation.
+            marker_path.write_text(
+                json.dumps(
+                    {
+                        "iteration": i,
+                        "error_type": et,
+                        "jsonl_path": str(jsonl_path),
+                        "new_successes": et_new,
+                        "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    }
+                ),
+                encoding="utf-8",
+            )
 
         print(f"Iteration {i}: {iteration_new_total} new successes total")
 
@@ -416,6 +475,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             test_size=args.test_size,
             split_field=args.split_field,
             seed=args.seed,
+            base_data_fraction=args.base_data_fraction,
             base_activation_cache_dir=base_activation_cache_dir,
             combine_consecutive_messages=combine_consecutive_messages,
             convert_tool_to_assistant=convert_tool_to_assistant,

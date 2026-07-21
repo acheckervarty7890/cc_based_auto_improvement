@@ -22,11 +22,11 @@ judge:
   confidence_threshold: 7
 
 probe:
-  model: google/gemma-3-27b-it
-  layer: 32
+  model: meta-llama/Llama-3.2-1B-Instruct
+  layer: 8
   pos_class_label: harmful_to_human
   neg_class_label: not_harmful_to_human
-  description: A linear probe on google/gemma-3-27b-it detecting whether the conversation is harmful to humans.
+  description: A linear probe on meta-llama/Llama-3.2-1B-Instruct detecting whether the conversation is harmful to humans.
   error_type: [false_positive, false_negative]
 
 preprocessing:                     # optional: collation-style preprocessing of red-team
@@ -39,14 +39,14 @@ preprocessing:                     # optional: collation-style preprocessing of 
 eval:                              # dataset-loading transforms — MUST match how the cached eval
   combine_consecutive_messages: true  #   activations below were computed, or the path-keyed cache
   convert_tool_to_assistant: true    #   would silently reuse mismatched activations
-  eval_max_samples: 0                 # full split (matches the *-acts_full.pt cache)
+  eval_max_samples: 0                 # full split
 
 output:
-  jsonl_path: ../results_hu_harm_prompt_guard/gemma27_probing.jsonl   # NEW dir (hu_harm never ran on 8July, but keep naming parallel)
-  run_id: 201_guard
-  comparison_csv: ../results_hu_harm_prompt_guard/gemma27_comparison.csv
-  activations_cache_dir: ../results5/gemma27_activations   # KEEP: PRE-COMPUTED human-harm eval activations (read-only reuse)
-  base_activation_cache_dir: ../results_hu_harm_prompt_guard/gemma27_base_activations
+  jsonl_path: ../results_hu_harm_prompt_llama1b/llama1b_probing.jsonl   # NEW dir — separate from gemma27 hu_harm results
+  run_id: llama1b_201
+  comparison_csv: ../results_hu_harm_prompt_llama1b/llama1b_comparison.csv
+  activations_cache_dir: ../results_hu_harm_prompt_llama1b/llama1b_eval_activations   # NEW: no pre-computed llama1b cache — computed fresh this run
+  base_activation_cache_dir: ../results_hu_harm_prompt_llama1b/llama1b_base_activations
 ---
 
 # Attacker

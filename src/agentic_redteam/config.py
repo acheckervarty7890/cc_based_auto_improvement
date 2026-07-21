@@ -104,6 +104,18 @@ class AttackerConfig:
     view_reshuffle_interval: int = 20
     view_balance: bool = True
     view_training_seeds: bool = True
+    # near_dup_guard: submit-time mechanical clone guard. When True, a candidate
+    #   whose first user turn is >= near_dup_threshold similar (difflib ratio) to any
+    #   already-recorded SUCCESS is rejected before probe/judge run, so re-skinned
+    #   winning templates never get scored or stored. Orthogonal to the view_* knobs
+    #   (which only shape what the attacker sees). Default off — existing configs
+    #   behave identically.
+    near_dup_guard: bool = False
+    near_dup_threshold: float = 0.8
+    # near_dup_broadcast: when True (guard on), guard-rejected openers are shown to all
+    #   sessions as a "recently rejected — avoid these" prompt block (cross-session
+    #   steering). In-memory only, never written to the JSONL. Default off.
+    near_dup_broadcast: bool = False
     # round_summaries: when True (default), rounds run SEQUENTIALLY — round N+1 waits
     #   for round N to finish, then the judge summarizes round N's attempts and that
     #   (cumulative) summary is injected into later rounds' attacker system prompts.
@@ -154,6 +166,9 @@ class PreprocessingConfig:
     max_concurrent: int = 50
     max_tokens: int = 2048
     filter_percentile: float = 0.8
+    # Retries per record when a contrastive generation fails; after them the
+    # source record and its missing pair are dropped (see generate_contrastive_dataset).
+    max_generation_retries: int = 2
 
 
 @dataclass
@@ -411,6 +426,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             max_concurrent=int(pp.get("max_concurrent", 50)),
             max_tokens=int(pp.get("max_tokens", 2048)),
             filter_percentile=float(pp.get("filter_percentile", 0.8)),
+            max_generation_retries=int(pp.get("max_generation_retries", 2)),
         )
 
     return RedteamConfig(
@@ -426,6 +442,9 @@ def load_config(path: str | Path) -> RedteamConfig:
             view_reshuffle_interval=int(a.get("view_reshuffle_interval", 20)),
             view_balance=bool(a.get("view_balance", True)),
             view_training_seeds=bool(a.get("view_training_seeds", True)),
+            near_dup_guard=bool(a.get("near_dup_guard", False)),
+            near_dup_threshold=float(a.get("near_dup_threshold", 0.8)),
+            near_dup_broadcast=bool(a.get("near_dup_broadcast", False)),
             round_summaries=bool(a.get("round_summaries", True)),
             interface=attacker_interface,
             view_limit=int(a.get("view_limit", 10)),
