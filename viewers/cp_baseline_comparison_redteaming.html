@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Red teaming vs. simple prompted — retrain comparison</title>
+<style>
+  :root{
+    color-scheme: light;
+    --page:#f9f9f7; --surface:#fcfcfb;
+    --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --s1:#2a78d6; --s2:#1baf7a; --s3:#eda100; --s4:#008300; --s5:#4a3aa7; --s6:#e34948;
+    --mean:#0b0b0b; --chance:#b9b8b2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --page:#0d0d0d; --surface:#1a1a19;
+      --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+      --s1:#3987e5; --s2:#199e70; --s3:#c98500; --s4:#008300; --s5:#9085e9; --s6:#e66767;
+      --mean:#ffffff; --chance:#4a4a47;
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19;
+    --ink:#ffffff; --ink2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+    --s1:#3987e5; --s2:#199e70; --s3:#c98500; --s4:#008300; --s5:#9085e9; --s6:#e66767;
+    --mean:#ffffff; --chance:#4a4a47;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--page);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 20px 80px}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+  h1{font-size:1.5rem;margin:0 0 4px}
+  .sub{color:var(--ink2);font-size:.92rem;max-width:860px;margin:4px 0 0;padding-left:1.15em}
+  .sub li{margin:3px 0}
+  .toggle{border:1px solid var(--border);background:var(--surface);color:var(--ink);
+    border-radius:8px;padding:7px 12px;font-size:.85rem;cursor:pointer;white-space:nowrap}
+  .toggle:hover{border-color:var(--axis)}
+  .sect{font-size:1.15rem;margin:30px 0 2px;padding-bottom:6px;border-bottom:2px solid var(--grid)}
+  .sectnote{color:var(--ink2);font-size:.82rem;margin:0 0 4px}
+  .stack{display:flex;flex-direction:column;gap:18px;margin-top:16px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+    padding:16px 16px 12px;position:relative;overflow:hidden}
+  .card h2{font-size:1rem;margin:0 0 2px}
+  .card .meta{color:var(--ink2);font-size:.8rem;margin:0 0 2px}
+  .card .src{color:var(--muted);font-size:.72rem;font-variant-numeric:tabular-nums;
+    margin:0 0 8px;word-break:break-all}
+  .chartbox{position:relative}
+  svg{display:block;width:100%;height:auto;overflow:visible}
+  .facets{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px 16px;margin-top:4px}
+  .facet h3{font-size:.82rem;font-weight:600;color:var(--ink);margin:4px 2px 0}
+  .legend{display:flex;flex-wrap:wrap;gap:8px 14px;margin:10px 2px 2px;font-size:.76rem;color:var(--ink2);align-items:center}
+  .legend .lg{display:inline-flex;align-items:center;gap:6px}
+  .legend .sw{width:14px;height:3px;border-radius:2px;display:inline-block;background:var(--c)}
+  .legend .sw.dashed{background:repeating-linear-gradient(90deg,var(--c) 0 4px,transparent 4px 7px);border-radius:0}
+  .legend .cap{color:var(--muted);margin-right:2px;font-weight:600}
+  details{margin-top:10px}
+  summary{font-size:.78rem;color:var(--ink2);cursor:pointer;user-select:none}
+  table{border-collapse:collapse;width:100%;margin-top:8px;font-size:.74rem;
+    font-variant-numeric:tabular-nums}
+  .tblwrap{overflow-x:auto}
+  .tcap{font-size:.74rem;color:var(--ink2);font-weight:600;margin:10px 0 0}
+  th,td{padding:3px 6px;text-align:right;border-bottom:1px solid var(--grid);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--muted);font-weight:600}
+  .tip{position:absolute;pointer-events:none;background:var(--surface);
+    border:1px solid var(--axis);border-radius:8px;padding:7px 9px;font-size:.72rem;
+    box-shadow:0 4px 14px rgba(0,0,0,.18);opacity:0;transition:opacity .08s;z-index:5;
+    min-width:170px;font-variant-numeric:tabular-nums}
+  .tip .th{font-weight:700;margin-bottom:4px;color:var(--ink)}
+  .tip .row{display:flex;justify-content:space-between;gap:12px;color:var(--ink2)}
+  .tip .row b{color:var(--ink);font-weight:600}
+  .tip .dot{width:8px;height:8px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:middle}
+  .s1{--c:var(--s1)} .s2{--c:var(--s2)} .s3{--c:var(--s3)} .s4{--c:var(--s4)} .s5{--c:var(--s5)} .s6{--c:var(--s6)}
+  .line{fill:none;stroke:var(--c);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .line.mini{stroke-width:1.75}
+  .line.dashed{stroke-dasharray:5 4}
+  circle.pt{fill:var(--c);stroke:var(--surface);stroke-width:1.5}
+  .axline{stroke:var(--axis);stroke-width:1}
+  .gridline{stroke:var(--grid);stroke-width:1}
+  .chanceline{stroke:var(--chance);stroke-width:1;stroke-dasharray:3 3}
+  .tick{fill:var(--muted);font-size:11px}
+  .ylab{fill:var(--muted);font-size:11px}
+  .endlab{font-size:10px;font-weight:600;fill:var(--c);
+    paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
+  .crosshair{stroke:var(--axis);stroke-width:1;stroke-dasharray:3 3;opacity:0}
+  .hi{opacity:1 !important}
+  .footer{color:var(--muted);font-size:.78rem;margin-top:26px;border-top:1px solid var(--grid);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Red teaming vs. simple prompted — retrain comparison</h1>
+      <ul class="sub">
+        <li>Compares the <b>red teaming</b> runs (the earlier viewer's series) against the <b>simple prompted</b> probe settings: <b>everything-allowed</b>, <b>constraint&nbsp;1</b>, and <b>constraint&nbsp;2</b>.</li>
+        <li>x-axis is the <b>retrain step</b> (step&nbsp;0 = baseline probe). Clean iteration folders show every iter/version; pure config sweeps (all-hs) collapse to baseline → best config.</li>
+        <li><b>★</b> marks each series' highest-mean point, which is always included.</li>
+        <li>For <b>human harm</b>, <b>dashed</b> lines are the <b>no-contrastive</b> ablation of each red-teaming run (same filtered successes, contrastive-pair augmentation removed); the color-matched <b>solid</b> line is the original with-contrastive run.</li>
+        <li>Hover a chart for exact values; expand each panel for the data table.</li>
+      </ul>
+    </div>
+    <button class="toggle" id="themeBtn">◑ Theme</button>
+  </header>
+  <div id="root"></div>
+  <div class="footer" id="foot"></div>
+</div>
+
+<script>
+// ===== DATA ============================================================
+const HH_SPLITS = ["ai_dilemmas","ant_hh","balanced_refusal","daily_dilemmas"];
+const HS_SPLITS = ["anthropic","mt","mts","toolace"];
+
+// --- Human harm -------------------------------------------------------
+const HH_SERIES = [
+  { name:"Llama-3.3-70B", cls:"s1", group:"repo",
+    labels:["iter0","iter1","iter2","iter3"],
+    mean:[[0,0.617368],[1,0.649083],[2,0.602508],[3,0.619900]],
+    comp:{
+      ai_dilemmas:[[0,0.513084],[1,0.668901],[2,0.652249],[3,0.684797]],
+      ant_hh:[[0,0.643462],[1,0.740699],[2,0.757073],[3,0.743484]],
+      balanced_refusal:[[0,0.793300],[1,0.580788],[2,0.482800],[3,0.494000]],
+      daily_dilemmas:[[0,0.519627],[1,0.605945],[2,0.517909],[3,0.557320]] } },
+  { name:"gpt-oss-120b", cls:"s2", group:"repo",
+    labels:["iter0","iter1","iter2","iter3"],
+    mean:[[0,0.617368],[1,0.639969],[2,0.643502],[3,0.636228]],
+    comp:{
+      ai_dilemmas:[[0,0.513084],[1,0.698854],[2,0.704369],[3,0.638733]],
+      ant_hh:[[0,0.643462],[1,0.718200],[2,0.732457],[3,0.736578]],
+      balanced_refusal:[[0,0.793300],[1,0.606900],[2,0.558100],[3,0.613375]],
+      daily_dilemmas:[[0,0.519627],[1,0.535923],[2,0.579082],[3,0.556227]] } },
+  { name:"gpt-5.1-chat", cls:"s3", group:"repo",
+    labels:["iter0","iter1","iter2","iter3"],
+    mean:[[0,0.617368],[1,0.602737],[2,0.658281],[3,0.660354]],
+    comp:{
+      ai_dilemmas:[[0,0.513084],[1,0.636354],[2,0.687284],[3,0.704477]],
+      ant_hh:[[0,0.643462],[1,0.725885],[2,0.746046],[3,0.742482]],
+      balanced_refusal:[[0,0.793300],[1,0.636850],[2,0.702813],[3,0.647500]],
+      daily_dilemmas:[[0,0.519627],[1,0.411860],[2,0.496980],[3,0.546960]] } },
+  { name:"Llama-3.3-70B no-cp", cls:"s1", group:"repo_nc", dash:true,
+    labels:["iter0","iter1","iter2","iter3"],
+    mean:[[0,0.617368],[1,0.702694],[2,0.714885],[3,0.723713]],
+    comp:{
+      ai_dilemmas:[[0,0.513084],[1,0.598832],[2,0.639490],[3,0.658845]],
+      ant_hh:[[0,0.643462],[1,0.674092],[2,0.653486],[3,0.659167]],
+      balanced_refusal:[[0,0.793300],[1,0.902438],[2,0.912150],[3,0.914250]],
+      daily_dilemmas:[[0,0.519627],[1,0.635412],[2,0.654415],[3,0.662589]] } },
+  { name:"gpt-oss-120b no-cp", cls:"s2", group:"repo_nc", dash:true,
+    labels:["iter0","iter1","iter2","iter3"],
+    mean:[[0,0.617368],[1,0.672285],[2,0.657912],[3,0.636282]],
+    comp:{
+      ai_dilemmas:[[0,0.513084],[1,0.598616],[2,0.574394],[3,0.564554]],
+      ant_hh:[[0,0.643462],[1,0.697594],[2,0.698597],[3,0.739586]],
+      balanced_refusal:[[0,0.793300],[1,0.806038],[2,0.765987],[3,0.664612]],
+      daily_dilemmas:[[0,0.519627],[1,0.586891],[2,0.592670],[3,0.576374]] } },
+  { name:"gpt-5.1-chat no-cp", cls:"s3", group:"repo_nc", dash:true,
+    labels:["iter0","iter1","iter2","iter3"],
+    mean:[[0,0.617368],[1,0.702296],[2,0.702857],[3,0.697818]],
+    comp:{
+      ai_dilemmas:[[0,0.513084],[1,0.639922],[2,0.637651],[3,0.638192]],
+      ant_hh:[[0,0.643462],[1,0.658721],[2,0.672421],[3,0.680775]],
+      balanced_refusal:[[0,0.793300],[1,0.904075],[2,0.907488],[3,0.890412]],
+      daily_dilemmas:[[0,0.519627],[1,0.606466],[2,0.593867],[3,0.581893]] } },
+  { name:"everything-allowed", cls:"s4", group:"cresults",
+    labels:["baseline","iter1","iter2","iter3","iter4","final ★"],
+    mean:[[0,0.616046],[1,0.799050],[2,0.830263],[3,0.816816],[4,0.823165],[5,0.833519]],
+    comp:{
+      ai_dilemmas:[[0,0.508867],[1,0.794658],[2,0.885813],[3,0.867647],[4,0.887327],[5,0.896734]],
+      ant_hh:[[0,0.642571],[1,0.626086],[2,0.660058],[3,0.653486],[4,0.656048],[5,0.665516]],
+      balanced_refusal:[[0,0.792963],[1,0.965950],[2,0.970463],[3,0.968800],[4,0.971900],[5,0.974813]],
+      daily_dilemmas:[[0,0.519783],[1,0.809506],[2,0.804717],[3,0.777332],[4,0.777384],[5,0.797012]] } },
+  { name:"constraint 1", cls:"s5", group:"cresults",
+    labels:["baseline","iter1","iter2","iter3","iter4","iter5","iter6 ★","iter7"],
+    mean:[[0,0.616046],[1,0.779411],[2,0.805905],[3,0.822354],[4,0.818271],[5,0.829109],[6,0.857007],[7,0.853470]],
+    comp:{
+      ai_dilemmas:[[0,0.508867],[1,0.783629],[2,0.826016],[3,0.857915],[4,0.839641],[5,0.862132],[6,0.906250],[7,0.889922]],
+      ant_hh:[[0,0.642571],[1,0.657830],[2,0.671530],[3,0.699153],[4,0.702829],[5,0.705948],[6,0.718868],[7,0.720539]],
+      balanced_refusal:[[0,0.792963],[1,0.962525],[2,0.967325],[3,0.973550],[4,0.973638],[5,0.976700],[6,0.973463],[7,0.972150]],
+      daily_dilemmas:[[0,0.519783],[1,0.713661],[2,0.758746],[3,0.758798],[4,0.756976],[5,0.771658],[6,0.829446],[7,0.831268]] } },
+  { name:"constraint 2", cls:"s6", group:"cresults",
+    labels:["baseline","v1","v2","v3","v4","v5","v6","noseed ★"],
+    mean:[[0,0.616046],[1,0.789376],[2,0.821666],[3,0.844463],[4,0.816963],[5,0.834788],[6,0.846410],[7,0.850290]],
+    comp:{
+      ai_dilemmas:[[0,0.508867],[1,0.828828],[2,0.902465],[3,0.942474],[4,0.929282],[5,0.948854],[6,0.945177],[7,0.945069]],
+      ant_hh:[[0,0.642571],[1,0.653264],[2,0.661506],[3,0.662063],[4,0.648585],[5,0.640120],[6,0.648251],[7,0.648585]],
+      balanced_refusal:[[0,0.792963],[1,0.936500],[2,0.937550],[3,0.949075],[4,0.909113],[5,0.919275],[6,0.933350],[7,0.944063]],
+      daily_dilemmas:[[0,0.519783],[1,0.738911],[2,0.785142],[3,0.824240],[4,0.780873],[5,0.830904],[6,0.858861],[7,0.863442]] } },
+];
+
+// --- High stakes ------------------------------------------------------
+const HS_SERIES = [
+  { name:"gpt-oss-120b", cls:"s1", group:"repo",
+    labels:["iter0","iter1","iter2","iter3"],
+    mean:[[0,0.804829],[1,0.844923],[2,0.870748],[3,0.874304]],
+    comp:{
+      anthropic:[[0,0.848160],[1,0.865297],[2,0.872494],[3,0.892074]],
+      mt:[[0,0.703250],[1,0.804720],[2,0.889913],[3,0.878966]],
+      mts:[[0,0.904950],[1,0.889365],[2,0.905296],[3,0.906148]],
+      toolace:[[0,0.762957],[1,0.820308],[2,0.815289],[3,0.820029]] } },
+  { name:"everything-allowed", cls:"s2", group:"cresults",
+    labels:["baseline","v8a ★"],
+    mean:[[0,0.802609],[1,0.845530]],
+    comp:{
+      anthropic:[[0,0.848811],[1,0.941990]],
+      mt:[[0,0.693727],[1,0.783293]],
+      mts:[[0,0.912542],[1,0.900980]],
+      toolace:[[0,0.755354],[1,0.755856]] } },
+  { name:"constraint 1", cls:"s3", group:"cresults",
+    labels:["baseline","v1","v2","v3","v4","v5","v6","v7","v8","v9","v10","v11 ★","v12"],
+    mean:[[0,0.803010],[1,0.801161],[2,0.767387],[3,0.800877],[4,0.791436],[5,0.800213],[6,0.769144],[7,0.805713],[8,0.831414],[9,0.826504],[10,0.828776],[11,0.834374],[12,0.818784]],
+    comp:{
+      anthropic:[[0,0.848323],[1,0.855217],[2,0.892797],[3,0.857507],[4,0.873806],[5,0.886143],[6,0.901806],[7,0.895600],[8,0.882913],[9,0.911604],[10,0.897743],[11,0.892245],[12,0.879892]],
+      mt:[[0,0.694063],[1,0.695590],[2,0.632084],[3,0.683039],[4,0.653020],[5,0.690932],[6,0.615082],[7,0.704363],[8,0.760934],[9,0.739869],[10,0.750065],[11,0.762642],[12,0.730915]],
+      mts:[[0,0.913687],[1,0.900767],[2,0.828520],[3,0.912142],[4,0.893788],[5,0.878443],[6,0.841254],[7,0.861474],[8,0.911210],[9,0.894747],[10,0.907427],[11,0.908200],[12,0.894827]],
+      toolace:[[0,0.755967],[1,0.753067],[2,0.716147],[3,0.750818],[4,0.745129],[5,0.745334],[6,0.718434],[7,0.761414],[8,0.770598],[9,0.759797],[10,0.759871],[11,0.774409],[12,0.769501]] } },
+  { name:"constraint 2", cls:"s4", group:"cresults",
+    labels:["baseline","v1","v2","v3","v4","v5","v6","v7","v8","FINAL ★"],
+    mean:[[0,0.803010],[1,0.811786],[2,0.812297],[3,0.835606],[4,0.821842],[5,0.834615],[6,0.836647],[7,0.822718],[8,0.827103],[9,0.843066]],
+    comp:{
+      anthropic:[[0,0.848323],[1,0.885753],[2,0.890916],[3,0.886544],[4,0.880854],[5,0.886885],[6,0.870817],[7,0.854245],[8,0.870250],[9,0.881147]],
+      mt:[[0,0.694063],[1,0.707391],[2,0.702552],[3,0.768102],[4,0.743207],[5,0.779152],[6,0.797966],[7,0.760597],[8,0.781637],[9,0.832695]],
+      mts:[[0,0.913687],[1,0.905429],[2,0.901966],[3,0.910358],[4,0.888247],[5,0.900448],[6,0.903564],[7,0.908333],[8,0.893495],[9,0.898476]],
+      toolace:[[0,0.755967],[1,0.748569],[2,0.753755],[3,0.777420],[4,0.775059],[5,0.771974],[6,0.774242],[7,0.767698],[8,0.763032],[9,0.759946]] } },
+];
+
+const CONCEPTS = [
+  { key:"hh", title:"Human harm (hh)", splits:HH_SPLITS, series:HH_SERIES,
+    note:"Eval components: ai_dilemmas · ant_hh · balanced_refusal · daily_dilemmas. Red-teaming series share one Llama-3.3-70B base probe (iter0 = 0.6174); simple-prompted series each start from their own baseline probe. Solid red-teaming lines retrain on filter+contrastive successes; dashed 'no contrastive' lines retrain on the same filtered successes with the contrastive-pair augmentation removed.",
+    meanY:{ymin:0.55,ymax:0.90,yticks:[0.6,0.7,0.8,0.9],chance:false},
+    meanSrc:"results_hu_harm_llama70b50{,_gptoss120b,_gpt51chat}/*_comparison.csv  +  results_hu_harm_llama70b50_nocontrastive/*_comparison.csv  +  cresults/results-{all,constraint1,constraint2}-hh/*.csv" },
+  { key:"hs", title:"High stakes (hs)", splits:HS_SPLITS, series:HS_SERIES,
+    note:"Eval components: anthropic · mt · mts · toolace. Red-teaming series = gpt-oss-120b red-team on a Llama-1B probe; simple-prompted component labels a/b/c/d recovered from the un-hidden baseline (all-hs).",
+    meanY:{ymin:0.70,ymax:0.90,yticks:[0.70,0.75,0.80,0.85,0.90],chance:false},
+    meanSrc:"results_hs_prompt_llama1b_gptoss120b/gptoss120b_comparison.csv  +  cresults/results-{all,constraint1,constraint2}-hs/*.csv" },
+];
+
+// ===== GEOMETRY / SCALES ==============================================
+const GEO_MEAN = {W:880,H:330,mt:16,mr:132,mb:38,ml:50};
+const GEO_MINI = {W:330,H:200,mt:10,mr:16,mb:24,ml:34};
+const pw = g => g.W-g.ml-g.mr;
+const ph = g => g.H-g.mt-g.mb;
+const xPos = (it,its,g)=> g.ml + (its.length===1?pw(g)/2:(it-its[0])/(its[its.length-1]-its[0])*pw(g));
+const yPos = (v,g,ymin,ymax)=> g.mt + (1-(v-ymin)/(ymax-ymin))*ph(g);
+
+const CHARTS = [];   // registry for hover wiring
+
+function chartSVG(series, opts){
+  const {id, geo:g, ymin, ymax, yticks, labelSeries, mini, chance, its} = opts;
+  CHARTS.push({id, series, its, g, ymin, ymax});
+  let s='';
+  yticks.forEach(v=>{
+    const y=yPos(v,g,ymin,ymax);
+    s+=`<line class="gridline" x1="${g.ml}" y1="${y}" x2="${g.ml+pw(g)}" y2="${y}"/>`;
+    s+=`<text class="ylab" x="${g.ml-6}" y="${y+3}" text-anchor="end">${v.toFixed(2)}</text>`;
+  });
+  if(chance){
+    const y=yPos(0.5,g,ymin,ymax);
+    s+=`<line class="chanceline" x1="${g.ml}" y1="${y}" x2="${g.ml+pw(g)}" y2="${y}"/>`;
+    s+=`<text class="ylab" x="${g.ml+pw(g)+5}" y="${y+3}" text-anchor="start">chance</text>`;
+  }
+  s+=`<line class="axline" x1="${g.ml}" y1="${g.mt+ph(g)}" x2="${g.ml+pw(g)}" y2="${g.mt+ph(g)}"/>`;
+  its.forEach(it=>{ s+=`<text class="tick" x="${xPos(it,its,g)}" y="${g.mt+ph(g)+15}" text-anchor="middle">${it}</text>`; });
+  s+=`<text class="tick" x="${g.ml+pw(g)/2}" y="${g.mt+ph(g)+30}" text-anchor="middle">retrain step (0 = baseline)</text>`;
+  const labels=[];
+  series.forEach(x=>{
+    const pts=x.pts.map(p=>`${xPos(p[0],its,g)},${yPos(p[1],g,ymin,ymax)}`).join(' ');
+    s+=`<polyline class="line ${x.cls}${mini?' mini':''}${x.dash?' dashed':''}" points="${pts}"/>`;
+    x.pts.forEach(p=>{ s+=`<circle class="pt ${x.cls}" cx="${xPos(p[0],its,g)}" cy="${yPos(p[1],g,ymin,ymax)}" r="${mini?2.4:3.2}"/>`; });
+    if(labelSeries){ const l=x.pts[x.pts.length-1];
+      labels.push({cls:x.cls, name:x.name, x:xPos(l[0],its,g)+7, y:yPos(l[1],g,ymin,ymax)+3.5}); }
+  });
+  if(labelSeries){
+    // de-collide end-labels that share (nearly) the same x by stacking vertically
+    const groups={};
+    labels.forEach(l=>{ const k=Math.round(l.x/6); (groups[k]=groups[k]||[]).push(l); });
+    Object.values(groups).forEach(gr=>{ gr.sort((a,b)=>a.y-b.y);
+      for(let i=1;i<gr.length;i++){ if(gr[i].y-gr[i-1].y<11) gr[i].y=gr[i-1].y+11; } });
+    labels.forEach(l=>{ s+=`<text class="endlab ${l.cls}" x="${l.x}" y="${l.y}">${l.name}</text>`; });
+  }
+  s+=`<line class="crosshair" id="ch-${id}" y1="${g.mt}" y2="${g.mt+ph(g)}"/>`;
+  its.forEach(it=>{ const x=xPos(it,its,g);
+    s+=`<rect class="hz-${id}" x="${x-pw(g)/(its.length*2)-2}" y="${g.mt}" width="${pw(g)/its.length+4}" height="${ph(g)}" fill="transparent" data-it="${it}"/>`; });
+  return `<div class="chartbox"><svg id="svg-${id}" viewBox="0 0 ${g.W} ${g.H}" role="img" aria-label="AUROC chart">${s}</svg><div class="tip" id="tip-${id}"></div></div>`;
+}
+
+function allIters(series){ const s=new Set(); series.forEach(x=>x.pts.forEach(p=>s.add(p[0]))); return [...s].sort((a,b)=>a-b); }
+function buildPts(list, metric){ return list.map(s=>({name:s.name, cls:s.cls, dash:s.dash, pts: metric==='mean'? s.mean : s.comp[metric], labels:s.labels})); }
+
+function legendHTML(series){
+  const grp = (cap, arr, dash) => arr.length? `<span class="lg"><span class="cap">${cap}</span></span>`+arr.map(x=>
+      `<span class="lg"><span class="sw ${x.cls}${dash?' dashed':''}"></span>${x.name.replace(/ \(repo\)$/,'').replace(/ no-cp$/,'')}</span>`).join('') : '';
+  return `<div class="legend">`+
+    grp("red teaming (with contrastive):", series.filter(s=>s.group==="repo"))+
+    grp("red teaming (no contrastive, dashed):", series.filter(s=>s.group==="repo_nc"), true)+
+    grp("simple prompted:", series.filter(s=>s.group==="cresults"))+`</div>`;
+}
+
+function tableHTML(list, metric){
+  const series=buildPts(list, metric);
+  const its=allIters(series);
+  const head=`<tr><th>series</th>${its.map(i=>`<th>step ${i}</th>`).join('')}</tr>`;
+  const body=list.map(x=>{ const m=new Map((metric==='mean'?x.mean:x.comp[metric]));
+    return `<tr><td>${x.name.replace(/ \(repo\)$/,'')}</td>${its.map(i=>{
+      const v=m.has(i)?m.get(i):null;
+      const lab=x.labels[i]!==undefined?x.labels[i]:'';
+      return `<td title="${lab}">${v!==null?v.toFixed(3):'—'}</td>`;}).join('')}</tr>`;}).join('');
+  return `<div class="tblwrap"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+}
+
+function meanCard(c){
+  const series=buildPts(c.series,'mean');
+  const its=allIters(series);
+  return `<div class="card"><h2>${c.title} · mean eval AUROC</h2>
+    <p class="meta">Mean AUROC across the four eval components vs. retrain step. ${c.note}</p>
+    <p class="src">${c.meanSrc}</p>
+    ${chartSVG(series,{id:`${c.key}-mean`,geo:GEO_MEAN,ymin:c.meanY.ymin,ymax:c.meanY.ymax,yticks:c.meanY.yticks,labelSeries:true,chance:c.meanY.chance,its})}
+    ${legendHTML(c.series)}
+    <details><summary>Data table (mean AUROC)</summary>${tableHTML(c.series,'mean')}</details></div>`;
+}
+
+function compCard(c){
+  const charts=c.splits.map((sp,k)=>{
+    const series=buildPts(c.series,sp);
+    const its=allIters(series);
+    return `<div class="facet"><h3>${sp}</h3>`+
+      chartSVG(series,{id:`${c.key}-c${k}`,geo:GEO_MINI,ymin:0.4,ymax:1.0,yticks:[0.4,0.6,0.8,1.0],mini:true,chance:true,its})+`</div>`;
+  }).join('');
+  const tables=c.splits.map(sp=>`<div class="tcap">${sp}</div>`+tableHTML(c.series,sp)).join('');
+  return `<div class="card"><h2>${c.title} · AUROC by eval component</h2>
+    <p class="meta">Same series and steps as the mean panel, broken out per eval component (one column each). Dashed line = 0.5 chance.</p>
+    <div class="facets">${charts}</div>
+    ${legendHTML(c.series)}
+    <details><summary>Data tables (AUROC per component)</summary>${tables}</details></div>`;
+}
+
+document.getElementById('root').innerHTML = CONCEPTS.map(c=>
+  `<h2 class="sect">${c.title}</h2><p class="sectnote">${c.note}</p>
+   <div class="stack">${meanCard(c)}${compCard(c)}</div>`).join('');
+
+document.getElementById('foot').innerHTML =
+  `Red-teaming series are the red-team → retrain runs from the earlier viewer's panel 6 (hh) and the `+
+  `results_hs_prompt_llama1b_gptoss120b run (hs). Simple-prompted series come from `+
+  `~/Documents/cresults/results-{all,constraint1,constraint2}-{hh,hs}. Config-sweep folders (all-hs) are collapsed to `+
+  `baseline → highest-mean config; folders with clean iter/version sequences show every step. ★ = each series' `+
+  `highest-mean point. hh components = ai_dilemmas / ant_hh / balanced_refusal / daily_dilemmas; `+
+  `hs components = anthropic / mt / mts / toolace. Generated ${new Date().toISOString().slice(0,10)}.`;
+
+// ===== HOVER ===========================================================
+CHARTS.forEach(c=>{
+  const svg=document.getElementById('svg-'+c.id);
+  const box=svg.closest('.chartbox');
+  const tip=document.getElementById('tip-'+c.id);
+  const ch=document.getElementById('ch-'+c.id);
+  function show(it){
+    const x=xPos(it,c.its,c.g);
+    ch.setAttribute('x1',x); ch.setAttribute('x2',x); ch.classList.add('hi');
+    tip.innerHTML=`<div class="th">step ${it}</div>`+
+      c.series.filter(s=>new Map(s.pts).has(it)).map(s=>{
+        const v=new Map(s.pts).get(it);
+        const lab=s.labels && s.labels[it]!==undefined ? s.labels[it] : '';
+        const nm=s.name.replace(/ \(repo\)$/,'');
+        return `<div class="row"><span><span class="dot" style="background:var(--${s.cls})"></span>${nm}${lab?` · ${lab}`:''}</span><b>${v.toFixed(3)}</b></div>`;
+      }).join('');
+    tip.style.opacity=1;
+    const r=svg.getBoundingClientRect(), scale=r.width/c.g.W;
+    let px=x*scale+12;
+    if(px > r.width-tip.offsetWidth-6) px = x*scale - tip.offsetWidth - 12;
+    tip.style.left=Math.max(4,px)+'px';
+    tip.style.top=(c.g.mt*scale+4)+'px';
+  }
+  function hide(){ ch.classList.remove('hi'); tip.style.opacity=0; }
+  box.querySelectorAll('.hz-'+c.id).forEach(rc=>{
+    rc.addEventListener('mousemove',()=>show(+rc.dataset.it));
+    rc.addEventListener('mouseenter',()=>show(+rc.dataset.it));
+  });
+  box.addEventListener('mouseleave',hide);
+});
+
+// ===== THEME TOGGLE ====================================================
+const rootEl=document.documentElement, btn=document.getElementById('themeBtn');
+btn.addEventListener('click',()=>{
+  const cur=rootEl.getAttribute('data-theme');
+  const dark=cur? cur==='dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+  rootEl.setAttribute('data-theme', dark?'light':'dark');
+});
+</script>
+</body>
+</html>
