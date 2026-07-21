@@ -132,6 +132,12 @@ RNG-based**: each sample's train-vs-val side is a pure function of its own conte
 every iteration even as red-team successes accumulate. `--seed` (default 42) seeds
 that split and the (reproducible) eval subsampling; `--eval-max-samples`
 (default 100, `0` = full split) sets the balanced subsample size per eval split.
+`--base-data-fraction` (default 1.0, range (0, 1]) ingests only a random fraction
+of the **base** training data — selected by the same content-deterministic hash
+(`stable_fraction_subsample`, namespaced `frac:{seed}` so it's independent of the
+train/val split) and applied *before* the split, so the chosen subset is identical
+every iteration, preserves class balance in expectation, and is folded into the
+base activation cache key. Red-team successes are never subsampled.
 When the config has a `preprocessing:` section, red-team successes are run through
 `filter_dataset` + `generate_contrastive_dataset` before each retrain.
 
@@ -585,6 +591,36 @@ only, this repo applies the same values to the training data as well** (see
 `retrain.py`) so the probe trains and is scored on the same message representation.
 Exposed via the config `eval:` section (`EvalConfig`) and overridable per-run by the
 `--[no-]combine-consecutive-messages` / `--[no-]convert-tool-to-assistant` CLI flags.
+
+### Eval dataset splits on disk
+Two eval-split directories ship in the repo, one per probe concept. `--eval-dataset-dir`
+picks which one a run scores against; `evaluate_probe` loads `<dir>/<split>.jsonl` for each
+name in `splits` (default `DEFAULT_EVAL_SPLITS`). Every split JSONL row is a tuberlens
+`LabelledDataset` record: `inputs` is a **JSON-encoded string** of `[{role, content}, ...]`
+(parse it, don't treat it as text) and `labels` is the class string.
+
+- **`eval_datasets/`** — the **high-stakes** probe's splits, and the source of
+  `DEFAULT_EVAL_SPLITS`: `anthropic` (1028), `mt` (278), `mts` (274), `toolace` (328).
+  Labels are `high-stakes` / `low-stakes`, exactly class-balanced per split. Extra columns:
+  `ids`, `scale_labels`, `scale_label_confidence`, and per-split provenance
+  (`category`/`index` for anthropic, `medical_specialty`/`sample_name` for mt,
+  `section_header` for mts, `original_system_prompts`/`modified_system_prompts` for toolace —
+  toolace `inputs` always uses the *modified* system prompt). **Gotcha:**
+  `label_explanation` here is boilerplate (`"Filled in based on scale_labels and
+  scale_label_confidence"`) — the real human-readable rationale is in
+  **`scale_label_explanation`**. Rows are **independently labelled**: there is no
+  cross-class pairing (anthropic chosen/rejected `index` is unique and orthogonal to the
+  stakes label; mt/mts/toolace ids are per-sample).
+- **`eval_dataset_hu_ha/`** — the **harmful_to_human** probe's splits: `eval_ai_dilemmas`
+  (136 rows), `eval_balanced_refusal` (400), `eval_daily_dilemmas` (196), `eval_ant_hh`
+  (134). Labels are `harmful_to_human` / `not_harmful_to_human`, class-balanced. Slim
+  schema: `inputs`, `labels`, `harm_explanation` (the real rationale here — no boilerplate
+  field), `source`. Three of the four splits are **paired**: the same user prompt appears
+  once with a harmful assistant response and once with a non-harmful one (ai_dilemmas
+  68 pairs, daily_dilemmas 98, balanced_refusal 200 — 158 one-to-one plus 21 prompts
+  carrying two of each class). `eval_ant_hh` is **not** paired (every user prompt is
+  distinct). Pairing is a property of the data, not something the eval code uses —
+  `evaluate_probe` scores every row independently regardless.
 
 ### `agentic_redteam/cli.py`
 Two entry points: `run_redteam_main` (one round against an existing probe) and
