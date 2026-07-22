@@ -9,6 +9,8 @@ Env vars:
     OPENROUTER_BASE_URL       — optional override (default https://openrouter.ai/api/v1).
     OPENROUTER_HTTP_REFERER   — optional, sent as HTTP-Referer (OpenRouter dashboard attribution).
     OPENROUTER_APP_TITLE      — optional, sent as X-Title (OpenRouter dashboard attribution).
+    OPENROUTER_TIMEOUT_S      — optional, per-request wall-clock timeout in seconds
+                                (default 60; 0 or negative → the SDK's default, ~600s).
 
 ``openai`` is imported lazily so configurations that never touch OpenRouter
 don't need it loadable.
@@ -21,6 +23,14 @@ import os
 from typing import Any
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+
+# Per-request wall-clock timeout (seconds). The openai SDK defaults to ~600s,
+# which lets a single stalled upstream call (e.g. a provider 504) block a whole
+# sequential red-team round for minutes; cap it here instead. Overridable via
+# OPENROUTER_TIMEOUT_S. We also pin the SDK's own max_retries to 0 so retry
+# policy lives in one place (attacker._openrouter_create_with_retry) rather than
+# being silently multiplied by the SDK's default of 2 nested retries.
+DEFAULT_REQUEST_TIMEOUT_S = 60.0
 
 
 def extract_openrouter_error(response: Any) -> str | None:
@@ -55,6 +65,23 @@ def _resolve_api_key() -> str:
     return key
 
 
+def _resolve_timeout() -> float | None:
+    """Per-request timeout in seconds from ``OPENROUTER_TIMEOUT_S``.
+
+    Defaults to ``DEFAULT_REQUEST_TIMEOUT_S``. A value ``<= 0`` (or an
+    unparseable one) disables the cap by returning ``None``, restoring the
+    openai SDK's own default (~600s).
+    """
+    raw = os.environ.get("OPENROUTER_TIMEOUT_S")
+    if raw is None:
+        return DEFAULT_REQUEST_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        return DEFAULT_REQUEST_TIMEOUT_S
+    return value if value > 0 else None
+
+
 def _default_headers() -> dict[str, str]:
     headers: dict[str, str] = {}
     referer = os.environ.get("OPENROUTER_HTTP_REFERER")
@@ -74,6 +101,8 @@ def make_sync_client() -> Any:
         api_key=_resolve_api_key(),
         base_url=os.environ.get("OPENROUTER_BASE_URL", DEFAULT_BASE_URL),
         default_headers=_default_headers() or None,
+        timeout=_resolve_timeout(),
+        max_retries=0,
     )
 
 
@@ -85,4 +114,6 @@ def make_async_client() -> Any:
         api_key=_resolve_api_key(),
         base_url=os.environ.get("OPENROUTER_BASE_URL", DEFAULT_BASE_URL),
         default_headers=_default_headers() or None,
+        timeout=_resolve_timeout(),
+        max_retries=0,
     )

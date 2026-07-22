@@ -624,6 +624,7 @@ def _build_redteam_dataset(
         max_tokens=preprocessing.max_tokens,
         max_retries=preprocessing.max_generation_retries,
         cache_path=contrastive_cache_path,
+        assistant_centric=preprocessing.assistant_centric,
     )
     return _dicts_to_labelled_dataset(dicts, pos_label, neg_label)
 

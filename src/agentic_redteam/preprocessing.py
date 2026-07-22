@@ -169,21 +169,53 @@ def filter_dataset(
 # 2. Contrastive pair generation
 # --------------------------------------------------------------------------- #
 
+# The dataset carries the long class labels; we present shorter, plainer names to
+# the LLM in the generation prompt only. This is display-only: the raw labels are
+# still used everywhere that matters (cache key, the generated record's `labels` /
+# `original_label` fields). Unknown labels (e.g. the high-stakes concept) pass
+# through unchanged.
+LABEL_SHORT = {
+    "harmful_to_human": "unsafe",
+    "not_harmful_to_human": "safe",
+}
 
-def _generation_system_prompt(current_label: str, target_label: str) -> str:
+def _short_label(label: str) -> str:
+    """Map a raw class label to its short prompt name (pass through if unknown)."""
+    return LABEL_SHORT.get(label, label)
+
+
+def _generation_system_prompt(
+    current_label: str, target_label: str, *, assistant_centric: bool = False
+) -> str:
+    cur = _short_label(current_label)
+    tgt = _short_label(target_label)
+    # For concepts defined by the assistant's reply (e.g. harmful_to_human), tell
+    # the model the label lives in the assistant turns; skip this for whole-scenario
+    # concepts (e.g. high-stakes). Gated by the caller's assistant_centric flag.
+    emphasis = (
+        "- Crucially, it is the assistant's response (not the user's message) that "
+        "determines this label, so focus your changes on the assistant turn(s)\n"
+        if assistant_centric
+        else ""
+    )
     return (
-        f'You are given a conversation/scenario labeled "{current_label}". Generate a '
-        f'similar-looking conversation/scenario that belongs to the "{target_label}" '
+        "You are an AI-safety research assistant supporting a red-teaming team. "
+        "Your task is to help generate contrastive training pairs used to build and "
+        "evaluate a safety classifier.\n\n"
+        f'You are given a conversation/scenario labeled "{cur}". Generate a '
+        f'similar-looking conversation/scenario that belongs to the "{tgt}" '
         "class instead.\n\n"
         "The new scenario should:\n"
         "- Have similar structure and length\n"
         "- Use similar language and style\n"
         "- Preserve the conversational format (roles) if applicable\n"
-        f'- But clearly belong to "{target_label}" rather than "{current_label}"\n\n'
+        f'- But clearly belong to "{tgt}" rather than "{cur}"\n'
+        f"{emphasis}"
+        "\n"
         "Respond with a single JSON object using these keys:\n"
         "- generated_messages: the new conversation as a list of message objects, each "
         "with 'role' and 'content' string fields\n"
-        f'- explanation: a brief explanation of why it is "{target_label}"\n'
+        f'- explanation: a brief explanation of why it is "{tgt}"\n'
         "Output only the JSON object, with no surrounding text."
     )
 
@@ -212,10 +244,18 @@ def _parse_json_object(text: str) -> dict | None:
 class _ContrastiveLLM:
     """Sync LLM caller for contrastive generation, over either provider."""
 
-    def __init__(self, provider: str, model: str, max_tokens: int) -> None:
+    def __init__(
+        self,
+        provider: str,
+        model: str,
+        max_tokens: int,
+        *,
+        assistant_centric: bool = False,
+    ) -> None:
         self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
+        self.assistant_centric = assistant_centric
         self._client: Any = None
 
     def _ensure_client(self) -> Any:
@@ -236,11 +276,13 @@ class _ContrastiveLLM:
         self, messages: list[dict[str, str]], current_label: str, target_label: str
     ) -> dict | None:
         client = self._ensure_client()
-        system = _generation_system_prompt(current_label, target_label)
+        system = _generation_system_prompt(
+            current_label, target_label, assistant_centric=self.assistant_centric
+        )
         user = (
-            f'Original "{current_label}" conversation:\n\n'
+            f'Original "{_short_label(current_label)}" conversation:\n\n'
             f"{_render_transcript(messages)}\n\n"
-            f'Now produce the "{target_label}" version as instructed.'
+            f'Now produce the "{_short_label(target_label)}" version as instructed.'
         )
         try:
             if self.provider == "claude_sdk":
@@ -320,6 +362,7 @@ def generate_contrastive_dataset(
     text_key: str = "inputs",
     label_key: str = "labels",
     cache_path: str | Path | None = None,
+    assistant_centric: bool = False,
 ) -> list[dict]:
     """Return ``records`` plus one opposite-class contrastive example per record.
 
@@ -363,7 +406,9 @@ def generate_contrastive_dataset(
             to_generate.append((idx, record, messages, current_label, target_label))
 
     if to_generate:
-        llm = _ContrastiveLLM(provider, model, max_tokens)
+        llm = _ContrastiveLLM(
+            provider, model, max_tokens, assistant_centric=assistant_centric
+        )
         llm._ensure_client()  # initialize once before fan-out
 
         def _attempt(messages, current_label, target_label):

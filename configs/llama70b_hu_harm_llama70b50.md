@@ -35,6 +35,7 @@ preprocessing:                     # optional: collation-style preprocessing of 
   max_concurrent: 50
   max_tokens: 2048
   filter_percentile: 0.8
+  assistant_centric: true         # harm is a property of the assistant reply → emphasize it in contrastive prompt
 
 eval:                              # dataset-loading transforms — MUST match how the cached eval
   combine_consecutive_messages: true  #   activations below were computed, or the path-keyed cache
@@ -42,9 +43,9 @@ eval:                              # dataset-loading transforms — MUST match h
   eval_max_samples: 0                 # full split
 
 output:
-  jsonl_path: ../results_hu_harm_llama70b50/llama1b_probing.jsonl   # NEW dir — isolated from the hu_ha_200 runs
-  run_id: llama1b_llama70b50_full
-  comparison_csv: ../results_hu_harm_llama70b50/llama1b_comparison.csv
+  jsonl_path: ../results_hu_harm_llama70b50/llama70b_probing.jsonl   # NEW dir — isolated from the hu_ha_200 runs
+  run_id: llama70b_llama70b50_full
+  comparison_csv: ../results_hu_harm_llama70b50/llama70b_comparison.csv
   activations_cache_dir: ../results_hu_harm_prompt_llama1b/llama1b_eval_activations   # SHARED with the hu_ha_200 run:
                                   #   eval activations depend only on the model + eval splits + seed (NOT the training
                                   #   data), and the eval: transforms + eval_max_samples below are identical, so the

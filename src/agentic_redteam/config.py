@@ -169,6 +169,12 @@ class PreprocessingConfig:
     # Retries per record when a contrastive generation fails; after them the
     # source record and its missing pair are dropped (see generate_contrastive_dataset).
     max_generation_retries: int = 2
+    # When true, the contrastive-generation prompt tells the model that the label
+    # is determined by the *assistant's* response (not the user's message) and to
+    # focus its edits on the assistant turns. Only correct for concepts that are a
+    # property of the assistant reply (e.g. harmful_to_human); leave false for
+    # whole-scenario concepts (e.g. high-stakes).
+    assistant_centric: bool = False
 
 
 @dataclass
@@ -427,6 +433,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             max_tokens=int(pp.get("max_tokens", 2048)),
             filter_percentile=float(pp.get("filter_percentile", 0.8)),
             max_generation_retries=int(pp.get("max_generation_retries", 2)),
+            assistant_centric=bool(pp.get("assistant_centric", False)),
         )
 
     return RedteamConfig(

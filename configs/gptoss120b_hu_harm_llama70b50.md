@@ -35,6 +35,7 @@ preprocessing:                     # optional: collation-style preprocessing of 
   max_concurrent: 50
   max_tokens: 2048
   filter_percentile: 0.8
+  assistant_centric: true         # harm is a property of the assistant reply → emphasize it in contrastive prompt
 
 eval:                              # dataset-loading transforms — MUST match how the cached eval
   combine_consecutive_messages: true  #   activations below were computed, or the path-keyed cache

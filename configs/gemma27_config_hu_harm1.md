@@ -33,6 +33,7 @@ preprocessing:                     # optional: collation-style preprocessing of 
   max_concurrent: 50
   max_tokens: 2048
   filter_percentile: 0.8
+  assistant_centric: true         # harm is a property of the assistant reply → emphasize it in contrastive prompt
 
 eval:                              # optional: dataset-loading transforms for eval splits ONLY
   combine_consecutive_messages: true  # merge adjacent same-role messages
