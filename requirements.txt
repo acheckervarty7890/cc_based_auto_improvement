@@ -1,0 +1,134 @@
+# Reproduce the .venv_claude environment on another machine.
+# Python 3.12 (this env: 3.12.3)
+#
+#   python3.12 -m venv .venv_claude
+#   .venv_claude/bin/pip install -U pip
+#   .venv_claude/bin/pip install -r requirements.txt
+#   .venv_claude/bin/pip install -e .            # this repo (agentic_redteam)
+#
+# The nvidia-*/triton/cuda-* wheels are Linux+CUDA only (pulled in by torch);
+# they are pinned below behind a Linux marker for exact reproduction.
+
+# --- private git dependencies (need repo access: SSH key or a PAT) ---
+# These are installed *editable* in the current env (.venv_claude/src/<name>).
+# To keep that, prefix the line with `-e ` and use the `#egg=<name>` form instead,
+# e.g.  -e git+ssh://git@github.com/acheckervarty7890/tuberlens.git@<sha>#egg=tuberlens
+# agentic_redteam: this repo itself -- install with `pip install -e .` (env was at 699c7c346d56e9e022296153b3f24b2f369693ad)
+tuberlens @ git+ssh://git@github.com/acheckervarty7890/tuberlens.git@6fd1de76225452a8b802f5cc9bb2f7998fdd3c86
+
+# --- pinned dependencies ---
+accelerate==1.13.0
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.5
+aiosignal==1.4.0
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anthropic==0.100.0
+anyio==4.13.0
+attrs==26.1.0
+certifi==2026.2.25
+cffi==2.0.0
+charset-normalizer==3.4.7
+claude-agent-sdk==0.1.80
+click==8.3.2
+cryptography==48.0.0
+cuda-bindings==13.2.0 ; platform_system == "Linux"
+cuda-pathfinder==1.5.3 ; platform_system == "Linux"
+cuda-toolkit==13.0.2 ; platform_system == "Linux"
+datasets==4.8.4
+dill==0.4.1
+distro==1.9.0
+docstring_parser==0.18.0
+einops==0.8.2
+filelock==3.28.0
+frozenlist==1.8.0
+fsspec==2026.2.0
+gitdb==4.0.12
+GitPython==3.1.46
+h11==0.16.0
+hf-xet==1.4.3
+httpcore==1.0.9
+httpx-sse==0.4.3
+httpx==0.28.1
+huggingface_hub==0.36.2
+idna==3.11
+jaxtyping==0.3.9
+Jinja2==3.1.6
+jiter==0.14.0
+joblib==1.5.3
+jsonschema-specifications==2025.9.1
+jsonschema==4.26.0
+markdown-it-py==4.0.0
+MarkupSafe==3.0.3
+mcp==1.27.1
+mdurl==0.1.2
+mpmath==1.3.0
+multidict==6.7.1
+multiprocess==0.70.19
+networkx==3.6.1
+numpy==2.4.4
+nvidia-cublas==13.1.0.3 ; platform_system == "Linux"
+nvidia-cuda-cupti==13.0.85 ; platform_system == "Linux"
+nvidia-cuda-nvrtc==13.0.88 ; platform_system == "Linux"
+nvidia-cuda-runtime==13.0.96 ; platform_system == "Linux"
+nvidia-cudnn-cu13==9.19.0.56 ; platform_system == "Linux"
+nvidia-cufft==12.0.0.61 ; platform_system == "Linux"
+nvidia-cufile==1.15.1.6 ; platform_system == "Linux"
+nvidia-curand==10.4.0.35 ; platform_system == "Linux"
+nvidia-cusolver==12.0.4.66 ; platform_system == "Linux"
+nvidia-cusparse==12.6.3.3 ; platform_system == "Linux"
+nvidia-cusparselt-cu13==0.8.0 ; platform_system == "Linux"
+nvidia-nccl-cu13==2.28.9 ; platform_system == "Linux"
+nvidia-nvjitlink==13.0.88 ; platform_system == "Linux"
+nvidia-nvshmem-cu13==3.4.5 ; platform_system == "Linux"
+nvidia-nvtx==13.0.85 ; platform_system == "Linux"
+openai==2.32.0
+packaging==26.1
+pandas==3.0.2
+platformdirs==4.9.6
+propcache==0.4.1
+protobuf==7.34.1
+psutil==7.2.2
+pyarrow==23.0.1
+pycparser==3.0
+pydantic-settings==2.13.1
+pydantic==2.13.2
+pydantic_core==2.46.2
+Pygments==2.20.0
+PyJWT==2.12.1
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+python-multipart==0.0.28
+PyYAML==6.0.3
+referencing==0.37.0
+regex==2026.4.4
+requests==2.33.1
+rich==15.0.0
+rpds-py==0.30.0
+safetensors==0.7.0
+scikit-learn==1.8.0
+scipy==1.17.1
+sentry-sdk==2.58.0
+setuptools==70.2.0
+shellingham==1.5.4
+six==1.17.0
+smmap==5.0.3
+sniffio==1.3.1
+sse-starlette==3.4.2
+starlette==1.0.0
+sympy==1.14.0
+threadpoolctl==3.6.0
+tokenizers==0.21.4
+torch==2.11.0
+tqdm==4.67.3
+transformers==4.50.0
+triton==3.6.0 ; platform_system == "Linux"
+typer==0.24.1
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+urllib3==2.6.3
+uvicorn==0.46.0
+wadler_lindig==0.1.7
+wandb==0.26.0
+xxhash==3.6.0
+yarl==1.23.0
