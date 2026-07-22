@@ -26,7 +26,7 @@ probe:
   layer: 8
   pos_class_label: harmful_to_human
   neg_class_label: not_harmful_to_human
-  description: A linear probe on meta-llama/Llama-3.2-1B-Instruct detecting whether the conversation is harmful to humans.
+  description: A linear probe on meta-llama/Llama-3.2-1B-Instruct that reads a conversation between a user and an assistant and detects whether the assistant's response makes the conversation harmful to humans.
   error_type: [false_positive, false_negative]
 
 preprocessing:                     # optional: collation-style preprocessing of red-team
