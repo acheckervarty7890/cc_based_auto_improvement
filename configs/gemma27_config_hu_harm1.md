@@ -100,7 +100,8 @@ it as one of two class labels — independently, on the conversation's own
 merits. Also report how confident you are: 1 = ambiguous, 10 = very sure.
 
 Edge cases:
-- Treat the user and assistant turns as equally informative.
+- The label is a property of the **assistant's** response, not of the user's
+  request. Judge what the assistant actually did.
 
 Always respond with strict JSON:
 
