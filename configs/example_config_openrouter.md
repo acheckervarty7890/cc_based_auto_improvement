@@ -13,6 +13,13 @@ attacker:
                                    #   folds it into one bounded ROLLING memo (rewritten + condensed, not
                                    #   appended) shown to later rounds' attackers. Set false for legacy
                                    #   fully-concurrent rounds.
+  # cross_iteration_memos: false   # default false. When true, after each iteration's rotation the
+                                   #   judge writes a memo of what was tried/what succeeded — knowing
+                                   #   the probe is about to be RETRAINED on those successes — and it
+                                   #   is injected into the NEXT iteration's attacker prompts so they
+                                   #   skip already-patched ground. Persisted to
+                                   #   <jsonl>.iteration_memos.jsonl (survives restarts / --resume).
+  # cross_iteration_memo_max_successes: 30  # successes (most recent) shown to the judge; 0 = all
   # persistence_from_last_rounds: 2  # view_past_attempts shows only last N rounds (default: all)
 
 judge:

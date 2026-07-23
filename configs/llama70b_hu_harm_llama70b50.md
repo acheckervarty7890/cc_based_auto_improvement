@@ -43,14 +43,19 @@ eval:                              # dataset-loading transforms — MUST match h
   eval_max_samples: 0                 # full split
 
 output:
-  jsonl_path: ../results_hu_harm_llama70b50/llama70b_probing.jsonl   # NEW dir — isolated from the hu_ha_200 runs
-  run_id: llama70b_llama70b50_full
-  comparison_csv: ../results_hu_harm_llama70b50/llama70b_comparison.csv
-  activations_cache_dir: ../results_hu_harm_prompt_llama1b/llama1b_eval_activations   # SHARED with the hu_ha_200 run:
-                                  #   eval activations depend only on the model + eval splits + seed (NOT the training
-                                  #   data), and the eval: transforms + eval_max_samples below are identical, so the
-                                  #   path-keyed cache hits correctly and skips a full recompute.
-  base_activation_cache_dir: ../results_hu_harm_llama70b50/llama1b_base_activations
+  jsonl_path: ../results_hu_harm_llama70b50_run2/llama70b_probing.jsonl   # run2 — fresh dir so the
+                                  #   first llama70b run's JSONL/summaries/runlogs are not appended to
+  run_id: llama70b_llama70b50_full_run2
+  comparison_csv: ../results_hu_harm_llama70b50_run2/llama70b_comparison.csv
+  activations_cache_dir: ../results_hu_harm_llama70b50_run2/eval_activations   # run2-private dir, pre-seeded with
+                                  #   SYMLINKS to the existing eval activation blobs (the hu_ha_200 run's dir was moved
+                                  #   under archive/). Eval activations depend only on the model + eval splits + seed
+                                  #   (NOT the training data), and the eval: transforms + eval_max_samples below are
+                                  #   identical, so the path-keyed cache hits and skips a full recompute. Writing into
+                                  #   our own dir keeps run2 from touching a previous run's outputs.
+  base_activation_cache_dir: ../results_hu_harm_llama70b50_run2/base_activations   # same idea: symlinked base blob
+                                  #   (key c209ceed2746d82c) hits; run2's NEW per-conversation red-team activations
+                                  #   land here rather than in the earlier run's dir.
 ---
 
 # Attacker

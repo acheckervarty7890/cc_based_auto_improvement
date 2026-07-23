@@ -29,6 +29,7 @@ from agentic_redteam.llm_judge import LLMJudge
 from agentic_redteam.persistence import (
     AttemptRecord,
     Conversation,
+    IterationMemoStore,
     JsonlStore,
     RunLogger,
     SummaryStore,
@@ -71,6 +72,10 @@ class ToolContext:
     # Shared across the rotation: cumulative per-round judge summaries rendered into
     # the attacker system prompt at session start. None → no summaries section.
     summary_store: SummaryStore | None = None
+    # Shared across the rotation: memo carried in from EARLIER iterations (what has
+    # already been tried and trained against). Rendered into the attacker system
+    # prompt at session start. None → no cross-iteration memo section.
+    iteration_memo_store: "IterationMemoStore | None" = None
 
     def set_round(self, round_num: int) -> None:
         self.current_round = round_num

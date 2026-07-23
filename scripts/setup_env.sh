@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Bootstrap the agentic_redteam environment from scratch on a fresh machine.
 #
+#   0. clone cc_based_auto_improvement and cd into it (skipped if already inside it)
 #   1. create a Python virtualenv (.venv_claude)
 #   2. clone tuberlens @ iterative_pipeline_2 and install it editable
 #   3. install the pinned requirements.txt
@@ -9,8 +10,15 @@
 # Usage:
 #   bash scripts/setup_env.sh [--venv DIR] [--repo DIR] [--python BIN]
 #                             [--branch NAME] [--no-editable-tuberlens]
+#                             [--clone-dir DIR] [--repo-branch NAME] [--no-clone]
 #
-# Env overrides: VENV_DIR, REPO_ROOT, PYTHON_BIN, TUBERLENS_BRANCH
+# On a bare machine, run it standalone — it clones the repo for you:
+#   curl -fsSL https://raw.githubusercontent.com/acheckervarty7890/cc_based_auto_improvement/main/scripts/setup_env.sh | bash
+# (private repo → fetch the script however you can, or just `git clone` first and
+#  run `bash scripts/setup_env.sh` from inside the checkout.)
+#
+# Env overrides: VENV_DIR, REPO_ROOT, PYTHON_BIN, TUBERLENS_BRANCH,
+#                REPO_URL, REPO_BRANCH, CLONE_DIR
 #
 # Notes for network/9p/NFS mounts: if the repo lives on a mount that can't host
 # a venv (noexec, or slow), point --venv somewhere local, e.g.
@@ -19,10 +27,23 @@ set -euo pipefail
 
 TUBERLENS_URL="${TUBERLENS_URL:-https://github.com/acheckervarty7890/tuberlens.git}"
 TUBERLENS_BRANCH="${TUBERLENS_BRANCH:-iterative_pipeline_2}"
-REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+REPO_URL="${REPO_URL:-https://github.com/acheckervarty7890/cc_based_auto_improvement.git}"
+REPO_BRANCH="${REPO_BRANCH:-main}"
+CLONE_DIR="${CLONE_DIR:-}"
+# When piped from curl, BASH_SOURCE is /dev/stdin or "bash" — then there is no
+# surrounding checkout and step 0 has to clone one.
+_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd || echo "")"
+_script_repo="${_script_dir:+$(cd "$_script_dir/.." && pwd)}"
+# An inherited REPO_ROOT (this project exports one) only wins if it really is a
+# checkout; otherwise the directory above this script does.
+if [ -n "${REPO_ROOT:-}" ] && [ ! -f "$REPO_ROOT/requirements.txt" ]; then
+    REPO_ROOT=""
+fi
+REPO_ROOT="${REPO_ROOT:-$_script_repo}"
 VENV_DIR="${VENV_DIR:-}"
 PYTHON_BIN="${PYTHON_BIN:-}"
 TUBERLENS_EDITABLE=1
+DO_CLONE=1
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -30,11 +51,44 @@ while [ $# -gt 0 ]; do
         --repo)   REPO_ROOT="$2"; shift 2 ;;
         --python) PYTHON_BIN="$2"; shift 2 ;;
         --branch) TUBERLENS_BRANCH="$2"; shift 2 ;;
+        --clone-dir)   CLONE_DIR="$2"; shift 2 ;;
+        --repo-branch) REPO_BRANCH="$2"; shift 2 ;;
+        --no-clone) DO_CLONE=0; shift ;;
         --no-editable-tuberlens) TUBERLENS_EDITABLE=0; shift ;;
-        -h|--help) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        -h|--help) sed -n '2,28p' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+
+command -v git >/dev/null 2>&1 || { echo "ERROR: git not found on PATH." >&2; exit 1; }
+
+# --------------------------------------------- 0) clone cc_based_auto_improvement ---
+# Already inside a usable checkout? Then nothing to clone.
+if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/requirements.txt" ] && [ -f "$REPO_ROOT/pyproject.toml" ]; then
+    :
+elif [ "$DO_CLONE" -eq 1 ]; then
+    CLONE_DIR="${CLONE_DIR:-$PWD/cc_based_auto_improvement}"
+    if [ -d "$CLONE_DIR/.git" ]; then
+        echo "==> repo checkout exists at $CLONE_DIR; fetching $REPO_BRANCH"
+        git -C "$CLONE_DIR" fetch --quiet origin "$REPO_BRANCH"
+        git -C "$CLONE_DIR" checkout "$REPO_BRANCH"
+        git -C "$CLONE_DIR" merge --ff-only "origin/$REPO_BRANCH" || \
+            echo "    (local commits present — skipping fast-forward)"
+    else
+        [ -e "$CLONE_DIR" ] && { echo "ERROR: $CLONE_DIR exists and is not a git checkout." >&2; exit 1; }
+        echo "==> cloning $REPO_URL -> $CLONE_DIR"
+        git clone --branch "$REPO_BRANCH" "$REPO_URL" "$CLONE_DIR" || {
+            echo "ERROR: clone failed — private repo? configure an SSH key or PAT," >&2
+            echo "       or set REPO_URL to the ssh form (git@github.com:...)." >&2
+            exit 1; }
+    fi
+    REPO_ROOT="$CLONE_DIR"
+    cd "$REPO_ROOT"
+    echo "==> working inside $PWD"
+else
+    echo "ERROR: not inside a cc_based_auto_improvement checkout and --no-clone was given." >&2
+    exit 1
+fi
 
 REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 VENV_DIR="${VENV_DIR:-$REPO_ROOT/.venv_claude}"
@@ -128,8 +182,11 @@ $PIP check || echo "    (pip check reported conflicts — review above)"
 cat <<EOF
 
 Done.
+  repo:        $REPO_ROOT
   interpreter: $PY
   tuberlens:   $TUBERLENS_DIR
+
+  cd $REPO_ROOT
 
 Export the keys you need before running:
   export ANTHROPIC_API_KEY=...     # any section with provider: claude_sdk

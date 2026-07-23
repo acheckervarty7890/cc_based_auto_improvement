@@ -123,6 +123,18 @@ class AttackerConfig:
     #   sessions launched at once) and no summaries are produced. Models within a
     #   round still run concurrently in both modes.
     round_summaries: bool = True
+    # cross_iteration_memos: when True, a separate judge memo is carried ACROSS
+    #   iterations (the round memo above resets every iteration). After each
+    #   rotation the judge writes a memo about what was tried and what succeeded —
+    #   knowing the probe is about to be retrained on those successes, so they
+    #   should be treated as patched — and that memo is injected into the next
+    #   iteration's attacker system prompts so they don't re-run trained-against
+    #   ideas. Persisted to `<jsonl>.iteration_memos.jsonl`, so it also survives a
+    #   process restart / --resume. Default off — existing configs behave identically.
+    cross_iteration_memos: bool = False
+    # How many of this iteration's successes (most recent) are shown to the judge when
+    # it writes the cross-iteration memo. 0 = all (can make the judge prompt huge).
+    cross_iteration_memo_max_successes: int = 30
     # interface: how the attacker is driven (OpenRouter only for "prompt").
     #   "tools" (default) — the model is handed the three tools and calls them itself.
     #   "prompt" — classical no-tool mode: no tool schemas are sent. The model emits one
@@ -453,6 +465,10 @@ def load_config(path: str | Path) -> RedteamConfig:
             near_dup_threshold=float(a.get("near_dup_threshold", 0.8)),
             near_dup_broadcast=bool(a.get("near_dup_broadcast", False)),
             round_summaries=bool(a.get("round_summaries", True)),
+            cross_iteration_memos=bool(a.get("cross_iteration_memos", False)),
+            cross_iteration_memo_max_successes=int(
+                a.get("cross_iteration_memo_max_successes", 30)
+            ),
             interface=attacker_interface,
             view_limit=int(a.get("view_limit", 10)),
             system_prompt=attacker_prompt,

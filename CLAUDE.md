@@ -47,7 +47,14 @@ The end-to-end loop:
    run. That memo is injected into the system prompt of every later round's
    attacker, which is always shown it and can still call `view_past_attempts`
    for specific conversations. The memo resets per iteration (and per error type).
-6. The retraining script converts JSONL successes into a tuberlens
+6. With `attacker.cross_iteration_memos` enabled (default **off**), a second,
+   **cross-iteration** memo bridges that reset: after each iteration's rotation
+   finishes — and before the retrain — the judge writes a hand-off memo covering
+   what was tried, what succeeded (and is therefore about to be trained against,
+   so it should be treated as *patched*), and what remains unexplored. It is
+   injected into the next iteration's attacker system prompts and rewritten
+   (not appended) each iteration, so it stays bounded.
+7. The retraining script converts JSONL successes into a tuberlens
    `LabelledDataset` — each sample labelled with the **judge's predicted
    class** (the judge is the source of truth; `error_type` is only used as a
    fallback for old rows missing `judge_label`). Optionally concatenates with
@@ -191,6 +198,15 @@ attacker:
                                       #   not appended), injected into later rounds' attacker system prompts.
                                       #   false → legacy fully-concurrent scheduling, no memo. Models within a
                                       #   round are concurrent either way.
+  cross_iteration_memos: bool         # default FALSE. true → after each iteration's rotation (before the
+                                      #   retrain) the judge writes a hand-off memo — what was tried, what
+                                      #   succeeded and is about to be trained against (⇒ treat as patched),
+                                      #   what's unexplored — injected into the NEXT iteration's attacker
+                                      #   system prompts. Persisted to <jsonl>.iteration_memos.jsonl, which
+                                      #   is re-read at run start, so it crosses both the iteration boundary
+                                      #   and a process restart (--resume). Independent of round_summaries.
+  cross_iteration_memo_max_successes: int  # successes (most recent) shown to the judge when writing that
+                                      #   memo (default 30; 0 = all — can make the judge prompt huge)
   interface: tools | prompt           # how the attacker is driven (default tools). "prompt" = classical
                                       #   no-tool prompting: the model gets NO tools; instead get_probe_info
                                       #   is baked into the system prompt and view_past_attempts is injected
@@ -269,7 +285,9 @@ written before this field existed read back as `-1`. Note `round` is the
 explicit rather than only recoverable as `round // rounds`.
 
 Also hosts `JsonlStore.records_for_round(round_num)` (all attempts for one global
-round, used to summarize it) and the rolling-memo storage: `RoundSummary`
+round, used to summarize it), `JsonlStore.records_for_iteration(iteration,
+only_successful=False)` (all attempts of one retrain cycle, used to write the
+cross-iteration memo) and the rolling-memo storage: `RoundSummary`
 (`{round, iteration, error_type, text, n_attempts, n_successes}`) plus
 `SummaryStore`. A `SummaryStore` is built **once per `run_redteam` call** (i.e. per
 `(iteration, error_type)`), so the memo **resets per iteration**. It holds a single
@@ -282,6 +300,19 @@ per-round snapshot to a JSONL sidecar (`<jsonl>.summaries.jsonl`) for diagnostic
 memo exists). Because the judge rewrites-and-condenses instead of appending, the
 memo stays bounded (~200 words) regardless of round count — it does **not** grow
 linearly. The sidecar is diagnostics-only — `render()` reflects only the latest memo.
+
+Finally, the **cross-iteration** memo storage: `IterationMemo`
+(`{iteration, error_type, text, n_attempts, n_successes}`) plus `IterationMemoStore`
+(built per `run_redteam` call when `attacker.cross_iteration_memos` is on). Unlike
+`SummaryStore`, this store **reads its sidecar back on init**
+(`<jsonl>.iteration_memos.jsonl`) — that is what carries the memo across the
+iteration boundary (each iteration is a fresh `run_redteam` call) and across a
+process restart / `--resume`. `update()` appends one memo per iteration;
+`prior_text(iteration)` returns the newest memo from an iteration **strictly before**
+`iteration` (so re-running an interrupted iteration never feeds it its own stale
+memo); `render(iteration)` wraps it as the "## Lessons from previous iterations (the
+probe has since been RETRAINED)" system-prompt block, or `""` at iteration 0. The
+sidecar is per error type, since the JSONL path is.
 
 ### `agentic_redteam/probe_judge.py`
 Wraps a pickled tuberlens probe. Lazily loads `tuberlens.model.LLMModel` on first
@@ -322,6 +353,41 @@ the prior memo with the new round's findings (merge duplicates, drop superseded
 notes), capped at `_SUMMARY_WORD_BUDGET` (~200) words. So the memo is bounded, not
 cumulative. Reuses the same `_call_anthropic` / `_call_openrouter` backends; returns
 `prior_summary` unchanged for an empty round.
+
+It also writes the **cross-iteration memo** via `summarize_iteration(successes, *,
+iteration, error_type, true_class_label, round_memo="", prior_memo="", n_attempts=0,
+max_successes=30)`, called once per rotation *before* the retrain. Under its own
+`_ITERATION_SUMMARY_SYSTEM` prompt the judge is told the classifier is about to be
+retrained on these misclassified samples, and asked for three things: failure modes
+now covered by retraining, conversation types already handled correctly, and regions
+of the input space not yet examined — folding `prior_memo` in by rewriting rather
+than appending, capped at `_ITERATION_MEMO_WORD_BUDGET` (~900) words. Only the
+`max_successes` most recent successes are rendered (0 = all); returns `prior_memo`
+unchanged when the iteration produced neither successes nor a round memo.
+
+**Both summarization prompts are written in neutral analyst register** — "analyze the
+robustness of a text classifier", samples/misclassifications/evaluation cycles — never
+as red-team/attacker coaching ("strategies that worked", "what the next attackers
+should try"). This is not stylistic: the original adversarially-phrased
+`_SUMMARY_SYSTEM` drew refusals from the judge (`openai/gpt-5.1-chat` in every config)
+and had to be rewritten. Keep any new summarization prompt in the same register, and
+note that `summarize_iteration` is the more exposed of the two — its input is *only*
+the successes, i.e. exactly the conversations the judge itself labelled
+harmful/high-stakes.
+
+**Refusal guard.** A refusal is a 200 with prose, not an exception, so it would
+otherwise be stored as the memo and injected into later attackers' system prompts as
+if it were findings. Both summarizers therefore route through
+`LLMJudge._summarization_call(system, user_content, *, what)`:
+`_looks_like_refusal` scans the first `_REFUSAL_SCAN_CHARS` (240) characters for a
+leading refusal phrase from `_REFUSAL_MARKERS` (prefix-only, so a write-up quoting
+"can't" mid-text doesn't trip it); on a hit the judge is re-asked once **in-context**
+(original user turn + its refusal + `_REFUSAL_RETRY_NUDGE`, which restates that this
+is a classifier-quality report over already-collected data). A second refusal raises
+`JudgeRefusalError`, which `_summarize_round` / `_write_iteration_memo` deliberately
+**do not swallow** (they log `summary_refused` / `iteration_memo_refused` and
+re-raise) — the run stops rather than continuing on a missing or poisoned memo.
+Ordinary transient errors are still swallowed as before.
 
 ### `agentic_redteam/openrouter_client.py`
 Thin factory around `openai.OpenAI` / `openai.AsyncOpenAI` pointed at
@@ -452,12 +518,29 @@ concurrently (bounded by `concurrency`), `await`s them, then calls
 starting the next round. The final round is *not* summarized (nothing would consume
 it). Each model run renders `ctx.summary_store.render()` into its system prompt at
 session start, so sequential ordering guarantees round N sees the memo distilled
-from rounds 0..N-1. `_summarize_round` swallows judge failures (logged to the runlog
-as `summary_error`) so a summarization hiccup never aborts the rotation. When
+from rounds 0..N-1. `_summarize_round` swallows transient judge failures (logged to
+the runlog as `summary_error`) so a summarization hiccup never aborts the rotation —
+except a `JudgeRefusalError`, which is logged as `summary_refused` and re-raised. When
 `round_summaries` is off, the legacy path launches **all** round×model sessions at
 once with no memo. Note this trades throughput for the memo signal: with `rounds:
 20, concurrency: 30` the legacy path runs all 20 rounds in parallel; sequential runs
 them one at a time.
+
+**Cross-iteration memo.** Independent of the above (it works with `round_summaries`
+either on or off). When `attacker.cross_iteration_memos` is on, `run_redteam` builds
+an `IterationMemoStore` on `<jsonl>.iteration_memos.jsonl`, threads it into every
+`ToolContext`, and — after the whole rotation, before returning to the CLI's retrain
+step — calls `_write_iteration_memo`: it gathers `store.records_for_iteration(iteration)`,
+takes the successes plus the final rolling round memo, and asks the judge for the
+hand-off memo (`summarize_iteration`), which is appended to the sidecar. Transient
+judge failures are logged (`iteration_memo_error`) and swallowed; a `JudgeRefusalError`
+(judge declined twice — see the refusal guard above) is logged and re-raised, stopping
+the run. The prompt side is
+`_prompt_memos(ctx)` → `(iteration_memo, round_memo)`, both passed to
+`_build_full_system_prompt` (iteration memo first, round memo last as the more
+immediate signal) by all three drivers. Note the CLI's phase-marker resume path skips
+the whole rotation for an already-finished `(iteration, error_type)`, so that
+iteration contributes no memo — the next one falls back to the newest earlier memo.
 
 **`sessions_per_model`** multiplies the per-round fan-out: both the sequential and
 legacy branches launch `sessions_per_model` tasks for *each* model (`for _ in

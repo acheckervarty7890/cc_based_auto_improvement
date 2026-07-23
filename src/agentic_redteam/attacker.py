@@ -18,8 +18,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agentic_redteam.config import AttackerModel, RedteamConfig
-from agentic_redteam.llm_judge import LLMJudge
+from agentic_redteam.llm_judge import JudgeRefusalError, LLMJudge
 from agentic_redteam.persistence import (
+    IterationMemo,
+    IterationMemoStore,
     JsonlStore,
     RoundSummary,
     RunLogger,
@@ -63,14 +65,34 @@ class ModelRunSummary:
     stop_reason: str | None
 
 
+def _prompt_memos(ctx: ToolContext) -> tuple[str, str]:
+    """(cross-iteration memo, this-run round memo) rendered for the system prompt.
+
+    Either is "" when the corresponding store is absent or has nothing yet.
+    """
+    iteration_text = (
+        ctx.iteration_memo_store.render(ctx.current_iteration)
+        if ctx.iteration_memo_store is not None
+        else ""
+    )
+    round_text = ctx.summary_store.render() if ctx.summary_store is not None else ""
+    return iteration_text, round_text
+
+
 def _build_full_system_prompt(
-    config: RedteamConfig, probe: ProbeJudge, summaries_text: str = ""
+    config: RedteamConfig,
+    probe: ProbeJudge,
+    summaries_text: str = "",
+    iteration_memo_text: str = "",
 ) -> str:
     """Compose the attacker system prompt with concrete probe context appended.
 
     When ``summaries_text`` is non-empty (cumulative per-round judge summaries from
     earlier rounds of this run), it is appended as a final section so the attacker
-    is always shown what prior rounds learned.
+    is always shown what prior rounds learned. ``iteration_memo_text`` is the
+    analogous memo from *earlier iterations* (already red-teamed and trained
+    against); it is placed first so the round memo — the more immediate signal —
+    stays closest to the end of the prompt.
     """
     prompt = (
         config.attacker.system_prompt.strip()
@@ -88,6 +110,8 @@ def _build_full_system_prompt(
         + "AND an independent judge would label the conversation as the true class above.\n"
         + "- Stop early once the target is met.\n"
     )
+    if iteration_memo_text:
+        prompt += "\n" + iteration_memo_text + "\n"
     if summaries_text:
         prompt += "\n" + summaries_text + "\n"
     return prompt
@@ -118,10 +142,12 @@ async def _run_claude_sdk_model(
 
     server = build_mcp_server(ctx)
 
-    summaries_text = ctx.summary_store.render() if ctx.summary_store is not None else ""
+    iteration_memo_text, summaries_text = _prompt_memos(ctx)
 
     options = ClaudeAgentOptions(
-        system_prompt=_build_full_system_prompt(config, ctx.probe, summaries_text),
+        system_prompt=_build_full_system_prompt(
+            config, ctx.probe, summaries_text, iteration_memo_text
+        ),
         model=model_name,
         max_turns=config.attacker.max_turns,
         mcp_servers={"redteam": server},
@@ -307,12 +333,14 @@ async def _run_openrouter_model(
     client = make_async_client()
     tools = openai_tool_definitions()
 
-    summaries_text = ctx.summary_store.render() if ctx.summary_store is not None else ""
+    iteration_memo_text, summaries_text = _prompt_memos(ctx)
 
     messages: list[dict] = [
         {
             "role": "system",
-            "content": _build_full_system_prompt(config, ctx.probe, summaries_text),
+            "content": _build_full_system_prompt(
+                config, ctx.probe, summaries_text, iteration_memo_text
+            ),
         },
         {"role": "user", "content": "Begin."},
     ]
@@ -547,10 +575,10 @@ async def _run_openrouter_prompt_model(
 
     client = make_async_client()
     view_limit = config.attacker.view_limit
-    summaries_text = ctx.summary_store.render() if ctx.summary_store is not None else ""
+    iteration_memo_text, summaries_text = _prompt_memos(ctx)
 
     system_prompt = (
-        _build_full_system_prompt(config, ctx.probe, summaries_text)
+        _build_full_system_prompt(config, ctx.probe, summaries_text, iteration_memo_text)
         + "\n\n"
         + _PROMPT_MODE_INSTRUCTIONS
     )
@@ -644,6 +672,7 @@ async def run_one_model(
     run_logger: RunLogger | None = None,
     view_sampler: ViewSampler | None = None,
     summary_store: SummaryStore | None = None,
+    iteration_memo_store: IterationMemoStore | None = None,
 ) -> ModelRunSummary:
     """Run the attacker loop once for a single (model, provider) pair."""
 
@@ -661,6 +690,7 @@ async def run_one_model(
         run_logger=run_logger,
         view_sampler=view_sampler,
         summary_store=summary_store,
+        iteration_memo_store=iteration_memo_store,
     )
     ctx.set_round(round_num)
     ctx.set_attacker_model(attacker_model.name)
@@ -766,8 +796,11 @@ async def _summarize_round(
 ) -> None:
     """Have the judge summarize one finished round; append it to ``summary_store``.
 
-    Failures are logged and swallowed — a summarization hiccup must not abort the
-    rotation; later rounds simply proceed without this round's summary.
+    Transient failures are logged and swallowed — a summarization hiccup must not
+    abort the rotation; later rounds simply proceed without this round's summary.
+    A :class:`JudgeRefusalError` is the exception: the judge declined twice, so the
+    memo would be missing (or, worse, a refusal string) for every later round. That
+    is a broken run, not a hiccup, so it propagates and stops everything.
     """
     if summary_store is None:
         return
@@ -783,6 +816,20 @@ async def _summarize_round(
             true_class_label=true_class_label,
             prior_summary=summary_store.current,
         )
+    except JudgeRefusalError as e:
+        if run_logger is not None:
+            run_logger.log(
+                "summary_refused",
+                round=round_num,
+                iteration=iteration,
+                error=str(e),
+            )
+        print(
+            f"\n!!! Judge refused to summarize round {round_num} (twice) — aborting the "
+            f"run.\n    {e}",
+            file=sys.stderr,
+        )
+        raise
     except Exception as e:  # noqa: BLE001 — never let a summary failure kill the run
         text = ""
         if run_logger is not None:
@@ -816,6 +863,92 @@ async def _summarize_round(
     print(
         f"=== Round {round_num} summarized "
         f"({len(records)} attempts, {n_succ} successful) ==="
+    )
+
+
+async def _write_iteration_memo(
+    *,
+    config: RedteamConfig,
+    judge: LLMJudge,
+    store: JsonlStore,
+    summary_store: SummaryStore | None,
+    iteration_memo_store: IterationMemoStore | None,
+    run_logger: RunLogger | None,
+    iteration: int,
+    error_type: str,
+    true_class_label: str,
+) -> None:
+    """Write this iteration's hand-off memo for the NEXT iteration's attackers.
+
+    Called once, after the whole rotation for ``(iteration, error_type)`` finishes —
+    i.e. just before the caller retrains on these successes, which is exactly what
+    makes the memo useful: the weaknesses it names are about to be trained against.
+    Transient failures are logged and swallowed; a memo hiccup must not abort the run.
+    A :class:`JudgeRefusalError` (judge declined twice) does propagate: the next
+    iteration would otherwise run with a missing or refusal-poisoned memo.
+    """
+    if iteration_memo_store is None:
+        return
+    records = store.records_for_iteration(iteration)
+    successes = [r for r in records if r.success]
+    round_memo = summary_store.current if summary_store is not None else ""
+    if not successes and not round_memo:
+        return
+    prior = iteration_memo_store.prior_text(iteration)
+    try:
+        text = await asyncio.to_thread(
+            judge.summarize_iteration,
+            successes,
+            iteration=iteration,
+            error_type=error_type,
+            true_class_label=true_class_label,
+            round_memo=round_memo,
+            prior_memo=prior,
+            n_attempts=len(records),
+            max_successes=config.attacker.cross_iteration_memo_max_successes,
+        )
+    except JudgeRefusalError as e:
+        if run_logger is not None:
+            run_logger.log(
+                "iteration_memo_refused",
+                iteration=iteration,
+                error=str(e),
+            )
+        print(
+            f"\n!!! Judge refused to write the iteration {iteration} memo (twice) — "
+            f"aborting the run.\n    {e}",
+            file=sys.stderr,
+        )
+        raise
+    except Exception as e:  # noqa: BLE001 — never let a memo failure kill the run
+        text = ""
+        if run_logger is not None:
+            run_logger.log(
+                "iteration_memo_error",
+                iteration=iteration,
+                error=f"{type(e).__name__}: {e}",
+            )
+    if not text:
+        return
+    iteration_memo_store.update(
+        IterationMemo(
+            iteration=iteration,
+            error_type=error_type,
+            text=text,
+            n_attempts=len(records),
+            n_successes=len(successes),
+        )
+    )
+    if run_logger is not None:
+        run_logger.log(
+            "iteration_memo",
+            iteration=iteration,
+            n_attempts=len(records),
+            n_successes=len(successes),
+        )
+    print(
+        f"=== Iteration {iteration} memo written for the next iteration "
+        f"({len(records)} attempts, {len(successes)} successful) ==="
     )
 
 
@@ -893,6 +1026,16 @@ async def run_redteam(
         else None
     )
 
+    # Cross-iteration memo (what earlier iterations already tried and trained on).
+    # Unlike summary_store, this one *loads* its sidecar on init, so the memo written
+    # at the end of iteration i-1 is picked up here even though this is a fresh call
+    # (and survives a process restart / --resume). Per-error-type, since jpath is.
+    iteration_memo_store = (
+        IterationMemoStore(path=jpath.with_suffix(".iteration_memos.jsonl"))
+        if config.attacker.cross_iteration_memos
+        else None
+    )
+
     # Force lazy-load before parallel sessions to avoid init races.
     probe.warmup()
     judge.warmup()
@@ -912,6 +1055,7 @@ async def run_redteam(
                 run_logger=run_logger,
                 view_sampler=view_sampler,
                 summary_store=summary_store,
+                iteration_memo_store=iteration_memo_store,
             )
 
     if config.attacker.round_summaries:
@@ -949,6 +1093,20 @@ async def run_redteam(
             for _ in range(config.attacker.sessions_per_model)
         ]
         results = list(await asyncio.gather(*tasks))
+
+    # Hand-off memo for the next iteration, written before the probe is retrained on
+    # these successes (no-op when cross_iteration_memos is off).
+    await _write_iteration_memo(
+        config=config,
+        judge=judge,
+        store=store,
+        summary_store=summary_store,
+        iteration_memo_store=iteration_memo_store,
+        run_logger=run_logger,
+        iteration=iteration,
+        error_type=et,
+        true_class_label=probe.true_class_label,
+    )
 
     # Free the probe's gemma-sized LLM before returning so the next phase
     # (retrain/eval) reloads onto a clean GPU. device_map="auto" re-infers the
