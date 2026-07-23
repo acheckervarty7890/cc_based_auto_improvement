@@ -1,8 +1,13 @@
 # Reproduce the .venv_claude environment on another machine.
 # Python 3.12 (this env: 3.12.3)
 #
+# Preferred: let the bootstrap script do all of it (clone, venv, tuberlens, this file):
+#   bash scripts/setup_env.sh
+#
+# Manual equivalent:
 #   python3.12 -m venv .venv_claude
-#   .venv_claude/bin/pip install -U pip
+#   .venv_claude/bin/pip install -U pip setuptools wheel
+#   .venv_claude/bin/pip install -e <tuberlens checkout>   # see below
 #   .venv_claude/bin/pip install -r requirements.txt
 #   .venv_claude/bin/pip install -e .            # this repo (agentic_redteam)
 #
@@ -10,11 +15,13 @@
 # they are pinned below behind a Linux marker for exact reproduction.
 
 # --- private git dependencies (need repo access: SSH key or a PAT) ---
-# These are installed *editable* in the current env (.venv_claude/src/<name>).
-# To keep that, prefix the line with `-e ` and use the `#egg=<name>` form instead,
-# e.g.  -e git+ssh://git@github.com/acheckervarty7890/tuberlens.git@<sha>#egg=tuberlens
-# agentic_redteam: this repo itself -- install with `pip install -e .` (env was at 699c7c346d56e9e022296153b3f24b2f369693ad)
-##tuberlens @ git+ssh://git@github.com/acheckervarty7890/tuberlens.git@6fd1de76225452a8b802f5cc9bb2f7998fdd3c86
+# Deliberately NOT installed from this file. Both are editable checkouts in the
+# current env; setup_env.sh clones tuberlens to <venv>/src/tuberlens and installs
+# it editable *before* this file, so uncommenting the pin below would replace that
+# checkout with a frozen non-editable copy.
+#   agentic_redteam: this repo itself -- `pip install -e .` (env was at 699c7c3)
+#   tuberlens:       branch iterative_pipeline_2, env HEAD 6fd1de7
+# tuberlens @ git+ssh://git@github.com/acheckervarty7890/tuberlens.git@6fd1de76225452a8b802f5cc9bb2f7998fdd3c86
 
 # --- pinned dependencies ---
 accelerate==1.13.0

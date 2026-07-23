@@ -7,6 +7,10 @@ attacker:
   batch_target: 10
   rounds: 1                       # fresh LLM sessions per model per error_type (default 1)
   concurrency: 1                  # max parallel attacker sessions (default 1)
+  # cross_iteration_memos: false   # default false. When true, a judge memo about what earlier
+                                   #   iterations tried (and what the probe was then retrained on)
+                                   #   is injected into later iterations' attacker prompts.
+  # cross_iteration_memo_max_successes: 30  # successes (most recent) shown to the judge; 0 = all
   # persistence_from_last_rounds: 2  # view_past_attempts shows only last N rounds (default: all)
 
 judge:
