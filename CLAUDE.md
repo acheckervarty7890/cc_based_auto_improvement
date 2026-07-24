@@ -656,9 +656,13 @@ only pay for newly-seen conversations. `label_dataset` (LLM relabel) is intentio
 ### `agentic_redteam/evaluation.py`
 `evaluate_probe(probe_path, eval_dataset_dir, activations_cache_dir, splits=None,
 max_samples=100, seed=42, combine_consecutive_messages=False,
-convert_tool_to_assistant=False)` scores one probe on local eval split JSONLs (default
-`DEFAULT_EVAL_SPLITS = ["anthropic", "mt", "mts", "toolace"]`) via tuberlens `get_performances`,
-returning a per-split DataFrame. It calls `seed_everything(seed)` (ported from
+convert_tool_to_assistant=False)` scores one probe on local eval split JSONLs via
+tuberlens `get_performances`, returning a per-split DataFrame. When `splits is None`
+(the default) the splits are **auto-discovered** — every `*.jsonl` in `eval_dataset_dir`
+is scored, keyed by its filename stem (there is no longer a hardcoded
+`DEFAULT_EVAL_SPLITS` list; drop new eval JSONLs into a dir and they are picked up
+without code changes). Each split is loaded with the probe's own pos/neg class labels,
+so a split's `labels` strings must match them exactly. It calls `seed_everything(seed)` (ported from
 tuberlens) and then balances each split to `max_samples` via
 `subsample_balanced_subset(n_per_class=max_samples // 2)` (`max_samples=None` → full
 split). Seeding before subsampling makes the subset identical across every probe
@@ -676,14 +680,15 @@ Exposed via the config `eval:` section (`EvalConfig`) and overridable per-run by
 `--[no-]combine-consecutive-messages` / `--[no-]convert-tool-to-assistant` CLI flags.
 
 ### Eval dataset splits on disk
-Two eval-split directories ship in the repo, one per probe concept. `--eval-dataset-dir`
-picks which one a run scores against; `evaluate_probe` loads `<dir>/<split>.jsonl` for each
-name in `splits` (default `DEFAULT_EVAL_SPLITS`). Every split JSONL row is a tuberlens
-`LabelledDataset` record: `inputs` is a **JSON-encoded string** of `[{role, content}, ...]`
-(parse it, don't treat it as text) and `labels` is the class string.
+Three eval-split directories ship in the repo, one per probe concept. `--eval-dataset-dir`
+picks which one a run scores against; with `splits=None` (the default) `evaluate_probe`
+auto-discovers every `<dir>/*.jsonl` as a split (keyed by filename stem). Every split
+JSONL row is a tuberlens `LabelledDataset` record: `inputs` is a **JSON-encoded string**
+of `[{role, content}, ...]` (parse it, don't treat it as text) and `labels` is the class
+string; any other columns are provenance only.
 
-- **`eval_datasets/`** — the **high-stakes** probe's splits, and the source of
-  `DEFAULT_EVAL_SPLITS`: `anthropic` (1028), `mt` (278), `mts` (274), `toolace` (328).
+- **`eval_datasets/`** — the **high-stakes** probe's splits:
+  `anthropic` (1028), `mt` (278), `mts` (274), `toolace` (328).
   Labels are `high-stakes` / `low-stakes`, exactly class-balanced per split. Extra columns:
   `ids`, `scale_labels`, `scale_label_confidence`, and per-split provenance
   (`category`/`index` for anthropic, `medical_specialty`/`sample_name` for mt,
@@ -704,6 +709,24 @@ name in `splits` (default `DEFAULT_EVAL_SPLITS`). Every split JSONL row is a tub
   carrying two of each class). `eval_ant_hh` is **not** paired (every user prompt is
   distinct). Pairing is a property of the data, not something the eval code uses —
   `evaluate_probe` scores every row independently regardless.
+- **`eval_instructions/`** — the **instruction-following** probe's splits (a third
+  assistant-centric concept: did the assistant's response *follow the user's
+  instruction* or not?). Seven splits, each exactly class-balanced:
+  `anthropic_harmless_refusal` (200), `bbq_substitution` (200), `hc_context_drift`
+  (194), `hc_contradiction` (200), `mm_substitution` (200), `oig_context_drift` (194),
+  `oig_omission` (114). Labels are `assistant_follows_the_instruction` /
+  `assistant_does_not_follow_the_instruction` — the split names encode the *failure
+  mode* on the negative side (refusal, context drift, contradiction of the provided
+  source, omission of requested content, answer substitution). Slim schema: `inputs`,
+  `labels`, `judge_1_reasoning`, `judge_2_reasoning` (the two rationales that produced
+  the label), plus per-split provenance (e.g. `context`/`question`/`correct_answer`/
+  `wrong_answer`/`category` for bbq, `query`/`doc_a`/`doc_b` for hc_contradiction,
+  `turn1_doc`/`turn2_doc`/`*_polarity` for hc_context_drift, `text`/`generated_content`/
+  `cosine_distance` for mm, `human_turn_*`/`bot_turn_*` or `human_turns`/`bot_turns`/
+  `original_text` for the oig splits). **These files were converted in place from a
+  raw `{conversation, follows_the_instruction: bool, ...}` form** to the standard
+  `inputs` (JSON string) + `labels` schema. Attack this concept with
+  `configs/llama70b_instructions_llama1b.md` (llama70b attacker → llama-1b probe).
 
 ### `agentic_redteam/cli.py`
 Two entry points: `run_redteam_main` (one round against an existing probe) and
