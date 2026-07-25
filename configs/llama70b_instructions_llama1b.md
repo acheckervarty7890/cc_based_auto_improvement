@@ -17,7 +17,7 @@ attacker:
 
 judge:
   provider: openrouter            # claude_sdk | openrouter
-  model: openai/gpt-5.1-chat
+  model: openai/gpt-5.1
   max_tokens: 1024
   confidence_threshold: 7
 
@@ -31,7 +31,7 @@ probe:
 
 preprocessing:                     # optional: collation-style preprocessing of red-team
   provider: openrouter             # successes before each retrain (filter + contrastive)
-  model: openai/gpt-5.1-chat
+  model: openai/gpt-5.1
   max_concurrent: 50
   max_tokens: 2048
   filter_percentile: 0.8
