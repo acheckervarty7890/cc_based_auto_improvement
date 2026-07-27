@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from agentic_redteam import circuit_breaker as breaker
 from agentic_redteam.persistence import Conversation
 
 if TYPE_CHECKING:
@@ -420,22 +421,43 @@ Focus on concrete, actionable insights grounded in the results. Update and conde
 
         from agentic_redteam.openrouter_client import extract_openrouter_error
 
+        breaker.raise_if_tripped()
+
         chat_messages = [{"role": "system", "content": system}, *messages]
         last_err: str | None = None
+        last_exc: BaseException | None = None
         for attempt in range(_OPENROUTER_MAX_ATTEMPTS):
-            response = client.chat.completions.create(
-                model=self.model,
-                max_tokens=self.max_tokens,
-                messages=chat_messages,
+            try:
+                response = client.chat.completions.create(
+                    model=self.model,
+                    max_tokens=self.max_tokens,
+                    messages=chat_messages,
+                )
+            except Exception as e:
+                # Previously uncaught, so a 402 here escaped as a bare
+                # APIStatusError and was absorbed by the caller's round-level
+                # handler. Route it through the breaker instead.
+                last_err = f"{type(e).__name__}: {e}"
+                last_exc = e
+            else:
+                if response.choices:
+                    breaker.record_success()
+                    return response.choices[0].message.content or ""
+                # No choices → OpenRouter returned an error envelope in a 200 body.
+                last_err = (
+                    extract_openrouter_error(response) or "no choices and no error detail"
+                )
+                last_exc = None
+            kind = breaker.record_failure(
+                last_exc if last_exc is not None else last_err,
+                where=f"judge model {self.model!r}",
             )
-            if response.choices:
-                return response.choices[0].message.content or ""
-            # No choices → OpenRouter returned an error envelope in a 200 body.
-            last_err = extract_openrouter_error(response) or "no choices and no error detail"
+            if kind == "fatal":
+                break
             if attempt < _OPENROUTER_MAX_ATTEMPTS - 1:
                 time.sleep(_OPENROUTER_BACKOFF_BASE_S * (2**attempt))
         raise RuntimeError(
-            f"OpenRouter judge call for model {self.model!r} returned no choices "
+            f"OpenRouter judge call for model {self.model!r} failed "
             f"after {_OPENROUTER_MAX_ATTEMPTS} attempts: {last_err}"
         )
 

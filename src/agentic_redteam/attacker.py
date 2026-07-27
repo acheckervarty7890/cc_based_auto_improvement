@@ -17,6 +17,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from agentic_redteam import circuit_breaker as breaker
+from agentic_redteam.circuit_breaker import OpenRouterOutageError
 from agentic_redteam.config import AttackerModel, RedteamConfig
 from agentic_redteam.llm_judge import JudgeRefusalError, LLMJudge
 from agentic_redteam.persistence import (
@@ -285,6 +287,13 @@ async def _openrouter_create_with_retry(client, *, model, messages, tools=None):
     e.g. a gateway error page). Returns a response guaranteed to have a
     non-empty ``choices``; raises ``RuntimeError`` with the last surfaced error
     if every attempt fails.
+
+    Every outcome is also reported to :mod:`agentic_redteam.circuit_breaker`.
+    Once OpenRouter has failed too many times in a row across the whole process,
+    that raises :class:`OpenRouterOutageError` instead — which, unlike the
+    ``RuntimeError`` below, is *not* absorbed into a failed round. A fatal error
+    (402/401) additionally skips the remaining attempts, since no amount of
+    backoff will restore a drained balance.
     """
     import openai
 
@@ -299,18 +308,32 @@ async def _openrouter_create_with_retry(client, *, model, messages, tools=None):
         create_kwargs["tools"] = tools
         create_kwargs["tool_choice"] = "auto"
 
+    breaker.raise_if_tripped()
+
     last_err: str | None = None
+    last_exc: BaseException | None = None
     for attempt in range(_OPENROUTER_MAX_ATTEMPTS):
         try:
             response = await client.chat.completions.create(**create_kwargs)
         except retryable_exc as e:
             last_err = f"{type(e).__name__}: {e}"
+            last_exc = e
         else:
             if response.choices:
+                breaker.record_success()
                 return response
             last_err = (
                 extract_openrouter_error(response) or "no choices and no error detail"
             )
+            last_exc = None
+        # Raises OpenRouterOutageError once too many calls have failed in a row.
+        kind = breaker.record_failure(
+            last_exc if last_exc is not None else last_err,
+            where=f"attacker model {model!r}",
+        )
+        # A 402/401 will not un-fail during our backoff; stop burning the schedule.
+        if kind == "fatal":
+            break
         if attempt < _OPENROUTER_MAX_ATTEMPTS - 1:
             await asyncio.sleep(_OPENROUTER_BACKOFF_BASE_S * (2**attempt))
     raise RuntimeError(
@@ -676,6 +699,12 @@ async def run_one_model(
 ) -> ModelRunSummary:
     """Run the attacker loop once for a single (model, provider) pair."""
 
+    # Bail before doing any setup if OpenRouter has already been declared dead.
+    # Rounds queued behind the concurrency semaphore land here, so the remaining
+    # schedule collapses immediately instead of each round re-discovering the
+    # outage one exhausted retry loop at a time.
+    breaker.raise_if_tripped()
+
     ctx = ToolContext(
         probe=probe,
         judge=judge,
@@ -724,9 +753,27 @@ async def run_one_model(
 
     try:
         total_messages, stop_reason = await driver(config, ctx, attacker_model.name)
+    except OpenRouterOutageError as e:
+        # Not a single bad round: OpenRouter has failed N times in a row across
+        # every call site, so every remaining round would fail the same way.
+        # Propagate — swallowing this is what let a drained balance quietly turn
+        # a 3-iteration ablation into 300 empty rounds plus a meaningless CSV.
+        if run_logger is not None:
+            run_logger.log(
+                "openrouter_outage",
+                round=round_num,
+                iteration=iteration,
+                model=attacker_model.name,
+                error=str(e),
+            )
+        print(
+            f"\n!!! Aborting: {e}",
+            file=sys.stderr,
+        )
+        raise
     except Exception as e:
-        # One model-round failing (e.g. OpenRouter durably down, exhausted
-        # retries) must not abort the whole rotation. Log it and return a
+        # One model-round failing (e.g. a single model 404ing, one exhausted
+        # retry loop) must not abort the whole rotation. Log it and return a
         # summary so the other concurrent sessions in asyncio.gather survive.
         # NOTE: `except Exception` deliberately does not catch CancelledError
         # (BaseException), so cooperative cancellation still propagates.
@@ -783,6 +830,24 @@ async def run_one_model(
     )
 
 
+async def _gather_or_cancel(tasks: list) -> list[ModelRunSummary]:
+    """``asyncio.gather`` that cancels its siblings when one task raises.
+
+    Plain ``gather`` leaves the other tasks running when it propagates an
+    exception, so an aborting run would keep firing attacker sessions at a dead
+    endpoint while the traceback unwinds. Cancel them and wait for the
+    cancellations to land before letting the error through.
+    """
+    try:
+        return list(await asyncio.gather(*tasks))
+    except BaseException:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
 async def _summarize_round(
     *,
     judge: LLMJudge,
@@ -829,6 +894,19 @@ async def _summarize_round(
             f"run.\n    {e}",
             file=sys.stderr,
         )
+        raise
+    except OpenRouterOutageError as e:
+        # Same reasoning as JudgeRefusalError: this is the whole endpoint being
+        # down, not one flaky summary, so it stops the run rather than silently
+        # leaving every later round without a memo.
+        if run_logger is not None:
+            run_logger.log(
+                "openrouter_outage",
+                round=round_num,
+                iteration=iteration,
+                error=str(e),
+            )
+        print(f"\n!!! Aborting during round {round_num} summary: {e}", file=sys.stderr)
         raise
     except Exception as e:  # noqa: BLE001 — never let a summary failure kill the run
         text = ""
@@ -918,6 +996,17 @@ async def _write_iteration_memo(
             f"\n!!! Judge refused to write the iteration {iteration} memo (twice) — "
             f"aborting the run.\n    {e}",
             file=sys.stderr,
+        )
+        raise
+    except OpenRouterOutageError as e:
+        if run_logger is not None:
+            run_logger.log(
+                "openrouter_outage",
+                iteration=iteration,
+                error=str(e),
+            )
+        print(
+            f"\n!!! Aborting during iteration {iteration} memo: {e}", file=sys.stderr
         )
         raise
     except Exception as e:  # noqa: BLE001 — never let a memo failure kill the run
@@ -1058,62 +1147,65 @@ async def run_redteam(
                 iteration_memo_store=iteration_memo_store,
             )
 
-    if config.attacker.round_summaries:
-        # Sequential rounds: round N+1 only starts after round N has finished AND
-        # been summarized, so each round's attacker sees a cumulative summary of all
-        # earlier rounds. Models within a round still run concurrently.
-        results: list[ModelRunSummary] = []
-        for round_idx in range(config.attacker.rounds):
-            global_round = base_round_num + round_idx
-            round_tasks = [
-                asyncio.create_task(_run_with_sem(model, global_round))
+    try:
+        if config.attacker.round_summaries:
+            # Sequential rounds: round N+1 only starts after round N has finished AND
+            # been summarized, so each round's attacker sees a cumulative summary of all
+            # earlier rounds. Models within a round still run concurrently.
+            results: list[ModelRunSummary] = []
+            for round_idx in range(config.attacker.rounds):
+                global_round = base_round_num + round_idx
+                round_tasks = [
+                    asyncio.create_task(_run_with_sem(model, global_round))
+                    for model in config.attacker.models
+                    for _ in range(config.attacker.sessions_per_model)
+                ]
+                results.extend(await _gather_or_cancel(round_tasks))
+                # Skip the final round: its summary would never be shown (no later round,
+                # and summaries reset next iteration), so don't pay for that judge call.
+                if round_idx < config.attacker.rounds - 1:
+                    await _summarize_round(
+                        judge=judge,
+                        store=store,
+                        summary_store=summary_store,
+                        run_logger=run_logger,
+                        round_num=global_round,
+                        iteration=iteration,
+                        error_type=et,
+                        true_class_label=probe.true_class_label,
+                    )
+        else:
+            # Legacy: launch all round×model sessions at once, no summaries.
+            tasks = [
+                asyncio.create_task(_run_with_sem(model, base_round_num + round_idx))
+                for round_idx in range(config.attacker.rounds)
                 for model in config.attacker.models
                 for _ in range(config.attacker.sessions_per_model)
             ]
-            results.extend(await asyncio.gather(*round_tasks))
-            # Skip the final round: its summary would never be shown (no later round,
-            # and summaries reset next iteration), so don't pay for that judge call.
-            if round_idx < config.attacker.rounds - 1:
-                await _summarize_round(
-                    judge=judge,
-                    store=store,
-                    summary_store=summary_store,
-                    run_logger=run_logger,
-                    round_num=global_round,
-                    iteration=iteration,
-                    error_type=et,
-                    true_class_label=probe.true_class_label,
-                )
-    else:
-        # Legacy: launch all round×model sessions at once, no summaries.
-        tasks = [
-            asyncio.create_task(_run_with_sem(model, base_round_num + round_idx))
-            for round_idx in range(config.attacker.rounds)
-            for model in config.attacker.models
-            for _ in range(config.attacker.sessions_per_model)
-        ]
-        results = list(await asyncio.gather(*tasks))
+            results = list(await _gather_or_cancel(tasks))
 
-    # Hand-off memo for the next iteration, written before the probe is retrained on
-    # these successes (no-op when cross_iteration_memos is off).
-    await _write_iteration_memo(
-        config=config,
-        judge=judge,
-        store=store,
-        summary_store=summary_store,
-        iteration_memo_store=iteration_memo_store,
-        run_logger=run_logger,
-        iteration=iteration,
-        error_type=et,
-        true_class_label=probe.true_class_label,
-    )
-
-    # Free the probe's gemma-sized LLM before returning so the next phase
-    # (retrain/eval) reloads onto a clean GPU. device_map="auto" re-infers the
-    # layer split from free GPU memory at load time, so a leftover copy here
-    # forces the next load into heavy CPU/disk offload and ~5-10x slower
-    # forwards. The judge holds only a thin SDK client, so nothing to release.
-    probe.release()
+        # Hand-off memo for the next iteration, written before the probe is retrained on
+        # these successes (no-op when cross_iteration_memos is off).
+        await _write_iteration_memo(
+            config=config,
+            judge=judge,
+            store=store,
+            summary_store=summary_store,
+            iteration_memo_store=iteration_memo_store,
+            run_logger=run_logger,
+            iteration=iteration,
+            error_type=et,
+            true_class_label=probe.true_class_label,
+        )
+    finally:
+        # Free the probe's gemma-sized LLM before returning so the next phase
+        # (retrain/eval) reloads onto a clean GPU. device_map="auto" re-infers the
+        # layer split from free GPU memory at load time, so a leftover copy here
+        # forces the next load into heavy CPU/disk offload and ~5-10x slower
+        # forwards. The judge holds only a thin SDK client, so nothing to release.
+        # In a `finally` so an aborting run (e.g. OpenRouterOutageError) still
+        # releases the GPU on its way out.
+        probe.release()
 
     return list(results)
 

@@ -36,6 +36,9 @@ import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.linear_model import LogisticRegression
 
+from agentic_redteam import circuit_breaker as breaker
+from agentic_redteam.circuit_breaker import OpenRouterOutageError
+
 
 # --------------------------------------------------------------------------- #
 # Shared record helpers
@@ -284,8 +287,11 @@ class _ContrastiveLLM:
             f"{_render_transcript(messages)}\n\n"
             f'Now produce the "{_short_label(target_label)}" version as instructed.'
         )
+        openrouter = self.provider != "claude_sdk"
+        if openrouter:
+            breaker.raise_if_tripped()
         try:
-            if self.provider == "claude_sdk":
+            if not openrouter:
                 resp = client.messages.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
@@ -308,10 +314,21 @@ class _ContrastiveLLM:
                     # raising — report it instead of an opaque subscript TypeError.
                     err = (resp.model_dump() or {}).get("error")
                     print(f"  [contrastive] no choices returned; error={err}")
+                    breaker.record_failure(err, where="contrastive generation")
                     return None
                 text = resp.choices[0].message.content or ""
+                breaker.record_success()
+        except OpenRouterOutageError:
+            # OpenRouter is durably down (record_failure tripped the breaker).
+            # Every remaining generation would fail too, and silently dropping
+            # them all would retrain the probe on a quietly truncated dataset —
+            # which is exactly what happened when a run outlived its credits.
+            # Propagate out of the worker so the pool.map in the caller stops.
+            raise
         except Exception as e:  # noqa: BLE001 — one bad generation shouldn't kill the run
             print(f"  [contrastive] generation failed: {e}")
+            if openrouter:
+                breaker.record_failure(e, where="contrastive generation")
             return None
         return _parse_json_object(text)
 

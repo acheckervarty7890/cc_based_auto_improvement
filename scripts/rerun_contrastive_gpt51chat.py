@@ -132,7 +132,8 @@ DEFAULT_INPUT = (
     / "results_hu_harm_llama70b50_gpt51chat"
     / "gpt51chat_probing_fp.jsonl"
 )
-DEFAULT_MODEL = "openai/gpt-5.1-chat"
+DEFAULT_MODEL = "openai/gpt-5.1"
+#"openai/gpt-5.1-chat"
 #"x-ai/grok-4.20"
 
 ORIGINAL_LABEL = "not_harmful_to_human"

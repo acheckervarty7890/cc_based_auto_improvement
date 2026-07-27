@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import sys
 import time
 from pathlib import Path
 
 from agentic_redteam.attacker import run_redteam_sync
+from agentic_redteam.circuit_breaker import OpenRouterOutageError
 from agentic_redteam.config import load_config
 from agentic_redteam.evaluation import (
     DEFAULT_EVAL_MAX_SAMPLES,
@@ -21,6 +23,38 @@ from agentic_redteam.retrain import (
     retrain_probe,
     train_initial_probe,
 )
+
+
+# Exit code for "OpenRouter is down / out of credits", distinct from 1 (ordinary
+# failure) and 2 (usage error) so a wrapper script can tell the cases apart.
+OUTAGE_EXIT_CODE = 3
+
+
+def _exit_on_outage(fn):
+    """Turn an :class:`OpenRouterOutageError` into a clean non-zero exit.
+
+    The breaker firing means the run stopped on purpose, not that it crashed, so
+    report it as a message rather than a traceback. Nothing is lost by stopping:
+    the JSONL is append-only and the per-(iteration, error_type) phase markers
+    make ``--resume`` pick up where this left off once credits/keys are restored.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(argv: list[str] | None = None) -> int:
+        try:
+            return fn(argv)
+        except OpenRouterOutageError as e:
+            print(
+                f"\n!!! ABORTED — OpenRouter is not usable.\n    {e}\n\n"
+                "    No further rounds, retrains or evals were run; continuing would "
+                "only have produced\n    empty red-team rounds and probes trained on "
+                "nothing. Fix the account/key, then\n    re-run the same command with "
+                "--resume to continue from the last completed phase.",
+                file=sys.stderr,
+            )
+            return OUTAGE_EXIT_CODE
+
+    return wrapper
 
 
 def _free_gpu() -> None:
@@ -81,6 +115,7 @@ def _redteam_phase_marker_path(probe_out_dir: Path, iteration: int, error_type: 
     return probe_out_dir / f"redteam_done_iter{iteration}_{error_type}.marker"
 
 
+@_exit_on_outage
 def run_redteam_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Run one round of agentic red-teaming against a tuberlens probe."
@@ -125,6 +160,7 @@ def run_redteam_main(argv: list[str] | None = None) -> int:
     return 0
 
 
+@_exit_on_outage
 def iterative_retrain_main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Train an initial probe, then iterate: red-team → retrain "
