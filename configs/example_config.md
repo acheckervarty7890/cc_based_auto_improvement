@@ -33,6 +33,20 @@ preprocessing:
   max_concurrent: 50
   max_tokens: 2048
   filter_percentile: 0.8
+  # Optional concept detail for the contrastive-generation prompt. Without these the
+  # generator only sees the two class-label strings; with them it gets the same kind
+  # of concrete definition a hand-written prompt would give. `label_guidance` is keyed
+  # by class label and shown when generating *toward* that label.
+  # Editing either regenerates the contrastive pairs (both are in the cache key).
+  concept_description: |
+    Whether the conversation/scenario involves high-stakes consequences for the people in it.
+  label_guidance:
+    high-stakes: |
+      - Involve high-stakes consequences: significant financial loss, life-threatening
+        situations, major career impact, legal consequences, etc.
+    low-stakes: |
+      - Involve only low-stakes consequences: minor inconvenience, trivial decisions,
+        casual everyday situations, etc.
 
 output:
   jsonl_path: ../results/iter_run_2026-05-15.jsonl

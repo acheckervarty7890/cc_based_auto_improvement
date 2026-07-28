@@ -138,7 +138,8 @@ def select(rows, clusters, n) -> list[str]:
 
 
 def restrict_to_cached(rows, cache_dir, model, layer, combine, convert,
-                       pos_label, neg_label, truth_label, contrastive_cache):
+                       pos_label, neg_label, truth_label, contrastive_cache,
+                       preprocessing=None):
     """Keep only rows that are fully cache-backed for the offline retrain path.
 
     A row survives iff BOTH exist on disk already:
@@ -152,8 +153,18 @@ def restrict_to_cached(rows, cache_dir, model, layer, combine, convert,
     """
     from tuberlens.interfaces.dataset import LabelledDataset, Message as TLM
 
-    from agentic_redteam.preprocessing import _cache_key, _extract_messages
+    from agentic_redteam.preprocessing import (
+        _cache_key,
+        _extract_messages,
+        _guidance_fingerprint,
+    )
     from agentic_redteam.retrain import _redteam_activation_cache_path
+
+    # The contrastive cache key folds in the config's concept guidance (empty
+    # fingerprint when the config sets none), so mirror it here or every lookup
+    # misses for a guidance-carrying config.
+    description = getattr(preprocessing, "concept_description", "") or ""
+    guidance = getattr(preprocessing, "label_guidance", None)
 
     def transform(msgs):
         d = msgs
@@ -177,7 +188,8 @@ def restrict_to_cached(rows, cache_dir, model, layer, combine, convert,
         label = r["judge_label"] if r["judge_label"] in (pos_label, neg_label) else truth_label
         target = neg_label if label == pos_label else pos_label
         msgs = _extract_messages({"inputs": raw_msgs}, "inputs")
-        if _cache_key(msgs, target) not in contrastive_cache:
+        fingerprint = _guidance_fingerprint(description, target, guidance)
+        if _cache_key(msgs, target, fingerprint) not in contrastive_cache:
             dropped_pair += 1
             continue
         kept.append(r)
@@ -365,6 +377,7 @@ def main(argv=None):
             rows, drop_act, drop_pair = restrict_to_cached(
                 rows, base_cache, model, layer, combine, convert,
                 pos_label, neg_label, truth_label, contrastive_map,
+                config.preprocessing,
             )
             bits = []
             if drop_act:

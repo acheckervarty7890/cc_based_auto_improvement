@@ -187,6 +187,17 @@ class PreprocessingConfig:
     # property of the assistant reply (e.g. harmful_to_human); leave false for
     # whole-scenario concepts (e.g. high-stakes).
     assistant_centric: bool = False
+    # Optional concept detail injected verbatim into the contrastive-generation
+    # system prompt, so the generator gets more than just the two label strings.
+    #   concept_description — what the concept *is*; shown for both directions.
+    #   label_guidance      — keyed by class label, shown when generating *toward*
+    #                         that label (e.g. "involve high-stakes consequences
+    #                         (significant financial loss, legal exposure, ...)").
+    # Both are free text (bullets welcome). Non-empty guidance is folded into the
+    # contrastive cache key, so editing it regenerates pairs instead of silently
+    # reusing ones written under the old prompt.
+    concept_description: str = ""
+    label_guidance: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -334,6 +345,36 @@ def _validate_interface(value: str, where: str) -> Interface:
     return value  # type: ignore[return-value]
 
 
+def _parse_label_guidance(raw: object) -> dict[str, str]:
+    """Parse ``preprocessing.label_guidance``: a {class label: free text} mapping.
+
+    Keys are the *raw* class labels (as they appear in the probe metadata, e.g.
+    ``high-stakes`` / ``harmful_to_human``); values are injected verbatim into the
+    generation prompt when writing *toward* that label. Empty/blank values are
+    dropped so they can't perturb the cache key with a no-op.
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            "preprocessing.label_guidance must be a mapping of class label → text, "
+            f"got {type(raw).__name__}"
+        )
+    guidance: dict[str, str] = {}
+    for label, text in raw.items():
+        if text is None:
+            continue
+        if not isinstance(text, str):
+            raise ValueError(
+                f"preprocessing.label_guidance[{label!r}] must be a string, "
+                f"got {type(text).__name__}"
+            )
+        text = text.strip()
+        if text:
+            guidance[str(label)] = text
+    return guidance
+
+
 def _parse_attacker_models(
     raw_models: list, default_provider: Provider
 ) -> list[AttackerModel]:
@@ -446,6 +487,8 @@ def load_config(path: str | Path) -> RedteamConfig:
             filter_percentile=float(pp.get("filter_percentile", 0.8)),
             max_generation_retries=int(pp.get("max_generation_retries", 2)),
             assistant_centric=bool(pp.get("assistant_centric", False)),
+            concept_description=str(pp.get("concept_description", "") or "").strip(),
+            label_guidance=_parse_label_guidance(pp.get("label_guidance")),
         )
 
     return RedteamConfig(

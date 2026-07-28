@@ -187,8 +187,25 @@ def _short_label(label: str) -> str:
     return LABEL_SHORT.get(label, label)
 
 
+def _label_guidance_for(
+    label: str, label_guidance: dict[str, str] | None
+) -> str:
+    """Look up per-label prompt guidance, accepting the raw or short label as key."""
+    if not label_guidance:
+        return ""
+    text = label_guidance.get(label)
+    if text is None:
+        text = label_guidance.get(_short_label(label))
+    return (text or "").strip()
+
+
 def _generation_system_prompt(
-    current_label: str, target_label: str, *, assistant_centric: bool = False
+    current_label: str,
+    target_label: str,
+    *,
+    assistant_centric: bool = False,
+    concept_description: str = "",
+    label_guidance: dict[str, str] | None = None,
 ) -> str:
     cur = _short_label(current_label)
     tgt = _short_label(target_label)
@@ -201,10 +218,23 @@ def _generation_system_prompt(
         if assistant_centric
         else ""
     )
+    # Optional concept detail from the config: what the concept is (shown for both
+    # directions) and what the *target* class specifically means. Injected verbatim
+    # so a config can describe the concept as concretely as a hand-written prompt.
+    concept_block = (
+        f"About this classification concept:\n{concept_description.strip()}\n\n"
+        if concept_description.strip()
+        else ""
+    )
+    target_detail = _label_guidance_for(target_label, label_guidance)
+    guidance_block = (
+        f'\nWhat "{tgt}" means here:\n{target_detail}\n' if target_detail else ""
+    )
     return (
         "You are an AI-safety research assistant supporting a red-teaming team. "
         "Your task is to help generate contrastive training pairs used to build and "
         "evaluate a safety classifier.\n\n"
+        f"{concept_block}"
         f'You are given a conversation/scenario labeled "{cur}". Generate a '
         f'similar-looking conversation/scenario that belongs to the "{tgt}" '
         "class instead.\n\n"
@@ -214,6 +244,7 @@ def _generation_system_prompt(
         "- Preserve the conversational format (roles) if applicable\n"
         f'- But clearly belong to "{tgt}" rather than "{cur}"\n'
         f"{emphasis}"
+        f"{guidance_block}"
         "\n"
         "Respond with a single JSON object using these keys:\n"
         "- generated_messages: the new conversation as a list of message objects, each "
@@ -254,11 +285,15 @@ class _ContrastiveLLM:
         max_tokens: int,
         *,
         assistant_centric: bool = False,
+        concept_description: str = "",
+        label_guidance: dict[str, str] | None = None,
     ) -> None:
         self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
         self.assistant_centric = assistant_centric
+        self.concept_description = concept_description
+        self.label_guidance = label_guidance or {}
         self._client: Any = None
 
     def _ensure_client(self) -> Any:
@@ -280,7 +315,11 @@ class _ContrastiveLLM:
     ) -> dict | None:
         client = self._ensure_client()
         system = _generation_system_prompt(
-            current_label, target_label, assistant_centric=self.assistant_centric
+            current_label,
+            target_label,
+            assistant_centric=self.assistant_centric,
+            concept_description=self.concept_description,
+            label_guidance=self.label_guidance,
         )
         user = (
             f'Original "{_short_label(current_label)}" conversation:\n\n'
@@ -333,11 +372,36 @@ class _ContrastiveLLM:
         return _parse_json_object(text)
 
 
-def _cache_key(messages: Sequence[dict[str, str]], target_label: str) -> str:
-    payload = json.dumps(
-        {"messages": list(messages), "target": target_label}, sort_keys=True
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+def _guidance_fingerprint(
+    concept_description: str, target_label: str, label_guidance: dict[str, str] | None
+) -> str:
+    """Short hash of the concept detail that shaped this generation's prompt.
+
+    Empty for the no-guidance case, so configs that don't use it keep the exact
+    cache keys they had before this knob existed. When guidance *is* set, it goes
+    into the key: the cache is loaded by key without re-checking the prompt, so
+    otherwise an edited description would silently reuse pairs written under the
+    old one.
+    """
+    detail = _label_guidance_for(target_label, label_guidance)
+    description = (concept_description or "").strip()
+    if not detail and not description:
+        return ""
+    payload = json.dumps({"description": description, "target": detail}, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _cache_key(
+    messages: Sequence[dict[str, str]],
+    target_label: str,
+    guidance_fingerprint: str = "",
+) -> str:
+    payload: dict[str, Any] = {"messages": list(messages), "target": target_label}
+    if guidance_fingerprint:
+        payload["guidance"] = guidance_fingerprint
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 def _load_cache(cache_path: Path | None) -> dict[str, dict]:
@@ -380,6 +444,8 @@ def generate_contrastive_dataset(
     label_key: str = "labels",
     cache_path: str | Path | None = None,
     assistant_centric: bool = False,
+    concept_description: str = "",
+    label_guidance: dict[str, str] | None = None,
 ) -> list[dict]:
     """Return ``records`` plus one opposite-class contrastive example per record.
 
@@ -388,6 +454,14 @@ def generate_contrastive_dataset(
     Generated pairs are cached to ``cache_path`` keyed by the source conversation,
     so successes that were already processed in an earlier iteration are reused
     instead of re-queried.
+
+    ``concept_description`` (what the concept is) and ``label_guidance`` (what a
+    given class specifically means, keyed by class label) are injected verbatim
+    into the generation prompt, letting a config describe the concept as
+    concretely as a hand-written prompt would. Non-empty guidance is folded into
+    the cache key, so editing it regenerates the pairs rather than reusing ones
+    written under the old prompt; with neither set the keys are unchanged from
+    before the knobs existed.
 
     Each eligible record is retried up to ``max_retries`` times (i.e. up to
     ``max_retries + 1`` LLM calls) when a generation fails — an LLM exception,
@@ -403,11 +477,30 @@ def generate_contrastive_dataset(
         print("No records with valid labels found; skipping contrastive generation.")
         return records
 
+    # A typo'd label key would silently contribute no guidance (and leave the
+    # prompt at its generic form), so say so rather than fail quietly.
+    if label_guidance:
+        known = {pos_class_label, neg_class_label}
+        known |= {_short_label(lbl) for lbl in known}
+        unknown = [lbl for lbl in label_guidance if lbl not in known]
+        if unknown:
+            print(
+                f"  [contrastive] warning: label_guidance keys {unknown} match neither "
+                f"class label ({pos_class_label!r} / {neg_class_label!r}); ignored"
+            )
+
     cache_path = Path(cache_path) if cache_path is not None else None
     cache = _load_cache(cache_path)
 
     def _target(label: str) -> str:
         return neg_class_label if label == pos_class_label else pos_class_label
+
+    def _key(messages: Sequence[dict[str, str]], target_label: str) -> str:
+        return _cache_key(
+            messages,
+            target_label,
+            _guidance_fingerprint(concept_description, target_label, label_guidance),
+        )
 
     # Partition into cache hits and the records that still need an LLM call.
     generated: list[dict] = []
@@ -416,7 +509,7 @@ def generate_contrastive_dataset(
         messages = _extract_messages(record, text_key)
         current_label = str(record.get(label_key, ""))
         target_label = _target(current_label)
-        key = _cache_key(messages, target_label)
+        key = _key(messages, target_label)
         if key in cache:
             generated.append(cache[key])
         else:
@@ -424,7 +517,12 @@ def generate_contrastive_dataset(
 
     if to_generate:
         llm = _ContrastiveLLM(
-            provider, model, max_tokens, assistant_centric=assistant_centric
+            provider,
+            model,
+            max_tokens,
+            assistant_centric=assistant_centric,
+            concept_description=concept_description,
+            label_guidance=label_guidance,
         )
         llm._ensure_client()  # initialize once before fan-out
 
@@ -462,7 +560,7 @@ def generate_contrastive_dataset(
             for attempt in range(max_retries + 1):
                 contrastive = _attempt(messages, current_label, target_label)
                 if contrastive is not None:
-                    return "ok", record, _cache_key(messages, target_label), contrastive
+                    return "ok", record, _key(messages, target_label), contrastive
                 if attempt < max_retries:
                     time.sleep(0.5 * (attempt + 1))  # brief backoff before retrying
             return "fail", record, None, None
