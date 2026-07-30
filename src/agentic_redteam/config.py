@@ -248,6 +248,25 @@ class EvalConfig:
 
 
 @dataclass
+class KaggleConfig:
+    """Precomputed eval activations to pull from Kaggle instead of recomputing.
+
+    ``eval_dataset_slug`` and ``eval_file_name`` are templates formatted with
+    ``split=<name>`` (the eval split's filename stem), e.g. ``"{split}gemmaevalpt"``
+    and ``"{split}-gemmaeval.pt"``. Present only to skip the (very expensive)
+    activation extraction for large probe models — see ``kaggle_activations.py``.
+
+    Requires credentials: ``KAGGLE_CONFIG_DIR`` pointing at the DIRECTORY holding
+    ``kaggle.json``, or ``KAGGLE_API_TOKEN``. Only valid with full eval splits
+    (``eval.eval_max_samples: 0``).
+    """
+
+    owner: str
+    eval_dataset_slug: str
+    eval_file_name: str
+
+
+@dataclass
 class OutputConfig:
     jsonl_path: Path
     run_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
@@ -275,6 +294,8 @@ class RedteamConfig:
     preprocessing: PreprocessingConfig | None = None
     # Dataset-loading transforms applied to eval splits only (see EvalConfig).
     eval: EvalConfig = field(default_factory=EvalConfig)
+    # Optional: pull precomputed eval activations from Kaggle (see KaggleConfig).
+    kaggle: KaggleConfig | None = None
 
     @property
     def true_class_label_for_success(self) -> str:
@@ -429,6 +450,7 @@ def load_config(path: str | Path) -> RedteamConfig:
     o = frontmatter.get("output") or {}
     pp = frontmatter.get("preprocessing") or {}
     ev = frontmatter.get("eval") or {}
+    kg = frontmatter.get("kaggle") or {}
 
     if "models" not in a or not a["models"]:
         raise ValueError("attacker.models must be a non-empty list")
@@ -458,6 +480,25 @@ def load_config(path: str | Path) -> RedteamConfig:
     judge_provider = _validate_provider(
         str(j.get("provider", "claude_sdk")), "judge.provider"
     )
+
+    kaggle_cfg = None
+    if kg:
+        missing = [k for k in ("owner", "eval_dataset_slug", "eval_file_name") if not kg.get(k)]
+        if missing:
+            raise ValueError(f"kaggle section is missing required key(s): {missing}")
+        # Full splits only: the published blobs cover whole splits, so a subsampled
+        # run would load activations for rows it isn't scoring. Catch it at parse
+        # time rather than after the first (long) red-team phase.
+        if ev.get("eval_max_samples") not in (0, None):
+            raise ValueError(
+                "kaggle: requires eval.eval_max_samples: 0 (full splits), but got "
+                f"{ev['eval_max_samples']}."
+            )
+        kaggle_cfg = KaggleConfig(
+            owner=str(kg["owner"]),
+            eval_dataset_slug=str(kg["eval_dataset_slug"]),
+            eval_file_name=str(kg["eval_file_name"]),
+        )
 
     raw_error_type = pr.get("error_type", "false_positive")
     if isinstance(raw_error_type, str):
@@ -557,4 +598,5 @@ def load_config(path: str | Path) -> RedteamConfig:
                 int(ev["eval_max_samples"]) if ev.get("eval_max_samples") is not None else None
             ),
         ),
+        kaggle=kaggle_cfg,
     )
