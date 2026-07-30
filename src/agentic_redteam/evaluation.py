@@ -32,6 +32,7 @@ def evaluate_probe(
     seed: int = DEFAULT_SEED,
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
+    kaggle_source=None,
 ):
     """Score one probe on the local eval splits, returning a per-split DataFrame.
 
@@ -59,6 +60,14 @@ def evaluate_probe(
     the eval step of tuberlens' ``collate_train_evaluate.py``): merge adjacent
     same-role messages, and rewrite ``tool`` messages as ``assistant`` messages
     (the latter applied first). Training/retraining data is unaffected.
+
+    ``kaggle_source`` (a ``KaggleActivationSource``) pre-populates the activation
+    cache from precomputed blobs published on Kaggle, before ``get_performances``
+    runs. Each downloaded blob is validated against the probe's ``model_name`` /
+    ``layer`` and the split's row count, then written to the exact path
+    ``get_performances`` would have computed — so the eval becomes a pure cache hit
+    and never loads the LLM. Only valid for full splits (``max_samples=None``): the
+    published blobs cover whole splits, and a subsampled run needs different rows.
     """
     from tuberlens.evaluation import get_performances
     from tuberlens.interfaces.dataset import LabelledDataset, subsample_balanced_subset
@@ -95,6 +104,25 @@ def evaluate_probe(
     cache_stem = (
         f"acts_n{max_samples}_seed{seed}.pt" if max_samples is not None else "acts_full.pt"
     )
+
+    if kaggle_source is not None:
+        from agentic_redteam.kaggle_activations import prefetch_eval_activations
+
+        if max_samples is not None:
+            raise ValueError(
+                "kaggle_source requires full splits (eval_max_samples: 0 / "
+                f"max_samples=None), but max_samples={max_samples}. The published "
+                "blobs cover whole splits; a subsampled run needs different rows."
+            )
+        prefetch_eval_activations(
+            activations_cache_dir,
+            eval_datasets,
+            kaggle_source,
+            model_name=probe.model_name,
+            layer=int(probe.layer),
+            cache_stem=cache_stem,
+        )
+
     return get_performances(
         probe,
         eval_datasets,

@@ -415,6 +415,19 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
     )
     eval_results: dict = {}
 
+    # Optional: pull precomputed eval activations from Kaggle instead of extracting
+    # them (see kaggle_activations.py). Only the FIRST eval actually downloads —
+    # every later probe in the run hits the same path-keyed cache dir.
+    kaggle_source = None
+    if config.kaggle is not None:
+        from agentic_redteam.kaggle_activations import KaggleActivationSource
+
+        kaggle_source = KaggleActivationSource(
+            owner=config.kaggle.owner,
+            dataset_slug=config.kaggle.eval_dataset_slug,
+            file_name=config.kaggle.eval_file_name,
+        )
+
     def _maybe_eval(label: str, probe_path: Path) -> None:
         if not args.eval:
             return
@@ -428,6 +441,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             combine_consecutive_messages=combine_consecutive_messages,
             convert_tool_to_assistant=convert_tool_to_assistant,
+            kaggle_source=kaggle_source,
         )
         eval_results[label] = df
         print(df.to_string(index=False))

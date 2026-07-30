@@ -91,6 +91,9 @@ Required environment variables:
 - Optional: `OPENROUTER_BASE_URL` (default `https://openrouter.ai/api/v1`),
   `OPENROUTER_HTTP_REFERER`, `OPENROUTER_APP_TITLE` (sent as `HTTP-Referer` /
   `X-Title` for OpenRouter dashboard attribution).
+- Optional circuit-breaker tuning (see `circuit_breaker.py`):
+  `OPENROUTER_MAX_CONSECUTIVE_ERRORS` (default 10) and
+  `OPENROUTER_MAX_CONSECUTIVE_FATAL_ERRORS` (default 3).
 
 ## Common commands
 
@@ -240,9 +243,23 @@ preprocessing:                        # OPTIONAL: collation-style preprocessing 
   max_concurrent: int                 # contrastive generation fan-out (default 50)
   max_tokens: int                     # per contrastive generation (default 2048)
   filter_percentile: float            # filter_dataset keep-threshold (default 0.8)
+  assistant_centric: bool             # default false; true → prompt says the label is set by
+                                      #   the assistant's reply, so edit the assistant turns
+  concept_description: str            # OPTIONAL free text: what the concept IS. Injected into
+                                      #   the generation prompt for both directions.
+  label_guidance:                     # OPTIONAL {class label: free text}; shown when generating
+    <pos_class_label>: |              #   TOWARD that label (keys are the raw probe labels; the
+      - ...                           #   LABEL_SHORT alias is also accepted). Unknown keys are
+    <neg_class_label>: |              #   warned about and ignored.
+      - ...
 eval:                                 # OPTIONAL: dataset message transforms applied to BOTH
   combine_consecutive_messages: bool  # training data AND eval splits (default false) — merge
   convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
+kaggle:                               # OPTIONAL: pull PRECOMPUTED eval activations from Kaggle
+  owner: <kaggle username>            #   instead of extracting them (see kaggle_activations.py).
+  eval_dataset_slug: <template>       #   slug + file templates, formatted with `split=<split stem>`
+  eval_file_name: <template>          #   e.g. "{split}gemmaevalpt" / "{split}-gemmaeval.pt".
+                                      #   Requires eval.eval_max_samples: 0 (validated at parse time).
 output:   { jsonl_path, run_id,
             comparison_csv,             # OPTIONAL eval-output path (--eval); CLI --comparison-csv overrides
             activations_cache_dir,      # OPTIONAL eval activation cache (--eval); CLI --activations-cache-dir overrides
@@ -394,6 +411,39 @@ Thin factory around `openai.OpenAI` / `openai.AsyncOpenAI` pointed at
 OpenRouter (`https://openrouter.ai/api/v1`). Reads `OPENROUTER_API_KEY` and the
 optional `OPENROUTER_BASE_URL` / `OPENROUTER_HTTP_REFERER` /
 `OPENROUTER_APP_TITLE` env vars. Imports `openai` lazily.
+
+### `agentic_redteam/circuit_breaker.py`
+Process-global breaker that stops a run when OpenRouter is **durably** down.
+Exists because every OpenRouter call site here is individually fault-tolerant
+by design — a failed attacker round is logged and the rotation continues
+(`attacker.run_one_model`), a failed contrastive generation drops one record
+(`preprocessing`), a failed summarization is swallowed (`_summarize_round`) —
+which is right for a blip but makes an exhausted balance or revoked key
+*invisible*: the run grinds through every remaining round, retrains on nothing,
+evals, and exits 0 with a plausible-looking comparison CSV. (This is exactly
+what the `run_gpt51_memo_ablation.sh` arms did: 300 + 200 model-rounds all
+failing 402, then 3 retrain/eval cycles on zero red-team data.)
+
+Every OpenRouter call reports its outcome via `record_success()` /
+`record_failure(detail, where=)`; N consecutive failures across **all** call
+sites trip the breaker, which raises `OpenRouterOutageError` and keeps raising
+it. Two thresholds, since the failure classes deserve different patience:
+
+- **transient** (429/5xx/timeouts/empty-choices envelopes) — may recover, so
+  `OPENROUTER_MAX_CONSECUTIVE_ERRORS` (default 10) are allowed in a row.
+- **fatal** (401/402/403, "Insufficient credits", "Invalid API key") — never
+  recovers without human action, so only
+  `OPENROUTER_MAX_CONSECUTIVE_FATAL_ERRORS` (default 3), and callers **skip
+  their backoff sleeps** for these (`classify_error` / `is_fatal_error`).
+
+"Consecutive" is global and reset by *any* OpenRouter success, so a single
+durably-broken model in a rotation whose siblings still work will **not** trip
+it — the rotation genuinely can continue in that case. Counters are guarded by
+a `threading.Lock`, not an asyncio primitive, because call sites live in the
+asyncio attacker loop *and* in `preprocessing`'s `ThreadPoolExecutor` workers.
+`raise_if_tripped()` is called at the top of `run_one_model` and before each
+OpenRouter call, so once tripped the remaining schedule collapses without
+touching the network. `reset()` / `snapshot()` exist for tests.
 
 ### `agentic_redteam/tools.py`
 Hosts both the **provider-agnostic handlers** (`handle_submit_conversation`,
@@ -649,9 +699,26 @@ when fewer than two classes are present. `generate_contrastive_dataset(...)` ask
 LLM (this repo's Anthropic / OpenRouter sync clients, fanned out over a
 `ThreadPoolExecutor`, **not** litellm) to write an opposite-class version of each
 conversation, returning originals + generated pairs. Generated pairs are cached to a
-JSONL keyed by `sha256(source messages + target label)` so accumulating successes
-only pay for newly-seen conversations. `label_dataset` (LLM relabel) is intentionally
-**not** ported — red-team data already carries judge labels.
+JSONL keyed by `sha256(source messages + target label [+ guidance fingerprint])` so
+accumulating successes only pay for newly-seen conversations. `label_dataset` (LLM
+relabel) is intentionally **not** ported — red-team data already carries judge labels.
+
+**Concept detail in the generation prompt.** By default `_generation_system_prompt`
+knows nothing about the concept beyond the two label strings.
+`preprocessing.concept_description` (what the concept is, shown in both directions)
+and `preprocessing.label_guidance` (a `{class label: free text}` mapping, shown when
+generating *toward* that label) are injected verbatim, so a config can define the
+concept as concretely as a hand-written per-concept prompt would — e.g. `high-stakes:
+"- significant financial loss, life-threatening situations, legal consequences"`.
+Guidance is looked up by the raw label first, then its `LABEL_SHORT` alias; keys
+matching neither class label are warned about and ignored (a typo would otherwise
+silently degrade the prompt back to its generic form). **Non-empty guidance is folded
+into the contrastive cache key** via `_guidance_fingerprint` — the cache is loaded by
+key without re-checking the prompt, so otherwise an edited description would silently
+reuse pairs written under the old one. The fingerprint is `""` when neither knob is
+set, so configs that don't use them keep byte-identical keys (existing caches still
+hit), and it covers only the *target* label's guidance, so editing one class's text
+doesn't invalidate the other direction's pairs.
 
 ### `agentic_redteam/evaluation.py`
 `evaluate_probe(probe_path, eval_dataset_dir, activations_cache_dir, splits=None,
@@ -678,6 +745,43 @@ only, this repo applies the same values to the training data as well** (see
 `retrain.py`) so the probe trains and is scored on the same message representation.
 Exposed via the config `eval:` section (`EvalConfig`) and overridable per-run by the
 `--[no-]combine-consecutive-messages` / `--[no-]convert-tool-to-assistant` CLI flags.
+
+`kaggle_source=` (a `KaggleActivationSource`, built by the CLI from the config
+`kaggle:` section) pre-populates the activation cache from Kaggle before
+`get_performances` runs — see below. It is rejected when `max_samples is not None`.
+
+### `agentic_redteam/kaggle_activations.py`
+`prefetch_eval_activations(cache_dir, eval_datasets, source, *, model_name, layer,
+cache_stem)` downloads **precomputed** eval activations published on Kaggle into the
+same path-keyed cache dir `evaluate_probe` already uses, writing each split to the
+exact name `get_performances` derives (`<split>-acts_full.pt`). tuberlens'
+`get_activations` checks `save_path.exists()` first, so the subsequent eval is a pure
+cache hit and **no LLM is ever loaded** — the point being that full-split gemma-3-27b
+activations are ~20 GB and hours of forward passes.
+
+Deliberately **not** built on tuberlens' `get_activations(using_kaggle=True)`:
+- **Addressing.** `LLMModel._get_kaggle_dataset_slug` derives the slug from the local
+  `save_path` by stripping punctuation and truncating to the first 50 chars — our
+  discriminating suffix is truncated away, so all four eval splits collapse to one
+  slug. `KaggleActivationSource(owner, dataset_slug, file_name)` is explicit instead,
+  with both fields `str.format`-ed on `split=<split stem>`.
+- **Transfer volume.** tuberlens' `_download_from_kaggle` pulls and unzips the *whole*
+  dataset to a temp dir per call. This fetches the one file, into a staging dir on the
+  same filesystem as the cache, so landing it is a rename not a second copy.
+- **Validation.** Every blob (downloaded *or* already cached) is checked against the
+  probe's `model_name`/`layer` and the split's row count before it may be used;
+  mismatches raise `KaggleActivationError`. `LLMModel.load_activations` discards the
+  `model_name`/`layer` the blob was saved with, and this repo's caches otherwise load
+  by path without validating inputs — acceptable for content-keyed blobs we computed,
+  not for one fetched from a remote store. The header read uses `torch.load(...,
+  mmap=True)`, so validating the 11 GB anthropic blob is instant.
+
+Auth: `KAGGLE_CONFIG_DIR` must name the **directory** holding `kaggle.json` (the API
+joins the filename on, and `os.makedirs` a wrong path, so pointing at the file fails
+silently), or export `KAGGLE_API_TOKEN`. `_authenticate()` catches `SystemExit`
+because `KaggleApi.authenticate()` ends in `exit(1)` when no credential resolves —
+a `BaseException` an ordinary `except Exception` would let kill the run. A split that
+cannot be fetched **raises rather than falling back** to computing it.
 
 ### Eval dataset splits on disk
 Three eval-split directories ship in the repo, one per probe concept. `--eval-dataset-dir`
@@ -774,6 +878,17 @@ resolved against the `--[no-]…` CLI flags (`BooleanOptionalAction`, default `N
   judge is told the two candidate labels but is **not** told which one the
   caller is hoping for, so it acts as an independent classifier. `success` is
   computed in `tools.py` after both run.
+- **`OpenRouterOutageError` must never be swallowed.** Every `except Exception`
+  around an OpenRouter call (`run_one_model`, `_summarize_round`,
+  `_write_iteration_memo`, `_ContrastiveLLM.generate`) is there to absorb a
+  *single* failure so the run continues — so each one needs an explicit
+  `except OpenRouterOutageError: raise` **before** it, mirroring how
+  `JudgeRefusalError` is handled. New OpenRouter call sites must report to the
+  breaker (`record_success` / `record_failure`) or the "consecutive" count
+  silently under-counts. The CLI mains carry `@_exit_on_outage`, which turns
+  the error into a clean message plus `OUTAGE_EXIT_CODE` (3) instead of a
+  traceback; nothing is lost by stopping, since the JSONL is append-only and
+  the per-`(iteration, error_type)` phase markers let `--resume` continue.
 - **JSONL is append-only and dedup-by-canonical-text.** `JsonlStore` rejects
   duplicate conversations silently — the agent's `submit_conversation`
   response surfaces `duplicate=True` so it can move on.
