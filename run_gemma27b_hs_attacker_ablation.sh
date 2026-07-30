@@ -17,17 +17,18 @@ set -e
 # (gemma-3-27b-it L32), the base data (data/hs_ls_200.jsonl) and every scheduling knob are
 # held fixed, so any delta in the comparison CSVs is attributable to the attacker.
 #
-# ACTIVATIONS ARE COMPUTED FRESH. Meant for a clean cloud box, so there is NO pre-seeding of
-# the activation cache from archive/. The shared cache dir
-# (results_hs_gemma27b_attacker_ablation/) starts empty: arm 1 computes the base + eval
-# activation blobs, arm 2 hits them, because those blobs depend only on the probe model /
-# layer / seed / base data / eval splits / transforms — NOT on the attacker. The
-# redteam_acts_* per-conversation cache written into the same dir is content-keyed with a
+# ACTIVATIONS. The shared cache dir (results_hs_gemma27b_attacker_ablation/) starts empty on
+# a clean cloud box; arm 1 fills it and arm 2 hits it, because those blobs depend only on the
+# probe model / layer / seed / base data / eval splits / transforms — NOT on the attacker.
+# The redteam_acts_* per-conversation cache written into the same dir is content-keyed with a
 # frozen LLM, so the two arms' distinct successes get distinct keys.
 #
-# Budget note: this is a 27B probe, not the 1B one the earlier hs ablations used. Arm 1 pays
-# the full activation cost over eval_datasets (~1900 rows, full splits) plus the base split;
-# arm 2 mostly does not. Expect arm 1 to be substantially the slower of the two.
+# The EVAL half is not computed at all: both configs carry a `kaggle:` section pointing at
+# anku7890/{split}gemmaevalpt, so arm 1's first eval downloads ~20 GB of precomputed
+# gemma-3-27b activations (validated against the probe's model/layer and each split's row
+# count) straight into eval_activations/ instead of running full splits through a 27B model.
+# That needs credentials — see the KAGGLE_CONFIG_DIR check below. The BASE split (~116 MB) is
+# still computed locally by arm 1, as is every red-team conversation.
 #
 # A fresh --probe-out-dir per arm matters beyond overwriting:
 #   - the old dir holds redteam_done_iter*_*.marker resume markers; reusing it would make the
@@ -46,6 +47,24 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 mkdir -p logs
 
 : "${OPENROUTER_API_KEY:?export OPENROUTER_API_KEY first (attacker, judge and preprocessing are all provider: openrouter)}"
+
+# Kaggle credentials for the precomputed eval activations (configs' `kaggle:` section).
+# Checked HERE rather than at first use: the first eval is hours into arm 1, and an
+# unauthenticated KaggleApi.authenticate() ends in exit(1), not an exception.
+if [ -z "${KAGGLE_API_TOKEN:-}" ]; then
+    kaggle_json="${KAGGLE_CONFIG_DIR:-$HOME/.kaggle}/kaggle.json"
+    [ -f "$kaggle_json" ] || kaggle_json="$HOME/.config/kaggle/kaggle.json"
+    if [ ! -f "$kaggle_json" ]; then
+        echo "ERROR: no Kaggle credentials. Set KAGGLE_CONFIG_DIR to the DIRECTORY holding" >&2
+        echo "       kaggle.json (not the file), or export KAGGLE_API_TOKEN." >&2
+        exit 1
+    fi
+    echo ">>> kaggle credentials: $kaggle_json"
+fi
+.venv_claude/bin/python -c "import kaggle" 2>/dev/null || {
+    echo "ERROR: the 'kaggle' package is not installed: .venv_claude/bin/pip install kaggle" >&2
+    exit 1
+}
 
 SHARED_CACHE="results_hs_gemma27b_attacker_ablation"   # shared, arm-independent activation cache
 

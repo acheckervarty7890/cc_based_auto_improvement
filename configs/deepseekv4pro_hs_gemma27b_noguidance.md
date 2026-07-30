@@ -56,6 +56,14 @@ preprocessing:                     # optional: collation-style preprocessing of 
   # NO concept_description / label_guidance in either arm — see the header. Do not add them to
   # one arm without adding the identical block to the other, or the arms stop being comparable.
 
+kaggle:                            # precomputed gemma-3-27b eval activations, published per split.
+  owner: anku7890                  #   Pulled into activations_cache_dir BEFORE get_performances, so eval
+  eval_dataset_slug: "{split}gemmaevalpt"   #   is a pure cache hit and the 27B model is never loaded.
+  eval_file_name: "{split}-gemmaeval.pt"    #   Each blob is checked against the probe's model_name/layer
+                                   #   and the split's row count before it enters the cache.
+                                   #   Needs KAGGLE_CONFIG_DIR (the DIRECTORY holding kaggle.json) or
+                                   #   KAGGLE_API_TOKEN. Requires eval.eval_max_samples: 0.
+
 eval:                              # dataset-loading transforms — MUST match how the cached eval
   combine_consecutive_messages: true  #   activations below were computed, or the path-keyed cache
   convert_tool_to_assistant: true    #   would silently reuse mismatched activations
@@ -70,8 +78,8 @@ output:
   activations_cache_dir: ../results_hs_gemma27b_attacker_ablation/eval_activations   # SHARED across
                                   #   BOTH arms. Eval activations depend only on the probe model + layer +
                                   #   eval splits + seed + transforms (NOT the attacker, the training data,
-                                  #   or the contrastive prompt), so both arms hit the same blobs. Populated
-                                  #   by arm 1 on a fresh box; this arm reuses them instead of recomputing.
+                                  #   or the contrastive prompt), so both arms hit the same blobs. Filled from
+                                  #   the `kaggle:` datasets above by arm 1's first eval; this arm reuses them.
                                   #   NOTE the filenames are `<split>-acts_full.pt` with no hash, so this dir
                                   #   must only ever be paired with a gemma-3-27b-it L32 probe, eval_datasets,
                                   #   seed 42, eval_max_samples 0 and the two transforms above.
