@@ -327,10 +327,8 @@ class _ContrastiveLLM:
             f'Now produce the "{_short_label(target_label)}" version as instructed.'
         )
         openrouter = self.provider != "claude_sdk"
-        if openrouter:
-            breaker.raise_if_tripped()
-        try:
-            if not openrouter:
+        if not openrouter:
+            try:
                 resp = client.messages.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
@@ -338,7 +336,21 @@ class _ContrastiveLLM:
                     messages=[{"role": "user", "content": user}],
                 )
                 text = "".join(b.text for b in resp.content if b.type == "text")
-            else:
+            except Exception as e:  # noqa: BLE001 — one bad generation shouldn't kill the run
+                print(f"  [contrastive] generation failed: {e}")
+                return None
+            return _parse_json_object(text)
+
+        # OpenRouter path. A connection failure is retried here on the breaker's
+        # minutes-long schedule rather than returned as None: the caller's `None`
+        # handling *drops the record and its source*, so a one-minute network
+        # blip during preprocessing would silently truncate the retraining set
+        # (far worse than aborting, because the resulting probe still looks fine).
+        attempt = 0
+        while True:
+            breaker.raise_if_tripped()
+            failure: object
+            try:
                 resp = client.chat.completions.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
@@ -347,29 +359,39 @@ class _ContrastiveLLM:
                         {"role": "user", "content": user},
                     ],
                 )
-                if not resp.choices:
-                    # OpenRouter surfaces some upstream errors (rate limits, policy
-                    # blocks) as a 200 with an error body and no choices, rather than
-                    # raising — report it instead of an opaque subscript TypeError.
-                    err = (resp.model_dump() or {}).get("error")
-                    print(f"  [contrastive] no choices returned; error={err}")
-                    breaker.record_failure(err, where="contrastive generation")
-                    return None
-                text = resp.choices[0].message.content or ""
-                breaker.record_success()
-        except OpenRouterOutageError:
-            # OpenRouter is durably down (record_failure tripped the breaker).
-            # Every remaining generation would fail too, and silently dropping
-            # them all would retrain the probe on a quietly truncated dataset —
-            # which is exactly what happened when a run outlived its credits.
-            # Propagate out of the worker so the pool.map in the caller stops.
-            raise
-        except Exception as e:  # noqa: BLE001 — one bad generation shouldn't kill the run
-            print(f"  [contrastive] generation failed: {e}")
-            if openrouter:
-                breaker.record_failure(e, where="contrastive generation")
-            return None
-        return _parse_json_object(text)
+            except OpenRouterOutageError:
+                # OpenRouter is durably down (record_failure or the interruptible
+                # sleep tripped the breaker). Every remaining generation would fail
+                # too, and silently dropping them all would retrain the probe on a
+                # quietly truncated dataset — which is exactly what happened when a
+                # run outlived its credits. Propagate out of the worker so the
+                # pool.map in the caller stops.
+                raise
+            except Exception as e:  # noqa: BLE001 — one bad generation shouldn't kill the run
+                print(f"  [contrastive] generation failed: {e}")
+                failure = e
+            else:
+                if resp.choices:
+                    breaker.record_success()
+                    return _parse_json_object(resp.choices[0].message.content or "")
+                # OpenRouter surfaces some upstream errors (rate limits, policy
+                # blocks) as a 200 with an error body and no choices, rather than
+                # raising — report it instead of an opaque subscript TypeError.
+                failure = (resp.model_dump() or {}).get("error")
+                print(f"  [contrastive] no choices returned; error={failure}")
+
+            kind = breaker.record_failure(failure, where="contrastive generation")
+            if kind != "connection":
+                # Server-side problem: hand back to the caller's own retry loop.
+                return None
+            delay = breaker.backoff_delay(kind, attempt)
+            print(
+                f"  [contrastive] no connection; retrying in {delay / 60:.1f} min "
+                f"(unreachable for {breaker.streak_seconds() / 60:.1f} of "
+                f"{breaker.max_connection_outage_s() / 60:.0f} min)"
+            )
+            breaker.sleep_sync(delay)
+            attempt += 1
 
 
 def _guidance_fingerprint(

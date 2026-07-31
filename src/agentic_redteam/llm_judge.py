@@ -18,11 +18,12 @@ other to be installed.
 from __future__ import annotations
 
 import json
-import time
+import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agentic_redteam import circuit_breaker as breaker
+from agentic_redteam.circuit_breaker import OpenRouterOutageError
 from agentic_redteam.persistence import Conversation
 
 if TYPE_CHECKING:
@@ -32,8 +33,9 @@ if TYPE_CHECKING:
 # (upstream rate-limit / provider blip / moderation). Retry a few times with
 # exponential backoff before giving up so a transient hiccup doesn't abort a
 # long iterative run.
+# Backoff intervals live in circuit_breaker.backoff_delay(), keyed on the
+# failure's class; connection failures are bounded by the breaker, not by this.
 _OPENROUTER_MAX_ATTEMPTS = 4
-_OPENROUTER_BACKOFF_BASE_S = 2.0
 
 
 class JudgeRefusalError(RuntimeError):
@@ -426,13 +428,18 @@ Focus on concrete, actionable insights grounded in the results. Update and conde
         chat_messages = [{"role": "system", "content": system}, *messages]
         last_err: str | None = None
         last_exc: BaseException | None = None
-        for attempt in range(_OPENROUTER_MAX_ATTEMPTS):
+        attempt = 0
+        while True:
             try:
                 response = client.chat.completions.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
                     messages=chat_messages,
                 )
+            except OpenRouterOutageError:
+                # Can surface from the interruptible sleep below once another
+                # call site has declared the outage terminal. Never absorb it.
+                raise
             except Exception as e:
                 # Previously uncaught, so a 402 here escaped as a bare
                 # APIStatusError and was absorbed by the caller's round-level
@@ -454,11 +461,26 @@ Focus on concrete, actionable insights grounded in the results. Update and conde
             )
             if kind == "fatal":
                 break
-            if attempt < _OPENROUTER_MAX_ATTEMPTS - 1:
-                time.sleep(_OPENROUTER_BACKOFF_BASE_S * (2**attempt))
+            # Connection failures are bounded by the breaker's outage clock, not
+            # by an attempt count — see _openrouter_create_with_retry.
+            if kind != "connection" and attempt >= _OPENROUTER_MAX_ATTEMPTS - 1:
+                break
+            delay = breaker.backoff_delay(kind, attempt)
+            if kind == "connection":
+                print(
+                    f"  [openrouter] judge {self.model}: no connection ({last_err}); "
+                    f"retrying in {delay / 60:.1f} min "
+                    f"(unreachable for {breaker.streak_seconds() / 60:.1f} of "
+                    f"{breaker.max_connection_outage_s() / 60:.0f} min)",
+                    file=sys.stderr,
+                )
+            # Interruptible: this runs in an asyncio.to_thread worker, so a bare
+            # 8-minute time.sleep would pin an executor thread past shutdown.
+            breaker.sleep_sync(delay)
+            attempt += 1
         raise RuntimeError(
             f"OpenRouter judge call for model {self.model!r} failed "
-            f"after {_OPENROUTER_MAX_ATTEMPTS} attempts: {last_err}"
+            f"after {attempt + 1} attempts: {last_err}"
         )
 
 

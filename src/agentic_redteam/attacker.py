@@ -269,9 +269,10 @@ def _extract_text_tool_calls(content: str | None, valid_names: set[str]) -> list
 # OpenRouter occasionally returns a 200 with an error envelope and no choices
 # (upstream rate-limit / provider blip / moderation). Retry a few times with
 # exponential backoff before giving up so a transient hiccup doesn't abort a
-# long run.
+# long run. Connection failures are NOT bounded by this count — see below.
+# The backoff intervals themselves live in circuit_breaker.backoff_delay(), which
+# picks the schedule from the failure's class.
 _OPENROUTER_MAX_ATTEMPTS = 4
-_OPENROUTER_BACKOFF_BASE_S = 2.0
 
 
 async def _openrouter_create_with_retry(client, *, model, messages, tools=None):
@@ -294,6 +295,14 @@ async def _openrouter_create_with_retry(client, *, model, messages, tools=None):
     ``RuntimeError`` below, is *not* absorbed into a failed round. A fatal error
     (402/401) additionally skips the remaining attempts, since no amount of
     backoff will restore a drained balance.
+
+    **Connection errors are retried until the breaker gives up, not for a fixed
+    number of attempts.** A dead network is a minutes-scale event, so the loop
+    keeps probing on the breaker's connection schedule (60/120/480s) and is
+    terminated only by ``record_failure`` tripping on elapsed outage time. The
+    point is that a network which returns at minute 12 resumes *this* round
+    mid-flight — under a fixed attempt cap the round would already have been
+    abandoned along with its remaining ``max_turns``.
     """
     import openai
 
@@ -312,7 +321,8 @@ async def _openrouter_create_with_retry(client, *, model, messages, tools=None):
 
     last_err: str | None = None
     last_exc: BaseException | None = None
-    for attempt in range(_OPENROUTER_MAX_ATTEMPTS):
+    attempt = 0
+    while True:
         try:
             response = await client.chat.completions.create(**create_kwargs)
         except retryable_exc as e:
@@ -326,7 +336,8 @@ async def _openrouter_create_with_retry(client, *, model, messages, tools=None):
                 extract_openrouter_error(response) or "no choices and no error detail"
             )
             last_exc = None
-        # Raises OpenRouterOutageError once too many calls have failed in a row.
+        # Raises OpenRouterOutageError once OpenRouter has been failing too long
+        # (connection) or too many times in a row (everything else).
         kind = breaker.record_failure(
             last_exc if last_exc is not None else last_err,
             where=f"attacker model {model!r}",
@@ -334,11 +345,22 @@ async def _openrouter_create_with_retry(client, *, model, messages, tools=None):
         # A 402/401 will not un-fail during our backoff; stop burning the schedule.
         if kind == "fatal":
             break
-        if attempt < _OPENROUTER_MAX_ATTEMPTS - 1:
-            await asyncio.sleep(_OPENROUTER_BACKOFF_BASE_S * (2**attempt))
+        if kind != "connection" and attempt >= _OPENROUTER_MAX_ATTEMPTS - 1:
+            break
+        delay = breaker.backoff_delay(kind, attempt)
+        if kind == "connection":
+            print(
+                f"  [openrouter] {model}: no connection ({last_err}); "
+                f"retrying in {delay / 60:.1f} min "
+                f"(unreachable for {breaker.streak_seconds() / 60:.1f} of "
+                f"{breaker.max_connection_outage_s() / 60:.0f} min)",
+                file=sys.stderr,
+            )
+        await breaker.sleep_async(delay)
+        attempt += 1
     raise RuntimeError(
         f"OpenRouter attacker call for model {model!r} failed after "
-        f"{_OPENROUTER_MAX_ATTEMPTS} attempts: {last_err}"
+        f"{attempt + 1} attempts: {last_err}"
     )
 
 
