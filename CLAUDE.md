@@ -92,8 +92,12 @@ Required environment variables:
   `OPENROUTER_HTTP_REFERER`, `OPENROUTER_APP_TITLE` (sent as `HTTP-Referer` /
   `X-Title` for OpenRouter dashboard attribution).
 - Optional circuit-breaker tuning (see `circuit_breaker.py`):
-  `OPENROUTER_MAX_CONSECUTIVE_ERRORS` (default 10) and
-  `OPENROUTER_MAX_CONSECUTIVE_FATAL_ERRORS` (default 3).
+  `OPENROUTER_MAX_CONSECUTIVE_ERRORS` (default 10),
+  `OPENROUTER_MAX_CONSECUTIVE_FATAL_ERRORS` (default 3),
+  `OPENROUTER_MAX_CONNECTION_OUTAGE_S` (default 1800 — how long the network may
+  stay down before the run aborts) and `OPENROUTER_CONNECTION_BACKOFF_S`
+  (default `60,120,480` — retry intervals while it is down).
+- Optional: `OPENROUTER_TIMEOUT_S` (default 60) — per-request wall-clock cap.
 
 ## Common commands
 
@@ -427,14 +431,45 @@ failing 402, then 3 retrain/eval cycles on zero red-team data.)
 Every OpenRouter call reports its outcome via `record_success()` /
 `record_failure(detail, where=)`; N consecutive failures across **all** call
 sites trip the breaker, which raises `OpenRouterOutageError` and keeps raising
-it. Two thresholds, since the failure classes deserve different patience:
+it. `classify_error` sorts every failure into **three** classes, since they
+deserve very different patience (fatal is checked first, so a 402 whose body
+mentions a reset connection is still a drained balance):
 
-- **transient** (429/5xx/timeouts/empty-choices envelopes) — may recover, so
-  `OPENROUTER_MAX_CONSECUTIVE_ERRORS` (default 10) are allowed in a row.
+- **transient** (429/5xx/empty-choices envelopes) — we *reached* OpenRouter and
+  it answered badly; may recover, so `OPENROUTER_MAX_CONSECUTIVE_ERRORS`
+  (default 10) are allowed in a row, retried on 2/4/8s backoff.
+- **connection** (`APIConnectionError`/`APITimeoutError`, DNS failure, reset,
+  network unreachable) — the request never completed a round trip. Retried on a
+  **minutes**-long schedule (`OPENROUTER_CONNECTION_BACKOFF_S`, default
+  `60,120,480`; last interval repeats) and bounded by **elapsed time, not a
+  count**: `OPENROUTER_MAX_CONNECTION_OUTAGE_S` (default 1800 = 30 min).
 - **fatal** (401/402/403, "Insufficient credits", "Invalid API key") — never
   recovers without human action, so only
   `OPENROUTER_MAX_CONSECUTIVE_FATAL_ERRORS` (default 3), and callers **skip
   their backoff sleeps** for these (`classify_error` / `is_fatal_error`).
+
+**Why connection errors are timed, not counted.** A count threshold counts
+*observations*, and with `attacker.sessions_per_model: 10` one network event is
+observed by ten concurrent sessions at once — so the counter hit its limit of 10
+on the first wave, **before any backoff sleep began**, and lengthening the
+backoff alone would not have helped. That is how a ~2.5 min connection blip
+killed a 10-hour run twice in one night
+(`logs/run_hs_gemma27b_gptoss120b_noguidance.log`: two `openrouter_outage`
+aborts, then 6h and 30min of idle GPU awaiting a human restart). A wall-clock
+streak is immune to that multiplication. So once a streak contains **any**
+connection error it is governed by the outage clock; `_streak_started_at` is
+stamped on the first failure after a success and cleared by `record_success`.
+
+Correspondingly, the retry loops (`attacker._openrouter_create_with_retry`,
+`LLMJudge._call_openrouter`, `_ContrastiveLLM.generate`) bound connection
+retries by the **breaker**, not by `_OPENROUTER_MAX_ATTEMPTS` — they keep
+probing until it trips. That is deliberate: a network back at minute 12 resumes
+*that same round* mid-flight, whereas a fixed attempt cap would already have
+abandoned the round and its remaining `max_turns`. Backoff sleeps go through
+`breaker.sleep_sync` / `sleep_async`, which sleep in 5s chunks and re-check
+`raise_if_tripped()`, so when one call site declares the outage terminal every
+other site sleeping out an 8-minute backoff wakes and aborts (and interpreter
+shutdown never has to join a thread parked for 8 minutes).
 
 "Consecutive" is global and reset by *any* OpenRouter success, so a single
 durably-broken model in a rotation whose siblings still work will **not** trip
@@ -443,7 +478,8 @@ a `threading.Lock`, not an asyncio primitive, because call sites live in the
 asyncio attacker loop *and* in `preprocessing`'s `ThreadPoolExecutor` workers.
 `raise_if_tripped()` is called at the top of `run_one_model` and before each
 OpenRouter call, so once tripped the remaining schedule collapses without
-touching the network. `reset()` / `snapshot()` exist for tests.
+touching the network. `reset()` / `snapshot()` exist for tests
+(`scratchpad/test_circuit_breaker.py` covers all three classes).
 
 ### `agentic_redteam/tools.py`
 Hosts both the **provider-agnostic handlers** (`handle_submit_conversation`,
