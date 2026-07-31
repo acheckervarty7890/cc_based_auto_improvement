@@ -320,7 +320,22 @@ per-round snapshot to a JSONL sidecar (`<jsonl>.summaries.jsonl`) for diagnostic
 "## Strategy memo from earlier rounds" system-prompt block (or `""` before the first
 memo exists). Because the judge rewrites-and-condenses instead of appending, the
 memo stays bounded (~200 words) regardless of round count — it does **not** grow
-linearly. The sidecar is diagnostics-only — `render()` reflects only the latest memo.
+linearly. The sidecar is diagnostics-only **except on resume**: constructed with
+`SummaryStore(path, iteration=, error_type=, resume=True)` it seeds `current` from the
+newest sidecar row matching that `(iteration, error_type)`, so a run restarting at
+round 18 opens with the memo distilled from rounds 0..17 instead of an empty one.
+Rows from other iterations are ignored, preserving the per-iteration reset; without
+`iteration` (or with `resume=False`, the default) no load-back happens.
+
+Round-level resume state lives in `RoundProgress`
+(`{round, iteration, error_type, n_attempts, n_successes, completed_at}`) plus
+`RoundProgressStore`, a set of finished `(iteration, error_type, round)` keys backed by
+`<jsonl>.rounds_done.jsonl` and reloaded on init. `mark_done()` appends; `is_done()` /
+`done_rounds()` query. A round is marked **only after its rolling-memo update**, which
+keeps this store and the `SummaryStore` sidecar in lockstep — N rounds done ⟺ the
+newest memo covers rounds 0..N-1 — so a resumed run skips exactly the rounds whose
+findings the restored memo already reflects. Rounds are always recorded; whether they
+are honoured is the caller's `resume` flag.
 
 Finally, the **cross-iteration** memo storage: `IterationMemo`
 (`{iteration, error_type, text, n_attempts, n_successes}`) plus `IterationMemoStore`
@@ -612,6 +627,26 @@ once with no memo. Note this trades throughput for the memo signal: with `rounds
 20, concurrency: 30` the legacy path runs all 20 rounds in parallel; sequential runs
 them one at a time.
 
+**Round-level resume.** `run_redteam(..., resume=)` makes a rotation restartable at
+round granularity rather than only at the `(iteration, error_type)` phase boundary.
+A `RoundProgressStore` on `<jsonl>.rounds_done.jsonl` is built on **every** run (so a
+future restart always has checkpoints), but consulted only when `resume=True`; the
+`SummaryStore` is then also constructed with `resume=True` so the rolling memo is
+reloaded from `<jsonl>.summaries.jsonl` instead of starting empty. In the sequential
+branch each round is marked done *after* `_summarize_round` returns, so progress and
+memo can't diverge; the final round (never summarized) is marked straight after its
+tasks. The legacy branch has no round boundary to checkpoint at, so it gives each
+round its own task group, launches them **all** up front (the semaphore, not the await
+order, governs concurrency — throughput is unchanged) and awaits the groups in round
+order, marking each as it lands; a raising group cancels every sibling, matching
+`_gather_or_cancel`. A round interrupted part-way is simply not marked and re-runs in
+full — its attempts survive in the JSONL, and since they carry the same round number
+they still count toward that round's summary. Skipped rounds contribute no
+`ModelRunSummary`, so the CLI's per-error-type success count reports what *this*
+process did, not the cumulative total. The iterative CLI passes
+`resume=args.resume and i == start_iter` (only the resumed iteration can hold partial
+progress) and logs a `round_skipped` runlog event per skipped round.
+
 **Cross-iteration memo.** Independent of the above (it works with `round_summaries`
 either on or off). When `attacker.cross_iteration_memos` is on, `run_redteam` builds
 an `IterationMemoStore` on `<jsonl>.iteration_memos.jsonl`, threads it into every
@@ -896,6 +931,26 @@ resolved against the `--[no-]…` CLI flags (`BooleanOptionalAction`, default `N
 → config value) and forwarded into **both** the train/retrain calls and
 `evaluate_probe`.
 
+**`--resume` (default on) is three-tiered**, coarsest first, all keyed off
+`--probe-out-dir` / the JSONL sidecars so nothing extra needs threading through:
+
+1. **Iteration** — `_latest_probe_iteration` finds the highest `probe_iter{N}.pkl`
+   (written only once a *retrain* finishes) and starts at iteration N.
+2. **`(iteration, error_type)` phase** — `redteam_done_iter{N}_{et}.marker`, written
+   after each rotation returns, skips that rotation entirely (its successes are
+   already in the append-only JSONL, so the retrain still sees them). Gated on
+   `args.resume and i == start_iter` — **not** on a probe having been found, because
+   a warm-started run that died inside iteration 0 has no `probe_iter{N}.pkl` yet
+   while its markers are still valid (its input probe is `config.probe.path` either
+   way).
+3. **Round** — `run_redteam(resume=…)` skips individual finished rounds and restores
+   the rolling memo (see "Round-level resume" above).
+
+`--no-resume` ignores all three and re-runs from scratch (stale markers and progress
+rows are not consulted, and new ones simply append). Note the eval comparison CSV does
+**not** resume: `eval_results` is in-process and the CSV is rewritten at the end, so a
+resumed run's CSV covers only the iterations that run actually executed.
+
 ## Conventions to preserve
 
 - **Probe metadata is the source of truth.** Don't pass `pos_class_label` /
@@ -924,7 +979,8 @@ resolved against the `--[no-]…` CLI flags (`BooleanOptionalAction`, default `N
   silently under-counts. The CLI mains carry `@_exit_on_outage`, which turns
   the error into a clean message plus `OUTAGE_EXIT_CODE` (3) instead of a
   traceback; nothing is lost by stopping, since the JSONL is append-only and
-  the per-`(iteration, error_type)` phase markers let `--resume` continue.
+  the phase markers and per-round progress sidecar let `--resume` continue from
+  the round it stopped on.
 - **JSONL is append-only and dedup-by-canonical-text.** `JsonlStore` rejects
   duplicate conversations silently — the agent's `submit_conversation`
   response surfaces `duplicate=True` so it can move on.

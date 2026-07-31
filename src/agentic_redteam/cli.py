@@ -34,9 +34,10 @@ def _exit_on_outage(fn):
     """Turn an :class:`OpenRouterOutageError` into a clean non-zero exit.
 
     The breaker firing means the run stopped on purpose, not that it crashed, so
-    report it as a message rather than a traceback. Nothing is lost by stopping:
-    the JSONL is append-only and the per-(iteration, error_type) phase markers
-    make ``--resume`` pick up where this left off once credits/keys are restored.
+    report it as a message rather than a traceback. Little is lost by stopping:
+    the JSONL is append-only, and the per-(iteration, error_type) phase markers
+    plus the per-round progress sidecar make ``--resume`` pick up at the round
+    this left off on once credits/keys are restored.
     """
 
     @functools.wraps(fn)
@@ -49,7 +50,7 @@ def _exit_on_outage(fn):
                 "    No further rounds, retrains or evals were run; continuing would "
                 "only have produced\n    empty red-team rounds and probes trained on "
                 "nothing. Fix the account/key, then\n    re-run the same command with "
-                "--resume to continue from the last completed phase.",
+                "--resume to continue from the last completed round.",
                 file=sys.stderr,
             )
             return OUTAGE_EXIT_CODE
@@ -174,8 +175,10 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         "--resume",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="If probe_iterN.pkl files already exist in --probe-out-dir, resume from the "
-        "latest one (red-team it next) instead of training/warm-starting iter0. "
+        help="Resume an interrupted run at the finest checkpoint available: the latest "
+        "probe_iterN.pkl in --probe-out-dir (red-team it next), then any finished "
+        "(iteration, error_type) phase markers, then the individual rounds recorded in "
+        "<jsonl>.rounds_done.jsonl (the rolling strategy memo is restored with them). "
         "Pass --no-resume to force a fresh run from the start.",
     )
     parser.add_argument(
@@ -475,7 +478,11 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             # (expensive) rotation and let the retrain below pick them up. Only
             # the resumed iteration can be in this state, and only when resuming
             # (--no-resume must ignore stale markers and red-team afresh).
-            if resume is not None and i == start_iter and marker_path.exists():
+            # Gated on args.resume rather than `resume is not None`: a warm-started
+            # run that crashed inside iteration 0 has no probe_iterN.pkl yet, so
+            # `resume` is None even though its markers are valid — its input probe
+            # is the same config.probe.path either way.
+            if args.resume and i == start_iter and marker_path.exists():
                 print(
                     f"\n--- Error type: {et} → {jsonl_path} ---\n"
                     f"  Skipping red-team: phase already complete "
@@ -483,9 +490,14 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
                 )
                 continue
             print(f"\n--- Error type: {et} → {jsonl_path} ---")
+            # Round-level resume: within this rotation, skip the individual rounds a
+            # previous run already finished (sidecar <jsonl>.rounds_done.jsonl) and
+            # restore its rolling memo. Only the iteration we resumed into can have
+            # partial progress — later ones never started.
             summaries = run_redteam_sync(
                 config, base_round_num=base_round, error_type=et, jsonl_path=jsonl_path,
                 iteration=i, base_training_data_path=args.base_training_data,
+                resume=args.resume and i == start_iter,
             )
             et_new = sum(s.new_successes for s in summaries)
             iteration_new_total += et_new

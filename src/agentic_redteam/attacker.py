@@ -25,6 +25,8 @@ from agentic_redteam.persistence import (
     IterationMemo,
     IterationMemoStore,
     JsonlStore,
+    RoundProgress,
+    RoundProgressStore,
     RoundSummary,
     RunLogger,
     SummaryStore,
@@ -870,6 +872,26 @@ async def _gather_or_cancel(tasks: list) -> list[ModelRunSummary]:
         raise
 
 
+def _mark_round_done(
+    progress_store: RoundProgressStore,
+    store: JsonlStore,
+    round_results: list[ModelRunSummary],
+    round_num: int,
+    iteration: int,
+    error_type: str,
+) -> None:
+    """Checkpoint one finished round so ``resume`` can skip it next time."""
+    progress_store.mark_done(
+        RoundProgress(
+            round=round_num,
+            iteration=iteration,
+            error_type=error_type,
+            n_attempts=len(store.records_for_round(round_num)),
+            n_successes=sum(r.new_successes for r in round_results),
+        )
+    )
+
+
 async def _summarize_round(
     *,
     judge: LLMJudge,
@@ -1070,6 +1092,7 @@ async def run_redteam(
     jsonl_path: Path | None = None,
     iteration: int = 0,
     base_training_data_path: Path | str | None = None,
+    resume: bool = False,
 ) -> list[ModelRunSummary]:
     """Run the full attacker rotation across all rounds; appends to the shared JSONL log.
 
@@ -1083,6 +1106,12 @@ async def run_redteam(
         base_training_data_path: Base training JSONL. When given (and
             ``attacker.view_training_seeds``), true-class examples from it are blended
             into the "successful" pool shown by view_past_attempts as reference seeds.
+        resume: Skip rounds already recorded as finished in the round-progress
+            sidecar (``<jsonl>.rounds_done.jsonl``) and restore the rolling memo
+            from ``<jsonl>.summaries.jsonl``, so a crashed run picks up at the
+            round it died on rather than at round 0. Rounds are *always* recorded;
+            this flag only controls whether the records are honoured, so
+            ``--no-resume`` re-runs everything as before.
     """
     et = error_type or config.probe.error_type
     jpath = jsonl_path or config.output.jsonl_path
@@ -1130,12 +1159,35 @@ async def run_redteam(
     )
 
     # Per-round judge summaries (reset per run = per (iteration, error_type)). Only
-    # built when enabled; rendered into later rounds' attacker system prompts.
+    # built when enabled; rendered into later rounds' attacker system prompts. With
+    # resume=True the store reloads this iteration's newest memo from the sidecar, so
+    # a restarted run doesn't send its first resumed round in memo-blind.
     summary_store = (
-        SummaryStore(path=jpath.with_suffix(".summaries.jsonl"))
+        SummaryStore(
+            path=jpath.with_suffix(".summaries.jsonl"),
+            iteration=iteration,
+            error_type=et,
+            resume=resume,
+        )
         if config.attacker.round_summaries
         else None
     )
+
+    # Which rounds of this (iteration, error_type) already finished. Always written
+    # (so a *future* run can resume); only consulted when resume=True.
+    progress_store = RoundProgressStore(path=jpath.with_suffix(".rounds_done.jsonl"))
+    if resume:
+        already = progress_store.done_rounds(iteration, et)
+        if already:
+            memo_state = (
+                "rolling memo restored"
+                if summary_store is not None and summary_store.current
+                else "no memo to restore"
+            )
+            print(
+                f"  Resuming rotation: skipping {len(already)} finished round(s) "
+                f"{already} ({memo_state})"
+            )
 
     # Cross-iteration memo (what earlier iterations already tried and trained on).
     # Unlike summary_store, this one *loads* its sidecar on init, so the memo written
@@ -1177,12 +1229,20 @@ async def run_redteam(
             results: list[ModelRunSummary] = []
             for round_idx in range(config.attacker.rounds):
                 global_round = base_round_num + round_idx
+                if resume and progress_store.is_done(iteration, et, global_round):
+                    # Finished on an earlier run: its attempts are in the JSONL and its
+                    # findings are in the memo we reloaded above, so there is nothing
+                    # left to do for it.
+                    if run_logger is not None:
+                        run_logger.log("round_skipped", round=global_round, iteration=iteration)
+                    continue
                 round_tasks = [
                     asyncio.create_task(_run_with_sem(model, global_round))
                     for model in config.attacker.models
                     for _ in range(config.attacker.sessions_per_model)
                 ]
-                results.extend(await _gather_or_cancel(round_tasks))
+                round_results = await _gather_or_cancel(round_tasks)
+                results.extend(round_results)
                 # Skip the final round: its summary would never be shown (no later round,
                 # and summaries reset next iteration), so don't pay for that judge call.
                 if round_idx < config.attacker.rounds - 1:
@@ -1196,15 +1256,52 @@ async def run_redteam(
                         error_type=et,
                         true_class_label=probe.true_class_label,
                     )
+                # Marked only *after* the memo update, so "round N is done" always
+                # implies "the memo covers round N" — a resumed run then skips exactly
+                # the rounds the restored memo already reflects.
+                _mark_round_done(
+                    progress_store, store, round_results, global_round, iteration, et
+                )
         else:
-            # Legacy: launch all round×model sessions at once, no summaries.
-            tasks = [
-                asyncio.create_task(_run_with_sem(model, base_round_num + round_idx))
-                for round_idx in range(config.attacker.rounds)
-                for model in config.attacker.models
-                for _ in range(config.attacker.sessions_per_model)
-            ]
-            results = list(await _gather_or_cancel(tasks))
+            # Legacy: launch all round×model sessions at once, no summaries. Every
+            # round is in flight simultaneously, so there is no natural boundary to
+            # checkpoint at — instead each round gets its own task group, all launched
+            # up front (the semaphore, not the await order, governs concurrency) and
+            # awaited in order so a round can be marked done as it lands.
+            results = []
+            pending_rounds: list[tuple[int, list]] = []
+            for round_idx in range(config.attacker.rounds):
+                global_round = base_round_num + round_idx
+                if resume and progress_store.is_done(iteration, et, global_round):
+                    if run_logger is not None:
+                        run_logger.log("round_skipped", round=global_round, iteration=iteration)
+                    continue
+                pending_rounds.append(
+                    (
+                        global_round,
+                        [
+                            asyncio.create_task(_run_with_sem(model, global_round))
+                            for model in config.attacker.models
+                            for _ in range(config.attacker.sessions_per_model)
+                        ],
+                    )
+                )
+            all_tasks = [t for _, tasks in pending_rounds for t in tasks]
+            try:
+                for global_round, round_tasks in pending_rounds:
+                    round_results = list(await asyncio.gather(*round_tasks))
+                    results.extend(round_results)
+                    _mark_round_done(
+                        progress_store, store, round_results, global_round, iteration, et
+                    )
+            except BaseException:
+                # Same contract as _gather_or_cancel: don't leave sibling rounds
+                # hammering a dead endpoint while the traceback unwinds.
+                for task in all_tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*all_tasks, return_exceptions=True)
+                raise
 
         # Hand-off memo for the next iteration, written before the probe is retrained on
         # these successes (no-op when cross_iteration_memos is off).
@@ -1239,6 +1336,7 @@ def run_redteam_sync(
     jsonl_path: Path | None = None,
     iteration: int = 0,
     base_training_data_path: Path | str | None = None,
+    resume: bool = False,
 ) -> list[ModelRunSummary]:
     return asyncio.run(
         run_redteam(
@@ -1248,5 +1346,6 @@ def run_redteam_sync(
             jsonl_path=jsonl_path,
             iteration=iteration,
             base_training_data_path=base_training_data_path,
+            resume=resume,
         )
     )

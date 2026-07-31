@@ -24,6 +24,25 @@ def first_user_text(conversation: "Conversation") -> str:
     return msgs[0].content.strip() if msgs else ""
 
 
+def _iter_jsonl_rows(path: Path) -> Iterator[dict[str, Any]]:
+    """Yield the decodable JSON objects in a sidecar, skipping junk lines.
+
+    Sidecars are append-only and a run can be killed mid-write, so the last line
+    may be a torn fragment — skip it rather than failing the whole reload.
+    """
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                yield row
+
+
 @dataclass(frozen=True)
 class Message:
     role: str
@@ -349,6 +368,17 @@ class RoundSummary:
             ensure_ascii=False,
         )
 
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "RoundSummary":
+        return cls(
+            round=int(d.get("round", -1)),
+            iteration=int(d.get("iteration", -1)),
+            error_type=str(d.get("error_type", "")),
+            text=str(d.get("text", "")),
+            n_attempts=int(d.get("n_attempts", 0)),
+            n_successes=int(d.get("n_successes", 0)),
+        )
+
 
 @dataclass
 class SummaryStore:
@@ -361,19 +391,47 @@ class SummaryStore:
     condensing (see ``LLMJudge.summarize_round(prior_summary=...)``). So the memo's
     size stays roughly constant no matter how many rounds run, rather than growing
     linearly. ``current`` exposes the latest memo to feed back into the next
-    update; ``render`` wraps it for the attacker system prompt. The optional sidecar
-    JSONL is append-only (one row per round's memo snapshot) purely for diagnostics —
-    ``render`` only reflects the latest in-memory memo.
+    update; ``render`` wraps it for the attacker system prompt. The sidecar JSONL is
+    append-only (one row per round's memo snapshot).
+
+    **Resume.** By default the sidecar is diagnostics-only and a fresh store starts
+    with an empty memo. Pass ``resume=True`` together with ``iteration`` /
+    ``error_type`` and the store instead **loads the newest sidecar row for that
+    ``(iteration, error_type)``** as its starting memo — which is what lets a run
+    that died at round 18 restart at round 18 with the memo distilled from rounds
+    0..17 instead of an empty one. Rows from other iterations are ignored, so the
+    per-iteration reset is preserved. Without ``iteration`` there is no way to tell
+    this iteration's rows from an earlier one's, so the load-back is skipped.
     """
 
     path: Path | None = None
+    iteration: int | None = None
+    error_type: str | None = None
+    resume: bool = False
     _current: str = field(default="", init=False)
     _count: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
-        if self.path is not None:
-            self.path = Path(self.path)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path is None:
+            return
+        self.path = Path(self.path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not (self.resume and self.iteration is not None and self.path.exists()):
+            return
+        # Newest row wins: update() appends one row per round, so the last matching
+        # row is the memo as of the last round that completed before the crash.
+        for row in _iter_jsonl_rows(self.path):
+            try:
+                summary = RoundSummary.from_dict(row)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if summary.iteration != self.iteration:
+                continue
+            if self.error_type is not None and summary.error_type != self.error_type:
+                continue
+            if summary.text:
+                self._current = summary.text
+                self._count += 1
 
     def update(self, summary: RoundSummary) -> None:
         """Replace the rolling memo with this round's condensed memo; log a snapshot."""
@@ -411,6 +469,102 @@ class SummaryStore:
             self._current,
         ]
         return "\n\n".join(parts)
+
+
+@dataclass
+class RoundProgress:
+    """Sentinel recording that one global round is **fully finished**."""
+
+    round: int
+    iteration: int
+    error_type: str
+    n_attempts: int
+    n_successes: int
+    completed_at: str = ""
+
+    def to_jsonl_row(self) -> str:
+        return json.dumps(
+            {
+                "round": int(self.round),
+                "iteration": int(self.iteration),
+                "error_type": self.error_type,
+                "n_attempts": int(self.n_attempts),
+                "n_successes": int(self.n_successes),
+                "completed_at": self.completed_at
+                or time.strftime("%Y-%m-%dT%H:%M:%S"),
+            },
+            ensure_ascii=False,
+        )
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "RoundProgress":
+        return cls(
+            round=int(d.get("round", -1)),
+            iteration=int(d.get("iteration", -1)),
+            error_type=str(d.get("error_type", "")),
+            n_attempts=int(d.get("n_attempts", 0)),
+            n_successes=int(d.get("n_successes", 0)),
+            completed_at=str(d.get("completed_at", "")),
+        )
+
+
+@dataclass
+class RoundProgressStore:
+    """Which ``(iteration, error_type, round)`` rounds have already finished.
+
+    The CLI's ``redteam_done_iter{N}_{et}.marker`` makes resume skip a whole
+    finished rotation; this is the finer sentinel *inside* one rotation. Without
+    it, a crash at round 18 of 20 rewinds to round 0 and re-pays for 18 rounds of
+    attacker sessions — the JSONL dedups their conversations, so nothing is
+    corrupted, but every LLM call is spent again.
+
+    A round is marked done only once it is **completely** finished — all of its
+    sessions returned *and* its rolling memo was folded in (see
+    ``attacker.run_redteam``). That ordering keeps this store and the
+    ``SummaryStore`` sidecar in lockstep: N rounds marked done ⟺ the newest memo
+    covers rounds 0..N-1, so a resumed run skips exactly the rounds whose findings
+    the restored memo already reflects. A round interrupted part-way is simply not
+    marked, and re-runs in full (its attempts survive in the JSONL and still count
+    toward that round's summary, since they carry the same round number).
+
+    Rows are keyed by ``(iteration, error_type, round)`` rather than round alone
+    because the round number is global (``iteration * rounds + idx``) but the file
+    is only per-error-type by convention of its path.
+    """
+
+    path: Path | None = None
+    _done: set[tuple[int, str, int]] = field(default_factory=set, init=False)
+
+    def __post_init__(self) -> None:
+        if self.path is None:
+            return
+        self.path = Path(self.path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            return
+        for row in _iter_jsonl_rows(self.path):
+            try:
+                progress = RoundProgress.from_dict(row)
+            except (KeyError, TypeError, ValueError):
+                continue
+            self._done.add((progress.iteration, progress.error_type, progress.round))
+
+    def is_done(self, iteration: int, error_type: str, round_num: int) -> bool:
+        return (iteration, error_type, round_num) in self._done
+
+    def mark_done(self, progress: RoundProgress) -> None:
+        """Record one finished round (in memory + appended to the sidecar)."""
+        self._done.add((progress.iteration, progress.error_type, progress.round))
+        if self.path is not None:
+            with self.path.open("a", encoding="utf-8") as f:
+                f.write(progress.to_jsonl_row() + "\n")
+
+    def done_rounds(self, iteration: int, error_type: str) -> list[int]:
+        """Finished round numbers for one ``(iteration, error_type)``, ascending."""
+        return sorted(r for i, et, r in self._done if i == iteration and et == error_type)
+
+    def __len__(self) -> int:
+        return len(self._done)
 
 
 @dataclass
@@ -477,15 +631,11 @@ class IterationMemoStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
             return
-        with self.path.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    self._memos.append(IterationMemo.from_dict(json.loads(line)))
-                except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-                    continue
+        for row in _iter_jsonl_rows(self.path):
+            try:
+                self._memos.append(IterationMemo.from_dict(row))
+            except (KeyError, TypeError, ValueError):
+                continue
 
     def update(self, memo: IterationMemo) -> None:
         """Record one iteration's memo (in memory + appended to the sidecar)."""
