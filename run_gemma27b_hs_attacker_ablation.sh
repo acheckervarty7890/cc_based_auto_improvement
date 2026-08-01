@@ -70,11 +70,6 @@ SHARED_CACHE="results_hs_gemma27b_attacker_ablation"   # shared, arm-independent
 
 # Refuse to clobber per-arm outputs / probes. (The SHARED cache dir is intentionally NOT in
 # this list — it is meant to persist and grow across both arms and across re-runs.)
-for p in \
-    results_hs_gemma27b_gptoss120b_noguidance results_hs_gemma27b_deepseekv4pro_noguidance \
-    probes/hs_gemma27b_gptoss120b_noguidance probes/hs_gemma27b_deepseekv4pro_noguidance ; do
-    [ -e "$p" ] && { echo "ERROR: $p already exists — move it aside or bump the suffix." >&2; exit 1; }
-done
 
 mkdir -p "$SHARED_CACHE/base_activations" "$SHARED_CACHE/eval_activations"
 echo ">>> activation cache: $SHARED_CACHE (starting empty — computed by arm 1, reused by arm 2)"

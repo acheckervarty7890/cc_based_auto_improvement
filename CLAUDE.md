@@ -723,7 +723,7 @@ tuberlens' `get_activations(save_path=...)` blob cache — a hit calls
 `LLMModel.load_activations` and needs no model; the red-team set via
 `_activate_redteam_cached`, which partitions by per-conversation cache hit, loads the
 hits from disk, batch-computes only the misses, and writes each new row back as its
-own blob), merges per side with `LabelledDataset.concatenate` (which pads +
+own blob), merges per side with `_concatenate_consuming` (which pads +
 concatenates the activation tensors), then calls `ProbeFactory.build` on the
 pre-activated datasets. The heavy `LLMModel` loads **lazily** — a full cache hit with
 no uncached red-team samples loads no model at all. `_base_activation_cache_paths`
@@ -738,6 +738,34 @@ different records or mints new contrastive pairs each iteration, each is keyed b
 own final content. Since `get_activations` / `load_activations` load *by path without
 validating inputs*, any change that would alter the activations changes the key (no
 silent stale reuse). Both caches are disabled when `base_activation_cache_dir=None`.
+
+**Host-RAM budget of a retrain.** This function's peak is what OOM-kills long runs
+(`logs/run_hs_gemma27b_deepseekv4pro_noguidance.log`: SIGKILL, exit 137, no traceback,
+at the iteration-2 retrain of a 966-sample gemma-3-27b probe on a 60 GB box). Two
+things are held at once and both are guarded:
+
+- **The extraction model.** `LLMModel.load` uses `device_map="auto"` with
+  `max_memory=None`, so accelerate hands the `"cpu"` device a budget equal to whatever
+  RAM is free *at load time* — a gemma-sized model keeps multi-GB of CPU-offloaded
+  shards resident for as long as it is referenced. `_train_with_cached_base_activations`
+  therefore calls `_release_model()` (mirrors `ProbeJudge.release`) immediately after
+  the last `_activate*` call and **before** the merge + `ProbeFactory.build`, which
+  need no model.
+- **The activations.** At hidden 5376 / fp16 / padded to `get_activations`' 1024-token
+  cap that is 11 MB per sample, so ~10 GB resident for a 966-sample retrain.
+  `LabelledDataset.concatenate` pads every part *then* `torch.cat`s, holding inputs and
+  output simultaneously (~2x, ~19 GB). `_concatenate_consuming` is a drop-in
+  replacement that is byte-identical in output but fills a `torch.empty` block slice by
+  slice, popping each part's pad fields as it copies them, so peak stays at ~1x. It
+  **consumes** its inputs — capture any `len()` you need before calling it — and falls
+  back to `LabelledDataset.concatenate` for layouts it can't reproduce exactly
+  (non-torch pad fields, mixed dtype/device/rank). `torch.empty` over `torch.zeros` is
+  load-bearing: the allocation stays lazily faulted, so every byte must be written
+  exactly once (real rows, then an explicit zero-fill of each part's pad region).
+
+Neither is a full fix — the whole set is still materialized in RAM. Streaming it
+(mmap-backed blobs, or a lazy `ActivationDataset` that pads per batch) needs tuberlens
+changes; see the OOM analysis in the git history for this section.
 
 **Training-time message transforms.** `combine_consecutive_messages` /
 `convert_tool_to_assistant` apply to the training data too (not just eval): the
