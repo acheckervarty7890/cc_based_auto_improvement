@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import pickle
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable
@@ -220,6 +221,12 @@ def _redteam_activation_cache_path(
     return Path(cache_dir) / f"redteam_acts_{safe_model}_L{layer}" / f"{h[:32]}.pt"
 
 
+# How often _activate_redteam_cached reports progress while computing misses. Rows cost
+# tens of seconds each on an offloaded gemma-sized model, so this is a line every few
+# minutes, not a spinner.
+_REDTEAM_PROGRESS_EVERY = 10
+
+
 # Fields tuberlens' LabelledDataset.concatenate zero-pads along dim 1 before joining.
 # These are the only large ones — everything else in `other_fields` is per-sample scalars.
 _PAD_FIELDS = ("activations", "attention_mask", "input_ids")
@@ -334,21 +341,40 @@ def _activate_redteam_cached(
     Mirrors ``_activate``'s load-or-compute-and-save logic but at per-conversation
     granularity (see ``_redteam_activation_cache_path`` for why a whole-set blob
     would never hit): samples accumulated in earlier iterations are loaded from disk
-    and only newly-seen conversations are forwarded through the model (in one batched
-    call). Per-row blobs use the same dict layout tuberlens' ``get_activations``
+    and only newly-seen conversations are forwarded through the model. Per-row blobs
+    use the same dict layout tuberlens' ``get_activations``
     writes, so ``LLMModel.load_activations`` reads them back; ``_concatenate_consuming``
     re-pads the loaded + freshly-computed parts to a common length, so storing each row at
     its own width is safe. Returns a ``LabelledDataset``
     with activations assigned, or ``None`` for an empty/absent input. With
     ``cache_dir=None`` it degrades to a plain batched compute (matching the previous
     uncached behaviour).
+
+    **Misses are computed in chunks and each row is written through immediately**,
+    rather than one ``get_activations`` call over the whole miss set followed by a
+    bulk save. Two reasons, both learned from a 770-sample gemma-3-27b retrain:
+
+    - *Resumability.* The single-call form persists nothing until the last sample
+      lands, so a crash at row 606 of 607 threw away ~25 hours of forwards. Now the
+      next attempt reloads everything already computed.
+    - *Width.* ``get_activations`` pads every row in a call to that call's max length,
+      capped at 1024 (``tuberlens/model.py:433``). Over the whole miss set that is
+      1024 for essentially every row; per chunk it is the chunk's own max, and at the
+      default chunk size (tuberlens' ``BATCH_SIZE``, 1) it is each row's true length —
+      roughly halving both the cache's disk footprint and resident RAM, since real
+      conversations average ~535 tokens. ``_concatenate_consuming`` re-pads at merge,
+      so the merged tensor is byte-identical either way.
     """
     if dataset is None or len(dataset) == 0:
         return None
     from tuberlens.model import LLMModel
 
-    def _compute(ds):
-        acts = get_model().get_activations(ds.inputs, layer=layer, show_progress=verbose)
+    from agentic_redteam.model_loading import extraction_batch_size
+
+    def _compute(ds, show_progress: bool):
+        acts = get_model().get_activations(
+            ds.inputs, layer=layer, show_progress=show_progress
+        )
         return acts, ds.assign(
             activations=acts.activations,
             attention_mask=acts.attention_mask,
@@ -356,7 +382,7 @@ def _activate_redteam_cached(
         )
 
     if cache_dir is None:
-        return _compute(dataset)[1]
+        return _compute(dataset, verbose)[1]
 
     paths = [
         _redteam_activation_cache_path(
@@ -383,29 +409,50 @@ def _activate_redteam_cached(
             )
         )
     if uncached_idx:
-        acts, computed = _compute(dataset[uncached_idx])
-        for j, i in enumerate(uncached_idx):
-            p = paths[i]
-            p.parent.mkdir(parents=True, exist_ok=True)
-            torch.save(
-                {
-                    "activations": acts.activations[j : j + 1].clone(),
-                    "attention_mask": acts.attention_mask[j : j + 1].clone(),
-                    "input_ids": acts.input_ids[j : j + 1].clone(),
-                    "layer": layer,
-                    "model_name": model_name,
-                },
-                p,
+        chunk_size = extraction_batch_size()
+        if verbose:
+            print(
+                f"Red-team activations: {len(cached_idx)} loaded from cache, "
+                f"{len(uncached_idx)} to compute (chunk size {chunk_size}) ..."
             )
-        parts.append(computed)
-        # `computed` shares its tensors with `acts` (assign copies references, not data),
-        # so the Activation must go too or _concatenate_consuming can't actually free them.
-        del acts
-
-    if verbose:
+        started = time.monotonic()
+        for start in range(0, len(uncached_idx), chunk_size):
+            chunk = uncached_idx[start : start + chunk_size]
+            # show_progress=False: one tqdm bar per chunk would be hundreds of bars in
+            # the log. The periodic line below reports the same thing far more cheaply.
+            acts, computed = _compute(dataset[chunk], show_progress=False)
+            for j, i in enumerate(chunk):
+                p = paths[i]
+                p.parent.mkdir(parents=True, exist_ok=True)
+                torch.save(
+                    {
+                        "activations": acts.activations[j : j + 1].clone(),
+                        "attention_mask": acts.attention_mask[j : j + 1].clone(),
+                        "input_ids": acts.input_ids[j : j + 1].clone(),
+                        "layer": layer,
+                        "model_name": model_name,
+                    },
+                    p,
+                )
+            parts.append(computed)
+            # `computed` shares its tensors with `acts` (assign copies references, not
+            # data), so the Activation must go too or _concatenate_consuming can't
+            # actually free them.
+            del acts
+            done = start + len(chunk)
+            if verbose and (done % _REDTEAM_PROGRESS_EVERY == 0 or done == len(uncached_idx)):
+                elapsed = time.monotonic() - started
+                rate = elapsed / done
+                remaining = (len(uncached_idx) - done) * rate
+                print(
+                    f"  [red-team activations] {done}/{len(uncached_idx)} "
+                    f"({rate:.1f}s/sample, ~{remaining / 60:.0f} min left)",
+                    flush=True,
+                )
+    elif verbose:
         print(
             f"Red-team activations: {len(cached_idx)} loaded from cache, "
-            f"{len(uncached_idx)} computed fresh"
+            f"0 computed fresh"
         )
     return _concatenate_consuming(parts)
 
@@ -460,6 +507,7 @@ def _train_with_cached_base_activations(
     from tuberlens.probes.probe_factory import ProbeFactory
 
     from agentic_redteam.evaluation import seed_everything
+    from agentic_redteam.model_loading import load_extraction_model
 
     loaded: dict[str, Any] = {"model": None}
 
@@ -467,12 +515,10 @@ def _train_with_cached_base_activations(
         if loaded["model"] is None:
             if verbose:
                 print("Loading model for activation extraction ...")
-            # offload_buffers=True: when device_map="auto" offloads layers to CPU/disk
-            # (e.g. gemma-3-27b), buffers must offload too or accelerate warns about
-            # insufficient GPU buffer space / risks OOM. Mirrors ProbeJudge._ensure_model.
-            loaded["model"] = LLMModel.load(
-                model_name, model_kwargs={"offload_buffers": True}
-            )
+            # Loads only layers 0..layer (deeper ones are never executed) and carries
+            # offload_buffers=True. Mirrors ProbeJudge._ensure_model — see
+            # model_loading for why the truncation matters and why it's exact.
+            loaded["model"] = load_extraction_model(model_name, layer, verbose=verbose)
         return loaded["model"]
 
     def _release_model():

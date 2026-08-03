@@ -123,8 +123,50 @@ def evaluate_probe(
             cache_stem=cache_stem,
         )
 
+    activations_save_path = activations_cache_dir / cache_stem
+    _assign_cached_activations(eval_datasets, activations_save_path)
+
     return get_performances(
         probe,
         eval_datasets,
-        activations_save_path=str(activations_cache_dir / cache_stem),
+        activations_save_path=str(activations_save_path),
     )
+
+
+def _assign_cached_activations(eval_datasets: dict, activations_save_path: Path) -> None:
+    """Attach already-cached split activations in place, so the LLM is never loaded.
+
+    ``get_performances`` loads the extraction model the moment it meets a split with
+    no ``activations`` field (``tuberlens/evaluation.py:75-77``) — *before*
+    ``get_activations`` gets as far as checking ``save_path.exists()``. So an eval
+    whose splits are all cached (the normal case once ``kaggle:`` has prefetched them)
+    still paid a multi-minute gemma-3-27b load it made no use of. Assigning the blobs
+    ourselves means every split arrives pre-activated and that branch is never taken.
+
+    Splits whose blob is missing, unreadable, or the wrong row count are left alone
+    for ``get_performances`` to compute as before — this is a fast path, never a
+    correctness gate.
+    """
+    from tuberlens.model import LLMModel
+
+    stem = activations_save_path.stem
+    for name, dataset in list(eval_datasets.items()):
+        path = activations_save_path.with_stem(f"{name}-{stem}")
+        if not path.exists():
+            continue
+        try:
+            acts = LLMModel.load_activations(path)
+        except Exception as exc:  # noqa: BLE001 — fall back to recomputing this split
+            print(f"[eval] ignoring unreadable activation cache {path}: {exc}")
+            continue
+        if len(acts.activations) != len(dataset):
+            print(
+                f"[eval] ignoring activation cache {path}: {len(acts.activations)} rows "
+                f"but split '{name}' has {len(dataset)}"
+            )
+            continue
+        eval_datasets[name] = dataset.assign(
+            activations=acts.activations,
+            attention_mask=acts.attention_mask,
+            input_ids=acts.input_ids,
+        )

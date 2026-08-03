@@ -123,15 +123,12 @@ class ProbeJudge:
 
     def _ensure_model(self):
         if self._model is None:
-            from tuberlens.model import LLMModel  # imported lazily — heavy
+            # imported lazily — pulls in tuberlens/transformers, which is heavy
+            from agentic_redteam.model_loading import load_extraction_model
 
-            # offload_buffers=True: when device_map="auto" offloads layers to
-            # CPU/disk (e.g. gemma-3-27b), buffers must be offloaded too or
-            # accelerate warns about insufficient GPU buffer space / risks OOM.
-            self._model = LLMModel.load(
-                self.probe.model_name,
-                model_kwargs={"offload_buffers": True},
-            )
+            # Loads only layers 0..probe.layer (the rest are never executed) and
+            # carries offload_buffers=True — see model_loading for both.
+            self._model = load_extraction_model(self.probe.model_name, self.layer)
         return self._model
 
     def warmup(self) -> None:
