@@ -26,10 +26,12 @@ need the other installed.
 The end-to-end loop:
 
 1. Load a pickled tuberlens probe.
-2. Run a Claude **attacker** (via `claude_agent_sdk.ClaudeSDKClient`) inside a
-   tool-use loop. The attacker only has access to three in-process MCP tools —
-   no shell, no filesystem, no web. It submits candidate conversations and
-   reads back probe + judge verdicts to refine its strategy in-context.
+2. Run an **attacker** in a submit-and-refine loop. It submits candidate
+   conversations and reads back probe + judge verdicts to refine its strategy
+   in-context. Whichever driver runs it, the attacker gets no shell, no
+   filesystem and no web — only the three red-team tools (or, under
+   `interface: prompt`, no tools at all). See `attacker.py` for the four
+   drivers.
 3. Each candidate is scored by the probe **and** independently classified by a
    Claude-based **human-style judge** (the judge picks one of the two class
    labels on the conversation's own merits, with no hint about what we are
@@ -43,9 +45,8 @@ The end-to-end loop:
    **sequentially**: at the end of each round the **judge** reads all of that
    round's attempts (successful and not) and folds them into a single **rolling
    strategy memo** — it rewrites and condenses the prior memo rather than
-   appending, so the memo stays bounded (a 200-word budget, capped further if
-   `judge.max_tokens` is too small to emit that) no matter how many rounds
-   run. That memo is injected into the system prompt of every later round's
+   appending, so the memo stays bounded no matter how many rounds run (the
+   budget is derived in `llm_judge.py`). That memo is injected into the system prompt of every later round's
    attacker, which is always shown it and can still call `view_past_attempts`
    for specific conversations. The memo resets per iteration (and per error type).
 6. With `attacker.cross_iteration_memos` enabled (default **off**), a second,
@@ -207,6 +208,13 @@ attacker:
   view_reshuffle_interval: int        # view_past_attempts: redraw every N submissions (default 20; reshuffle=true only)
   view_balance: bool                  # view_past_attempts: ≈50/50 success/fail, total=limit (default true)
   view_training_seeds: bool           # view_past_attempts: blend true-class training examples (default true)
+  near_dup_guard: bool                # default FALSE. Submit-time clone guard: a candidate whose first
+                                      #   user turn is >= near_dup_threshold similar to any already-recorded
+                                      #   SUCCESS is rejected BEFORE probe/judge run, so re-skinned winning
+                                      #   templates are never scored or stored. Orthogonal to the view_* knobs.
+  near_dup_threshold: float           # difflib ratio the guard rejects at (default 0.8; >= 1.0 disables)
+  near_dup_broadcast: bool            # default FALSE. Show guard-rejected openers to ALL sessions as an
+                                      #   "avoid these" prompt block. In-memory only, never written to JSONL.
   round_summaries: bool               # default true → rounds run SEQUENTIALLY; after each finished round the
                                       #   judge folds it into one bounded ROLLING memo (rewritten + condensed,
                                       #   not appended), injected into later rounds' attacker system prompts.
@@ -235,8 +243,7 @@ attacker:
                                       #   ViewSampler.sample, where limit <= 0 means unlimited).
   capture_prompts: bool               # prompt mode only, default FALSE. Dump the verbatim message array of
                                       #   every API call to <jsonl>.prompts.jsonl (PromptTraceStore). Grows
-                                      #   much faster than the JSONL. Read it with
-                                      #   scripts/build_prompt_trace_viewer.py.
+                                      #   much faster than the JSONL.
   batch_submissions: bool             # prompt mode only, default FALSE. Ask for ALL `max_turns` candidate
                                       #   conversations in ONE reply instead of one per turn: the session
                                       #   makes a single API call, every conversation is scored, and it ends
@@ -285,6 +292,8 @@ preprocessing:                        # OPTIONAL: collation-style preprocessing 
 eval:                                 # OPTIONAL: dataset message transforms applied to BOTH
   combine_consecutive_messages: bool  # training data AND eval splits (default false) — merge
   convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
+  eval_max_samples: int               # balanced subsample per eval split (0 = full split). Unset (None)
+                                      #   → the CLI's --eval-max-samples default; the flag overrides.
 kaggle:                               # OPTIONAL: pull PRECOMPUTED eval activations from Kaggle
   owner: <kaggle username>            #   instead of extracting them (see kaggle_activations.py).
   eval_dataset_slug: <template>       #   slug + file templates, formatted with `split=<split stem>`
@@ -320,16 +329,50 @@ N most recent rounds (default: all rounds visible).
 `Conversation` (frozen tuple of `Message`s) and `JsonlStore`. The store dedups by
 canonical text on append (no duplicate row for the same conversation), and
 preloads any prior records on init so re-running against the same JSONL keeps
-the success counter and dedup set warm. Each row carries
+the success counter and dedup set warm. `append` returns **True if the row was
+newly persisted**, False if it was a duplicate — `tools.py` uses that to
+attribute the row to the submitting session. Each row carries
 `{sample, probe_score, probe_predicts_positive, judge_label, judge_reason,
-success, attacker_model, run_id, round, iteration, error_type, pos_class_label,
-neg_class_label}` — `judge_label` is the class label the judge picked
-(human-readable, e.g. "high-stakes"), or `""` if the judge response was
-unparseable. `iteration` is the 0-based retrain-cycle index (the CLI threads it
+judge_confidence, success, attacker_model, run_id, round, iteration, error_type,
+pos_class_label, neg_class_label}` — `judge_label` is the class label the judge
+picked (human-readable, e.g. "high-stakes"), or `""` if the judge response was
+unparseable, and `judge_confidence` is 1–10 (0 when missing/unparseable; it
+feeds `retrain_probe(min_judge_confidence=)`, which the CLI supplies from
+`judge.confidence_threshold`). `iteration` is the 0-based retrain-cycle index (the CLI threads it
 through `run_redteam(..., iteration=)` → `ToolContext.current_iteration`); rows
 written before this field existed read back as `-1`. Note `round` is the
 *global* round number (`iteration * rounds + round_idx`), so `iteration` is now
 explicit rather than only recoverable as `round // rounds`.
+
+**Near-duplicate guard (`attacker.near_dup_guard`).** Exact-text dedup misses a
+*re-skinned* winning template — same opening scenario, swapped nouns and numbers —
+which is how a rotation talks itself into submitting one success fifty times. So
+the store also compares the first `_NEAR_DUP_PREFIX` (600) chars of a candidate's
+first user turn (`first_user_text`) against every persisted **success** by
+`difflib.SequenceMatcher` ratio. Successes only: near-duplicates of past *failures*
+don't inflate the clone rate, and blocking them would needlessly narrow exploration.
+
+- `try_reserve_opener(conversation, threshold) → bool` is the form callers use. It
+  checks the candidate against persisted successes **union the openers currently
+  being scored**, and reserves it on success — one synchronous method with no
+  `await` inside, so asyncio can't interleave two sessions between the check and
+  the reserve. Callers **must** pair a True return with `release_opener` in a
+  `finally`. `near_duplicate_success` is the same test without the in-flight set,
+  and is racy under concurrency by construction.
+- `_is_near` passes **`autojunk=False`**, which is load-bearing: difflib's autojunk
+  heuristic (on above 200 chars) derives its junk set from the *second* argument, so
+  `ratio(a,b) != ratio(b,a)`. At our ~250–400-char openers the guard's
+  candidate-first order under-measured a genuine near-duplicate as 0.30 instead of
+  0.84 and almost never fired. Disabling it also makes the guard measure exactly what
+  `scripts/clone_rate.py` scores offline.
+- `record_near_dup_reject` / `recent_near_dup_rejects(limit)` back
+  `near_dup_broadcast`: an in-memory ring (most recent 200) of rejected openers,
+  shared across the rotation so a rejection in **any** session steers every session.
+  Deliberately **never persisted** — it is a within-run steering signal, and writing
+  it would pollute both the scored-attempts dataset and the clone metric.
+
+A `threshold >= 1.0` disables the guard. Both knobs default off, so existing configs
+behave identically.
 
 Also hosts `JsonlStore.records_for_round(round_num)` (all attempts for one global
 round, used to summarize it), `JsonlStore.records_for_iteration(iteration,
@@ -345,8 +388,8 @@ per-round snapshot to a JSONL sidecar (`<jsonl>.summaries.jsonl`) for diagnostic
 `current` feeds the latest memo back into the next update; `render()` wraps it as the
 "## Strategy memo from earlier rounds" system-prompt block (or `""` before the first
 memo exists). Because the judge rewrites-and-condenses instead of appending, the
-memo stays bounded (200 words at the default `judge.max_tokens: 1024`) regardless of
-round count — it does **not** grow linearly. The sidecar is diagnostics-only **except on resume**: constructed with
+memo stays bounded regardless of round count — it does **not** grow linearly.
+The sidecar is diagnostics-only **except on resume**: constructed with
 `SummaryStore(path, iteration=, error_type=, resume=True)` it seeds `current` from the
 newest sidecar row matching that `(iteration, error_type)`, so a run restarting at
 round 18 opens with the memo distilled from rounds 0..17 instead of an empty one.
@@ -388,27 +431,27 @@ the submitted conversation's canonical text and joins the row to its `AttemptRec
 Under `attacker.batch_submissions` one call yields several conversations off a single
 prompt, so those rows carry plural **`submissions` / `submission_keys` / `results`** and
 leave the singular fields null — one row per conversation would repeat the whole message
-array once per batch member. Readers explode the list back out
-(`scripts/build_prompt_trace_viewer.py::_explode_batches`); the plural keys are simply
-absent on per-turn rows, so older captures still read unchanged.
+array once per batch member. A reader has to explode the list back out; the plural keys
+are simply absent on per-turn rows, so older captures still read unchanged.
 
 ### `agentic_redteam/probe_judge.py`
-Wraps a pickled tuberlens probe. Lazily loads `tuberlens.model.LLMModel` on first
-score (heavy import). Exposes `evaluate(conversation) → (score, predicts_positive)`
-and `is_target_misprediction(predicts_positive)` so the tool layer can short-
-circuit before invoking the (expensive) Claude judge when the probe is right.
-The probe carries `pos_class_label`, `neg_class_label`, and `description` as
-metadata, which everything downstream reads off the loaded object — never
-duplicate these in code.
+Wraps a pickled tuberlens probe. Lazily loads the extraction LLM on first score
+(heavy import). Exposes `score(conversation) → float`,
+`evaluate(conversation) → (score, predicts_positive)`, and
+`label_for(predicts_positive)` / `true_class_label` for turning a prediction into
+one of the probe's own class-label strings. There is deliberately **no**
+"is the probe already wrong?" predicate: that can only be decided against the
+judge's label, so the judge always runs (see the conventions at the end).
+The probe carries `pos_class_label`, `neg_class_label`, `description`,
+`model_name` and `layer` as metadata, which everything downstream reads off the
+loaded object — never duplicate these in code.
 
 The model is loaded through `model_loading.load_extraction_model` (see below), which
 carries `offload_buffers=True` and truncates the model to the layers the probe
 actually reads. `release()` drops the loaded LLM and runs
 `gc.collect()` + `torch.cuda.empty_cache()` — call it when a phase is done with
 the probe (the attacker does, after each rotation) so the next phase reloads onto
-a clean GPU. This matters because every load re-infers the `device_map="auto"`
-layer split from *free* GPU memory at load time, so a leftover copy forces the
-next load into CPU/disk offload and ~5-10x slower forwards. See `cli._free_gpu`.
+a clean GPU. See "Free GPU memory between heavy phases" in the conventions for why.
 
 ### `agentic_redteam/model_loading.py`
 `load_extraction_model(model_name, layer)` — the single loader for the frozen
@@ -422,9 +465,9 @@ context manager, long after `from_pretrained` has placed the whole model. For
 `google/gemma-3-27b-it` at layer 32 that is 29 of 62 layers, **24 GB of bf16 weights**,
 downloaded, dispatched and CPU/disk-offloaded without ever running a forward. Since
 `device_map="auto"` fills the GPU in layer order and spills the rest, those dead
-layers are exactly what push the *executed* tail off a 24 GB GPU and onto disk
-(`logs/run_hs_gemma27b_deepseekv4pro_noguidance.log`: 6 of 8 loads report "offloaded
-to the cpu **and disk**", and extraction ran at 48–264 s/sample).
+layers are exactly what push the *executed* tail off a 24 GB GPU and onto disk —
+measured on a gemma-3-27b run, 6 of 8 loads reported "offloaded to the cpu **and
+disk**" and extraction ran at 48–264 s/sample.
 
 `_truncated_config` rebuilds the config with `num_hidden_layers = layer + 1`
 (`text_config.num_hidden_layers` on multimodal checkpoints like gemma-3-*-it, the
@@ -444,10 +487,6 @@ under which accelerate infers the budget from whatever is *free at load time* an
 silently falls back to **disk** offload on a tight box. `extraction_batch_size()`
 reads tuberlens' `BATCH_SIZE` (default 1) so the same env var drives both
 `get_activations` and the red-team chunking in `retrain`.
-
-`scripts/bench_extraction.py` times s/sample and prints accelerate's actual placement
-for a given model/layer/batch size — run it on the target box before committing to a
-multi-hour retrain.
 
 ### `agentic_redteam/llm_judge.py`
 **Unbiased classifier** that works with either provider. When
@@ -474,7 +513,7 @@ superseded notes). So the memo is bounded, not cumulative. Reuses the same
 for an empty round.
 
 Three properties of that prompt are load-bearing and were each fixed after a
-run pathology (`docs/exact_prompt.md` has the full rendered before-case):
+run pathology:
 
 - **The word budget is a 200-word target under a `judge.max_tokens`-derived ceiling.**
   `_summary_word_budget(max_tokens) = min(_SUMMARY_TARGET_WORDS, max(150,
@@ -523,8 +562,8 @@ unchanged when the iteration produced neither successes nor a round memo.
 **Both summarization prompts are written in neutral analyst register** — "analyze the
 robustness of a text classifier", samples/misclassifications/evaluation cycles — never
 as red-team/attacker coaching ("strategies that worked", "what the next attackers
-should try"). This is not stylistic: the original adversarially-phrased
-`_SUMMARY_SYSTEM` drew refusals from the judge (`openai/gpt-5.1-chat` in every config)
+should try"). This is not stylistic: the original adversarially-phrased round-summary
+prompt drew refusals from the judge (`openai/gpt-5.1-chat` in every config)
 and had to be rewritten. Keep any new summarization prompt in the same register, and
 note that `summarize_iteration` is the more exposed of the two — its input is *only*
 the successes, i.e. exactly the conversations the judge itself labelled
@@ -558,9 +597,9 @@ by design — a failed attacker round is logged and the rotation continues
 (`preprocessing`), a failed summarization is swallowed (`_summarize_round`) —
 which is right for a blip but makes an exhausted balance or revoked key
 *invisible*: the run grinds through every remaining round, retrains on nothing,
-evals, and exits 0 with a plausible-looking comparison CSV. (This is exactly
-what the `run_gpt51_memo_ablation.sh` arms did: 300 + 200 model-rounds all
-failing 402, then 3 retrain/eval cycles on zero red-team data.)
+evals, and exits 0 with a plausible-looking comparison CSV. (This is exactly what
+one memo-ablation sweep did: 300 + 200 model-rounds all failing 402, then 3
+retrain/eval cycles on zero red-team data.)
 
 Every OpenRouter call reports its outcome via `record_success()` /
 `record_failure(detail, where=)`; N consecutive failures across **all** call
@@ -587,10 +626,9 @@ mentions a reset connection is still a drained balance):
 observed by ten concurrent sessions at once — so the counter hit its limit of 10
 on the first wave, **before any backoff sleep began**, and lengthening the
 backoff alone would not have helped. That is how a ~2.5 min connection blip
-killed a 10-hour run twice in one night
-(`logs/run_hs_gemma27b_gptoss120b_noguidance.log`: two `openrouter_outage`
-aborts, then 6h and 30min of idle GPU awaiting a human restart). A wall-clock
-streak is immune to that multiplication. So once a streak contains **any**
+killed a 10-hour run twice in one night — two `openrouter_outage` aborts, then 6h
+and 30min of idle GPU awaiting a human restart. A wall-clock streak is immune to
+that multiplication. So once a streak contains **any**
 connection error it is governed by the outage clock; `_streak_started_at` is
 stamped on the first failure after a success and cleared by `record_success`.
 
@@ -612,8 +650,8 @@ a `threading.Lock`, not an asyncio primitive, because call sites live in the
 asyncio attacker loop *and* in `preprocessing`'s `ThreadPoolExecutor` workers.
 `raise_if_tripped()` is called at the top of `run_one_model` and before each
 OpenRouter call, so once tripped the remaining schedule collapses without
-touching the network. `reset()` / `snapshot()` exist for tests
-(`scratchpad/test_circuit_breaker.py` covers all three classes).
+touching the network. `reset()` / `snapshot()` exist so a test can drive the
+breaker through all three classes without real network failures.
 
 ### `agentic_redteam/tools.py`
 Hosts both the **provider-agnostic handlers** (`handle_submit_conversation`,
@@ -637,7 +675,12 @@ deduplication, and JSONL persistence happen exactly once inside the handlers.
   established by comparing its prediction to the judge's label, so there is
   no short-circuit. Computes `success` as: probe and judge labels disagree
   *and* the disagreement direction matches the configured `error_type`.
-  Persists every attempt with the judge's label included.
+  Persists every attempt with the judge's label included, and increments
+  `ctx.session_records` / `session_successes` only when `JsonlStore.append`
+  reports the row as newly persisted (a sibling may have won the race).
+  When `ctx.near_dup_guard` is on, `try_reserve_opener` runs **before** the
+  probe and judge — a rejected candidate returns `near_duplicate=True` having
+  cost no scoring — and the reservation is dropped in a `finally`.
 - `view_past_attempts(only_successful, limit)` — delegates to the shared
   `ViewSampler` (see `view_sampler.py`) so later attacker models in a rotation
   can learn from earlier ones. The default (`only_successful=false`) view is a
@@ -655,8 +698,10 @@ deduplication, and JSONL persistence happen exactly once inside the handlers.
 - `get_probe_info()` — returns probe metadata.
 
 A `ToolContext` is the closure shared by all three tools — it holds the probe,
-judge, store, run id, the currently-active round + attacker model, and the shared
-`view_sampler`. The attacker module updates `current_attacker_model` and
+judge, store, run id, the currently-active round + attacker model, the shared
+`view_sampler`, the near-dup knobs, this session's `session_id` +
+`session_records` / `session_successes` counters, and the optional
+`prompt_trace_store`. The attacker module updates `current_attacker_model` and
 `current_round` before each model run so JSONL rows attribute correctly.
 `confidence_threshold` is still recorded on the context but is **no longer used to
 filter `view_past_attempts`** (it only feeds the training-path gate).
@@ -714,10 +759,14 @@ instead (`run_one_model`):
   role+content and also accepts a `{"messages": [...]}` wrapper); on parse failure,
   nudge and retry the turn; on success, score it through the same
   `dispatch_tool_call(ctx, "submit_conversation", ...)` path as tools mode, then feed
-  back `_render_submission_feedback` (probe vs. judge verdict, duplicate/error notes —
-  no success count, see below) followed by a freshly injected `_render_injected_view` —
-  `view_past_attempts` rendered as text, `attacker.view_limit` rows, since the model
-  can't call it. Assistant text is coerced to `""` before being appended so a
+  back `_render_submission_feedback` (probe vs. judge verdict, duplicate /
+  near-duplicate / error notes — no success count, see below) followed by a freshly
+  injected `_render_injected_view` — `view_past_attempts` rendered as text,
+  `attacker.view_limit` rows, since the model can't call it — and, under
+  `near_dup_broadcast`, `_render_near_dup_rejects`. Both render blocks return `""` for
+  `view_limit <= 0`, so a run configured to show the attacker nothing can't get past
+  attempts back through the rejects channel.
+  Assistant text is coerced to `""` before being appended so a
   null-content turn can't make the next request protocol-invalid. Respects
   `batch_target` (shared success counter) and `max_turns` (one submission per turn).
   This path is **openrouter-only** — `load_config` rejects `interface: prompt` with a
@@ -808,7 +857,7 @@ judge failures are logged (`iteration_memo_error`) and swallowed; a `JudgeRefusa
 the run. The prompt side is
 `_prompt_memos(ctx)` → `(iteration_memo, round_memo)`, both passed to
 `_build_full_system_prompt` (iteration memo first, round memo last as the more
-immediate signal) by all three drivers. Note the CLI's phase-marker resume path skips
+immediate signal) by all four drivers. Note the CLI's phase-marker resume path skips
 the whole rotation for an already-finished `(iteration, error_type)`, so that
 iteration contributes no memo — the next one falls back to the newest earlier memo.
 
@@ -933,10 +982,10 @@ reasons, both from a 770-sample gemma-3-27b retrain:
 Progress is printed every `_REDTEAM_PROGRESS_EVERY` (10) rows with a running s/sample
 and ETA, instead of tqdm — one bar per chunk would be hundreds of bars in the log.
 
-**Host-RAM budget of a retrain.** This function's peak is what OOM-kills long runs
-(`logs/run_hs_gemma27b_deepseekv4pro_noguidance.log`: SIGKILL, exit 137, no traceback,
-at the iteration-2 retrain of a 966-sample gemma-3-27b probe on a 60 GB box). Two
-things are held at once and both are guarded:
+**Host-RAM budget of a retrain.** This function's peak is what OOM-kills long runs —
+observed as a SIGKILL (exit 137, no traceback) at the iteration-2 retrain of a
+966-sample gemma-3-27b probe on a 60 GB box. Two things are held at once and both
+are guarded:
 
 - **The extraction model.** `LLMModel.load` uses `device_map="auto"` with
   `max_memory=None`, so accelerate hands the `"cpu"` device a budget equal to whatever
