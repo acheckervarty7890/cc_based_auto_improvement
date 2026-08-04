@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentic_redteam.llm_judge import LLMJudge
 from agentic_redteam.persistence import (
+    PromptTraceStore,
     AttemptRecord,
     Conversation,
     IterationMemoStore,
@@ -65,6 +66,17 @@ class ToolContext:
     current_round: int = 0
     current_iteration: int = 0  # retrain cycle index recorded on each AttemptRecord
     current_attacker_model: str = ""
+    # Identifies this concurrent session within its round (sessions_per_model > 1
+    # runs several at once and they interleave in the shared store).
+    session_id: str = ""
+    # Attempts / successes THIS session actually persisted. The context is per
+    # session but the JsonlStore is shared across the whole rotation, so a store
+    # delta measured around one session also counts everything its concurrent
+    # siblings wrote — which is why run_one_model reports these instead.
+    session_records: int = 0
+    session_successes: int = 0
+    # Set when attacker.capture_prompts is on; receives one row per API call.
+    prompt_trace_store: "PromptTraceStore | None" = None
     run_logger: RunLogger | None = None
     # Shared across the rotation: decides the balanced/reshuffled set of past
     # attempts (+ training seeds) shown by view_past_attempts. None → simple fallback.
@@ -220,7 +232,13 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
             pos_class_label=ctx.probe.pos_class_label,
             neg_class_label=ctx.probe.neg_class_label,
         )
-        ctx.store.append(record)
+        if ctx.store.append(record):
+            # Attribute the row to this session. `append` returns False if a
+            # concurrent sibling persisted the same canonical text first, in which
+            # case the row is theirs, not ours.
+            ctx.session_records += 1
+            if success:
+                ctx.session_successes += 1
 
         explanations = {
             "target_error_matched": (
@@ -253,7 +271,9 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
             ),
             "matches_target_error_type": success,
             "success": success,
-            "successful_finds_so_far": ctx.store.success_count,
+            # No running success count and no batch_target: the per-round success
+            # budget is enforced programmatically by the driver loops, and telling
+            # the attacker about a quota only gave it a reason to stop searching.
             "outcome": outcome,
             "explanation": explanations[outcome],
         }

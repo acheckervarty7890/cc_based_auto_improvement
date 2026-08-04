@@ -43,7 +43,8 @@ The end-to-end loop:
    **sequentially**: at the end of each round the **judge** reads all of that
    round's attempts (successful and not) and folds them into a single **rolling
    strategy memo** — it rewrites and condenses the prior memo rather than
-   appending, so the memo stays bounded (~200 words) no matter how many rounds
+   appending, so the memo stays bounded (a 200-word budget, capped further if
+   `judge.max_tokens` is too small to emit that) no matter how many rounds
    run. That memo is injected into the system prompt of every later round's
    attacker, which is always shown it and can still call `view_past_attempts`
    for specific conversations. The memo resets per iteration (and per error type).
@@ -230,10 +231,29 @@ attacker:
                                       #   resolves to claude_sdk under interface: prompt.
   view_limit: int                     # prompt mode only: size of the view_past_attempts sample injected each
                                       #   turn (default 10). Mirrors the tools-mode view_past_attempts limit.
+                                      #   <= 0 means inject NOTHING (note this is the opposite of
+                                      #   ViewSampler.sample, where limit <= 0 means unlimited).
+  capture_prompts: bool               # prompt mode only, default FALSE. Dump the verbatim message array of
+                                      #   every API call to <jsonl>.prompts.jsonl (PromptTraceStore). Grows
+                                      #   much faster than the JSONL. Read it with
+                                      #   scripts/build_prompt_trace_viewer.py.
+  batch_submissions: bool             # prompt mode only, default FALSE. Ask for ALL `max_turns` candidate
+                                      #   conversations in ONE reply instead of one per turn: the session
+                                      #   makes a single API call, every conversation is scored, and it ends
+                                      #   — the attacker never sees a probe/judge verdict. load_config RAISES
+                                      #   if combined with interface: tools. See _run_openrouter_prompt_batch_model.
 judge:
   provider: claude_sdk | openrouter
   model: <model>
-  max_tokens: int
+  max_tokens: int                     # also caps the rolling memo's word budget
+                                      #   (min(200, max(150, 0.45 × max_tokens)) — the
+                                      #   200-word target governs at any max_tokens ≥ 512)
+  hide_opposite_direction: bool       # default TRUE. Withhold misclassifications pointing the
+                                      #   OTHER way from error_type (a false positive turned up
+                                      #   during a false_negative hunt) from the round memo, so
+                                      #   the judge doesn't write up weaknesses that are
+                                      #   unactionable this rotation. Rows probe+judge AGREED on
+                                      #   are kept. Affects summarize_round only.
 probe:
   path: <path>                        # OPTIONAL: warm-start from an existing probe.
                                       # If omitted/missing, iterative_retrain_main trains
@@ -325,8 +345,8 @@ per-round snapshot to a JSONL sidecar (`<jsonl>.summaries.jsonl`) for diagnostic
 `current` feeds the latest memo back into the next update; `render()` wraps it as the
 "## Strategy memo from earlier rounds" system-prompt block (or `""` before the first
 memo exists). Because the judge rewrites-and-condenses instead of appending, the
-memo stays bounded (~200 words) regardless of round count — it does **not** grow
-linearly. The sidecar is diagnostics-only **except on resume**: constructed with
+memo stays bounded (200 words at the default `judge.max_tokens: 1024`) regardless of
+round count — it does **not** grow linearly. The sidecar is diagnostics-only **except on resume**: constructed with
 `SummaryStore(path, iteration=, error_type=, resume=True)` it seeds `current` from the
 newest sidecar row matching that `(iteration, error_type)`, so a run restarting at
 round 18 opens with the memo distilled from rounds 0..17 instead of an empty one.
@@ -355,6 +375,22 @@ process restart / `--resume`. `update()` appends one memo per iteration;
 memo); `render(iteration)` wraps it as the "## Lessons from previous iterations (the
 probe has since been RETRAINED)" system-prompt block, or `""` at iteration 0. The
 sidecar is per error type, since the JSONL path is.
+
+`PromptTraceStore` (`<jsonl>.prompts.jsonl`, gated on `attacker.capture_prompts`, prompt
+mode only) captures the **verbatim message array of every API call** — the one thing
+nothing else records. The JSONL stores the conversation a turn *produced*, not the
+messages that produced it, and carries no session or turn id, so with
+`sessions_per_model > 1` the concurrent sessions interleave and the in-session context of
+any submission after the first is unrecoverable after the fact. One row per API call:
+`{session_id, turn, round, iteration, attacker_model, error_type, messages,
+response_text, parsed, submission, submission_key, result}`, where `submission_key` is
+the submitted conversation's canonical text and joins the row to its `AttemptRecord`.
+Under `attacker.batch_submissions` one call yields several conversations off a single
+prompt, so those rows carry plural **`submissions` / `submission_keys` / `results`** and
+leave the singular fields null — one row per conversation would repeat the whole message
+array once per batch member. Readers explode the list back out
+(`scripts/build_prompt_trace_viewer.py::_explode_batches`); the plural keys are simply
+absent on per-turn rows, so older captures still read unchanged.
 
 ### `agentic_redteam/probe_judge.py`
 Wraps a pickled tuberlens probe. Lazily loads `tuberlens.model.LLMModel` on first
@@ -427,14 +463,52 @@ case-insensitively against the probe's pos/neg class labels. Returns
 The same judge also maintains the **rolling strategy memo** via
 `summarize_round(records, *, round_num, error_type, true_class_label,
 prior_summary="")`: it renders every attempt of the round (status, attacker model,
-probe vs. judge label, judge reason, and per-message-truncated transcript) plus the
-`prior_summary` into one user message and asks the judge — under a dedicated
-`_SUMMARY_SYSTEM` prompt, not the classification one — to **rewrite and condense**
-the prior memo with the new round's findings (merge duplicates, drop superseded
-notes), capped at `_SUMMARY_WORD_BUDGET` (~200) words. So the memo is bounded, not
-cumulative. Reuses the same `_call_anthropic` / `_call_openrouter` backends; returns
-`prior_summary` unchanged for an empty round.
+**`probe_score`**, probe vs. judge label, judge reason, and per-message-truncated
+transcript) plus per-round aggregates (success rate, mean/min/max probe score, how
+many samples the probe assigned to the positive class) and the `prior_summary` into
+one user message, and asks the judge — under a dedicated system prompt built by
+`_summary_system(max_tokens)`, not the classification one — to **rewrite and
+condense** the prior memo with the new round's findings (merge duplicates, drop
+superseded notes). So the memo is bounded, not cumulative. Reuses the same
+`_call_anthropic` / `_call_openrouter` backends; returns `prior_summary` unchanged
+for an empty round.
 
+Three properties of that prompt are load-bearing and were each fixed after a
+run pathology (`docs/exact_prompt.md` has the full rendered before-case):
+
+- **The word budget is a 200-word target under a `judge.max_tokens`-derived ceiling.**
+  `_summary_word_budget(max_tokens) = min(_SUMMARY_TARGET_WORDS, max(150,
+  int(max_tokens * _SUMMARY_WORDS_PER_TOKEN)))` — target 200, factor 0.45, so at the
+  default 1024 tokens the ceiling is 460 and the **target governs: 200 words**. The
+  two constraints are independent. The *ceiling* is physical: a budget the model
+  cannot reach is worse than none — the fixed 700-word cap against a 1024-token
+  ceiling truncated **all 48** memos of the experiment7 runs mid-sentence, always
+  amputating the concluding strategy section, and since the memo is fed back as the
+  next round's `prior_summary` the loss compounds (measured density for this
+  dense-markdown register is ~0.61 words/token, so 0.45 leaves room to finish). The
+  *target* is editorial: the memo is injected into every later round's attacker system
+  prompt, and at 460 words it measured 3.4k chars against a 3.2k-char prompt — **54%
+  of the whole system message**, crowding out the instructions it supplements. Raising
+  `judge.max_tokens` no longer lengthens the memo; change `_SUMMARY_TARGET_WORDS` for
+  that. The prompt's closing paragraph is tuned to the tighter budget: it tells the
+  judge to write bullets, and to *drop* the weakest notes wholesale rather than
+  compress every note into vagueness.
+- **Unsuccessful samples are analyzed as first-class evidence.** The prompt asks
+  what did *not* expose a weakness and how confidently (probe score near 0/1 = far
+  from the boundary = strong evidence, near 0.5 = nearly flipped), which lines of
+  investigation are exhausted, and explicitly licenses "this region has been
+  characterized; examine a different one" as a conclusion. The earlier prompt asked
+  only "what strategies work" / "what was most effective", which forces a
+  recommendation even from a round with one success in 47 — the judge duly promoted
+  that single sample to a template and the attackers converged on it.
+- **Opposite-direction misclassifications are withheld** (`hide_opposite_direction`,
+  default on) — see `_drop_opposite_direction`. Rows where probe and judge disagree
+  the *other* way from `error_type` (a false positive found during a `false_negative`
+  hunt) are dropped before rendering, and before the aggregates are computed, so the
+  counts stay consistent. Rows they *agreed* on are kept: "the classifier handled
+  this correctly" is evidence the memo needs whichever class it landed on. Without
+  this, every experiment7 false-positive memo carried a "what reliably yields probe
+  false negatives" section prescribing moves that were unwinnable in that rotation.
 It also writes the **cross-iteration memo** via `summarize_iteration(successes, *,
 iteration, error_type, true_class_label, round_memo="", prior_memo="", n_attempts=0,
 max_successes=30)`, called once per rotation *before* the retrain. Under its own
@@ -640,14 +714,44 @@ instead (`run_one_model`):
   role+content and also accepts a `{"messages": [...]}` wrapper); on parse failure,
   nudge and retry the turn; on success, score it through the same
   `dispatch_tool_call(ctx, "submit_conversation", ...)` path as tools mode, then feed
-  back `_render_submission_feedback` (probe vs. judge verdict, duplicate/error notes,
-  running success count) followed by a freshly injected `_render_injected_view` —
+  back `_render_submission_feedback` (probe vs. judge verdict, duplicate/error notes —
+  no success count, see below) followed by a freshly injected `_render_injected_view` —
   `view_past_attempts` rendered as text, `attacker.view_limit` rows, since the model
   can't call it. Assistant text is coerced to `""` before being appended so a
   null-content turn can't make the next request protocol-invalid. Respects
   `batch_target` (shared success counter) and `max_turns` (one submission per turn).
   This path is **openrouter-only** — `load_config` rejects `interface: prompt` with a
   `claude_sdk` model. No MCP server is constructed.
+
+- **`openrouter` + `interface: prompt` + `batch_submissions: true`** —
+  `_run_openrouter_prompt_batch_model`. Same system prompt, but with
+  `_prompt_mode_batch_instructions(max_turns)` in place of `_PROMPT_MODE_INSTRUCTIONS`:
+  the model is asked for **all `max_turns` conversations in one reply**, they are parsed
+  by `_extract_conversations` (plural), each is scored through the same
+  `dispatch_tool_call(ctx, "submit_conversation", ...)` path, and the session **ends** —
+  so `max_turns` is a batch size, not a turn budget, and the attacker is **never shown a
+  verdict**. That is the point of the mode: it isolates what in-context feedback does,
+  since the per-turn loop is also how a session talks itself into mode collapse.
+
+  `_extract_conversations` accepts N fenced blocks, one block holding an array of arrays,
+  or a `{"conversations": [...]}` wrapper; each fenced block is parsed **independently**,
+  so a batch whose last block was guillotined by `max_tokens` still yields every complete
+  conversation before it. Exact duplicates within a reply are collapsed and the result is
+  capped at `max_turns`.
+
+  Two deliberate asymmetries with the per-turn loop. **`batch_target` is checked between
+  calls, not between conversations** — a round can overshoot it by up to one batch per
+  session, which is the right trade because the generation cost is already sunk and only
+  the cheaper probe+judge scoring would be saved. And a reply **short of `max_turns` gets
+  up to `_BATCH_MAX_FOLLOWUPS` (2) top-up asks**; the follow-up names only how many more
+  conversations are wanted, never a verdict, or the session would stop being blind.
+  `stop_reason` is one of `batch_complete` / `batch_short` / `batch_no_parse` /
+  `target_reached`.
+
+  Note this mode **does** tell the attacker a number — the batch size. That does not
+  violate the "never state a quota" rule below, which is about `batch_target`'s success
+  count: a batch size is a workload the model cannot produce without knowing, not a goal
+  it can meet early and stop searching.
 
 A fresh `ToolContext` is built per model run (with round/model labels set), but
 all runs share the same `JsonlStore` so dedup and the success counter persist
@@ -721,7 +825,29 @@ sessions_per_model × len(models)` or the copies queue on the semaphore instead 
 running in parallel; (2) `batch_target` is checked against the **shared** success
 counter (`ctx.store.success_count`), so N siblings collectively stop at ~`batch_target`
 successes per round, not `N × batch_target` — it's a shared round budget, not
-per-session.
+per-session. Note the baseline each session compares against is snapshotted when *it*
+starts, so a session that queued on the semaphore gets a fresh budget of its own; keep
+`concurrency ≥ sessions_per_model × len(models)` and the round stays at one budget.
+
+**`batch_target` is enforced only programmatically — never told to the attacker.**
+`_build_full_system_prompt` states what counts as a successful find but not how many
+are wanted, `_render_submission_feedback` reports the verdict without a running count,
+and the `submit_conversation` tool result carries no `successful_finds_so_far`. The
+only stop signals the attacker can perceive are its own turn budget and the verdicts.
+Enforcement lives in the OpenRouter driver loops, which check the shared counter after
+each turn (after each *call*, in batch mode) and break with
+`stop_reason="target_reached"`; the `claude_sdk` driver has no such check and is bounded
+by `max_turns` alone. Don't reintroduce the quota into a prompt: an attacker given a
+target treats it as a quota to satisfy and stops searching once it's met. The batch-size
+number `batch_submissions` states is not this — see that driver above.
+
+**`ModelRunSummary.new_successes` counts the session's own rows**, taken from
+`ToolContext.session_records` / `session_successes` (incremented in
+`handle_submit_conversation` only when `JsonlStore.append` actually persisted). It must
+**not** be a delta on the shared store: siblings write concurrently, so a store delta
+measured around one session also counts theirs, and since the caller sums the summaries
+the error multiplies by the fan-out (with `sessions_per_model: 5`, a 30-success round
+reported ~150). `_mark_round_done` sums these, so `rounds_done.jsonl` inherits the fix.
 
 ### `agentic_redteam/retrain.py`
 Converts successful JSONL records into a tuberlens `LabelledDataset` — labelled

@@ -146,6 +146,16 @@ class AttackerConfig:
     # view_limit: number of past attempts injected each turn in prompt mode (matches the
     #   tools-mode fallback of 10). Unused in tools mode, where the model picks the count.
     view_limit: int = 10
+    # Dump the exact prompt sent to the attacker each turn to
+    # <jsonl>.prompts.jsonl (prompt mode only). Off by default: the file holds
+    # every prompt in full, so it grows much faster than the JSONL.
+    capture_prompts: bool = False
+    # batch_submissions: ask for ALL `max_turns` candidate conversations in ONE reply
+    #   instead of one per turn (prompt mode only; see _run_openrouter_prompt_batch_model).
+    #   The session then makes a single API call and ends — the attacker never sees a
+    #   probe/judge verdict, so every conversation in the batch is written blind. Off by
+    #   default; the per-turn feedback loop is the standard prompt-mode behaviour.
+    batch_submissions: bool = False
     # The default provider applied to model entries given as a bare string.
     default_provider: Provider = "claude_sdk"
 
@@ -161,6 +171,10 @@ class JudgeConfig:
     max_tokens: int = 1024
     confidence_threshold: int = 7
     system_prompt: str = ""
+    # Withhold opposite-direction misclassifications (a false positive turned up
+    # during a false_negative hunt, or vice versa) from the rolling round memo, so
+    # the judge does not write up weaknesses that are unactionable this rotation.
+    hide_opposite_direction: bool = True
 
 
 @dataclass
@@ -477,6 +491,16 @@ def load_config(path: str | Path) -> RedteamConfig:
             "attacker.interface: 'prompt' mode is only supported for openrouter models, "
             "but one or more models resolve to provider 'claude_sdk'."
         )
+    attacker_batch_submissions = bool(a.get("batch_submissions", False))
+    # Raise rather than ignore: this knob changes what the session does, so silently
+    # dropping it under interface: tools would run a config that looks like a batch
+    # arm as a per-turn one, and nothing downstream would say so.
+    if attacker_batch_submissions and attacker_interface != "prompt":
+        raise ValueError(
+            "attacker.batch_submissions requires attacker.interface: prompt "
+            f"(got interface: {attacker_interface!r}); the tools-mode drivers let the "
+            "model decide when to submit, so there is no single reply to batch."
+        )
     judge_provider = _validate_provider(
         str(j.get("provider", "claude_sdk")), "judge.provider"
     )
@@ -555,6 +579,8 @@ def load_config(path: str | Path) -> RedteamConfig:
             ),
             interface=attacker_interface,
             view_limit=int(a.get("view_limit", 10)),
+            capture_prompts=bool(a.get("capture_prompts", False)),
+            batch_submissions=attacker_batch_submissions,
             system_prompt=attacker_prompt,
             default_provider=attacker_default_provider,
         ),
@@ -564,6 +590,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             max_tokens=int(j.get("max_tokens", 1024)),
             confidence_threshold=int(j.get("confidence_threshold", 7)),
             system_prompt=judge_prompt,
+            hide_opposite_direction=bool(j.get("hide_opposite_direction", True)),
         ),
         probe=ProbeConfig(
             path=_resolve(pr["path"]) if pr.get("path") else None,

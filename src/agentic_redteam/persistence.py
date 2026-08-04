@@ -686,6 +686,93 @@ class IterationMemoStore:
 
 
 @dataclass
+class PromptTraceStore:
+    """Append-only capture of the EXACT prompt sent to the attacker on every turn.
+
+    Exists because nothing else in the pipeline records it. The JSONL stores the parsed
+    conversation a turn produced, not the message array that produced it, and it carries
+    no session or turn identifier — so with ``sessions_per_model > 1`` the concurrent
+    sessions interleave in one file and the in-session context of any submission after
+    the first is unrecoverable after the fact. Without this you can reconstruct a
+    session's *opening* prompt (deterministic: system prompt + "Begin.") and nothing else.
+
+    One row per API call, holding the verbatim ``messages`` array, the raw reply, and the
+    verdict, keyed by ``session_id`` + ``turn``. ``submission_key`` is the submitted
+    conversation's canonical text, which joins a row to its ``AttemptRecord`` in the
+    JSONL. Off by default (``attacker.capture_prompts``) — the file holds every prompt in
+    full, so it grows much faster than the JSONL.
+
+    Under ``attacker.batch_submissions`` one call yields several conversations off a
+    single prompt, so those rows carry the plural ``submissions`` / ``submission_keys`` /
+    ``results`` instead, with the singular fields left null. The alternative — one row per
+    conversation — would repeat the whole message array once per batch member and inflate
+    the file by the batch size. Readers explode the list back out
+    (``scripts/build_prompt_trace_viewer.py`` does).
+    """
+
+    path: Path
+
+    def __post_init__(self) -> None:
+        self.path = Path(self.path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def record(
+        self,
+        *,
+        session_id: str,
+        turn: int,
+        round_num: int,
+        iteration: int,
+        attacker_model: str,
+        error_type: str,
+        messages: list[dict],
+        response_text: str,
+        submission: list[dict] | None,
+        submission_key: str,
+        result: dict | None,
+        submissions: list[list[dict]] | None = None,
+        submission_keys: list[str] | None = None,
+        results: list[dict] | None = None,
+    ) -> None:
+        row = {
+            "session_id": session_id,
+            "turn": turn,
+            "round": round_num,
+            "iteration": iteration,
+            "attacker_model": attacker_model,
+            "error_type": error_type,
+            "ts": time.time(),
+            # Verbatim, including the system prompt — this is the whole point.
+            "messages": [
+                {"role": str(m.get("role", "")), "content": str(m.get("content", ""))}
+                for m in messages
+            ],
+            "response_text": response_text,
+            "parsed": submission is not None or bool(submissions),
+            "submission": submission,
+            "submission_key": submission_key,
+            "result": result,
+        }
+        if submissions is not None:
+            # Batch mode only. Omitted entirely otherwise, so per-turn rows stay
+            # byte-identical to the ones captured before this field existed.
+            row["submissions"] = submissions
+            row["submission_keys"] = submission_keys or []
+            row["results"] = results or []
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def iter_all(self) -> "Iterator[dict]":
+        if not self.path.exists():
+            return
+        with self.path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    yield json.loads(line)
+
+
+@dataclass
 class RunLogger:
     """Append-only sidecar log for round lifecycle and per-submission error events.
 
