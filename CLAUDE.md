@@ -98,6 +98,12 @@ Required environment variables:
   stay down before the run aborts) and `OPENROUTER_CONNECTION_BACKOFF_S`
   (default `60,120,480` — retry intervals while it is down).
 - Optional: `OPENROUTER_TIMEOUT_S` (default 60) — per-request wall-clock cap.
+- Optional activation-extraction tuning (see `model_loading.py`):
+  `AGENTIC_REDTEAM_TRUNCATE_LAYERS` (default on — load only layers `0..probe.layer`;
+  set `0` to load the full model), `AGENTIC_REDTEAM_MAX_MEMORY`
+  (e.g. `"0=21GiB,cpu=45GiB"` — pins accelerate's per-device budget so it can't fall
+  back to disk offload; unset by default) and tuberlens' own `BATCH_SIZE` (default 1),
+  which drives both `get_activations` and the red-team chunking in `retrain`.
 
 ## Common commands
 
@@ -359,14 +365,53 @@ The probe carries `pos_class_label`, `neg_class_label`, and `description` as
 metadata, which everything downstream reads off the loaded object — never
 duplicate these in code.
 
-The model is loaded with `model_kwargs={"offload_buffers": True}` so that when
-`device_map="auto"` offloads layers (e.g. gemma-3-27b), buffers offload too
-instead of warning / risking OOM. `release()` drops the loaded LLM and runs
+The model is loaded through `model_loading.load_extraction_model` (see below), which
+carries `offload_buffers=True` and truncates the model to the layers the probe
+actually reads. `release()` drops the loaded LLM and runs
 `gc.collect()` + `torch.cuda.empty_cache()` — call it when a phase is done with
 the probe (the attacker does, after each rotation) so the next phase reloads onto
 a clean GPU. This matters because every load re-infers the `device_map="auto"`
 layer split from *free* GPU memory at load time, so a leftover copy forces the
 next load into CPU/disk offload and ~5-10x slower forwards. See `cli._free_gpu`.
+
+### `agentic_redteam/model_loading.py`
+`load_extraction_model(model_name, layer)` — the single loader for the frozen
+extraction LLM, used by both `ProbeJudge._ensure_model` (red-team scoring) and
+`retrain._get_model`. Beyond `offload_buffers=True` it does the one thing that
+dominates wall-clock on a gemma-sized probe: **it loads only layers `0..layer`.**
+
+tuberlens' `HookedModel.__enter__` already truncates the *executed* stack to
+`original_layers[:layer+1]` (`tuberlens/model.py:144`) — but that happens inside the
+context manager, long after `from_pretrained` has placed the whole model. For
+`google/gemma-3-27b-it` at layer 32 that is 29 of 62 layers, **24 GB of bf16 weights**,
+downloaded, dispatched and CPU/disk-offloaded without ever running a forward. Since
+`device_map="auto"` fills the GPU in layer order and spills the rest, those dead
+layers are exactly what push the *executed* tail off a 24 GB GPU and onto disk
+(`logs/run_hs_gemma27b_deepseekv4pro_noguidance.log`: 6 of 8 loads report "offloaded
+to the cpu **and disk**", and extraction ran at 48–264 s/sample).
+
+`_truncated_config` rebuilds the config with `num_hidden_layers = layer + 1`
+(`text_config.num_hidden_layers` on multimodal checkpoints like gemma-3-*-it, the
+top-level field otherwise), so only the executed prefix is instantiated and only its
+weights are read out of the shards. **This is exact, not an approximation**: the stack
+is causal, so layer `L`'s output is a function of layers `0..L` alone — verified
+bit-identical on Llama-3.2-1B. That is why no activation cache key mentions truncation
+and why blobs computed with and without it stay interchangeable. transformers logs an
+"weights not used when initializing" warning for the dropped layers; that is expected.
+It returns `None` (leave the model alone) when truncation is disabled, when the probe
+reads the last layer anyway, or when the config exposes no layer count we recognise.
+
+Two env knobs: `AGENTIC_REDTEAM_TRUNCATE_LAYERS=0` disables the truncation, and
+`AGENTIC_REDTEAM_MAX_MEMORY` (e.g. `"0=21GiB,cpu=45GiB"`) pins accelerate's per-device
+budget. The latter is unset by default, which keeps tuberlens' `max_memory=None` —
+under which accelerate infers the budget from whatever is *free at load time* and
+silently falls back to **disk** offload on a tight box. `extraction_batch_size()`
+reads tuberlens' `BATCH_SIZE` (default 1) so the same env var drives both
+`get_activations` and the red-team chunking in `retrain`.
+
+`scripts/bench_extraction.py` times s/sample and prints accelerate's actual placement
+for a given model/layer/batch size — run it on the target box before committing to a
+multi-hour retrain.
 
 ### `agentic_redteam/llm_judge.py`
 **Unbiased classifier** that works with either provider. When
@@ -722,8 +767,8 @@ re-hosts the tail of tuberlens' `train_probe`: it activates each sub-dataset (ba
 tuberlens' `get_activations(save_path=...)` blob cache — a hit calls
 `LLMModel.load_activations` and needs no model; the red-team set via
 `_activate_redteam_cached`, which partitions by per-conversation cache hit, loads the
-hits from disk, batch-computes only the misses, and writes each new row back as its
-own blob), merges per side with `LabelledDataset.concatenate` (which pads +
+hits from disk, computes only the misses, and writes each new row back as its
+own blob), merges per side with `_concatenate_consuming` (which pads +
 concatenates the activation tensors), then calls `ProbeFactory.build` on the
 pre-activated datasets. The heavy `LLMModel` loads **lazily** — a full cache hit with
 no uncached red-team samples loads no model at all. `_base_activation_cache_paths`
@@ -738,6 +783,57 @@ different records or mints new contrastive pairs each iteration, each is keyed b
 own final content. Since `get_activations` / `load_activations` load *by path without
 validating inputs*, any change that would alter the activations changes the key (no
 silent stale reuse). Both caches are disabled when `base_activation_cache_dir=None`.
+
+**Misses are computed in chunks and written through per row.** `_activate_redteam_cached`
+loops the miss set in chunks of `model_loading.extraction_batch_size()` (tuberlens'
+`BATCH_SIZE`, default 1), saving each row's blob as soon as its chunk returns, rather
+than one `get_activations` call over the whole miss set followed by a bulk save. Two
+reasons, both from a 770-sample gemma-3-27b retrain:
+
+- **Resumability.** The single-call form persists nothing until the last sample lands,
+  so a crash at row 606 of 607 discarded ~25 h of forwards. Now the next attempt
+  reloads everything already computed. This matters most where the cache does *not*
+  survive the container (cloud boxes with no long-term store for red-team activations,
+  unlike the Kaggle-published eval blobs) — within one run it is the difference between
+  a retry costing minutes and costing the whole retrain again.
+- **Width.** `get_activations` pads every row in a call to that call's max length,
+  capped at 1024 (`tuberlens/model.py:433`). Over the whole miss set that is 1024 for
+  essentially every row; per chunk it is the chunk's own max, and at chunk size 1 it is
+  each row's true length. Real conversations average ~535 tokens, so this roughly halves
+  both the cache's disk footprint (10.7 GB → ~5.6 GB at 970 rows) and resident RAM.
+  `_concatenate_consuming` re-pads at merge, so the merged tensor is byte-identical
+  either way — which is also why blobs written at different chunk sizes interoperate.
+
+Progress is printed every `_REDTEAM_PROGRESS_EVERY` (10) rows with a running s/sample
+and ETA, instead of tqdm — one bar per chunk would be hundreds of bars in the log.
+
+**Host-RAM budget of a retrain.** This function's peak is what OOM-kills long runs
+(`logs/run_hs_gemma27b_deepseekv4pro_noguidance.log`: SIGKILL, exit 137, no traceback,
+at the iteration-2 retrain of a 966-sample gemma-3-27b probe on a 60 GB box). Two
+things are held at once and both are guarded:
+
+- **The extraction model.** `LLMModel.load` uses `device_map="auto"` with
+  `max_memory=None`, so accelerate hands the `"cpu"` device a budget equal to whatever
+  RAM is free *at load time* — a gemma-sized model keeps multi-GB of CPU-offloaded
+  shards resident for as long as it is referenced. `_train_with_cached_base_activations`
+  therefore calls `_release_model()` (mirrors `ProbeJudge.release`) immediately after
+  the last `_activate*` call and **before** the merge + `ProbeFactory.build`, which
+  need no model.
+- **The activations.** At hidden 5376 / fp16 / padded to `get_activations`' 1024-token
+  cap that is 11 MB per sample, so ~10 GB resident for a 966-sample retrain.
+  `LabelledDataset.concatenate` pads every part *then* `torch.cat`s, holding inputs and
+  output simultaneously (~2x, ~19 GB). `_concatenate_consuming` is a drop-in
+  replacement that is byte-identical in output but fills a `torch.empty` block slice by
+  slice, popping each part's pad fields as it copies them, so peak stays at ~1x. It
+  **consumes** its inputs — capture any `len()` you need before calling it — and falls
+  back to `LabelledDataset.concatenate` for layouts it can't reproduce exactly
+  (non-torch pad fields, mixed dtype/device/rank). `torch.empty` over `torch.zeros` is
+  load-bearing: the allocation stays lazily faulted, so every byte must be written
+  exactly once (real rows, then an explicit zero-fill of each part's pad region).
+
+Neither is a full fix — the whole set is still materialized in RAM. Streaming it
+(mmap-backed blobs, or a lazy `ActivationDataset` that pads per batch) needs tuberlens
+changes; see the OOM analysis in the git history for this section.
 
 **Training-time message transforms.** `combine_consecutive_messages` /
 `convert_tool_to_assistant` apply to the training data too (not just eval): the
@@ -820,6 +916,17 @@ Exposed via the config `eval:` section (`EvalConfig`) and overridable per-run by
 `kaggle_source=` (a `KaggleActivationSource`, built by the CLI from the config
 `kaggle:` section) pre-populates the activation cache from Kaggle before
 `get_performances` runs — see below. It is rejected when `max_samples is not None`.
+
+`_assign_cached_activations(eval_datasets, activations_save_path)` then attaches every
+already-cached split's blob to its dataset **before** `get_performances` is called.
+This is purely a fast path, but a load-bearing one: `get_performances` loads the
+extraction model the moment it meets a split with no `activations` field
+(`tuberlens/evaluation.py:75-77`) — *before* `get_activations` gets as far as checking
+`save_path.exists()`. So a fully-cached eval (the normal case once `kaggle:` has
+prefetched) still paid a multi-minute gemma-3-27b load it never used. Blobs are keyed
+by the same path `get_performances` derives (`<dir>/<split>-<cache_stem>`); a split
+whose blob is missing, unreadable, or the wrong row count is left alone and recomputed
+exactly as before, so this can never mask a stale cache.
 
 ### `agentic_redteam/kaggle_activations.py`
 `prefetch_eval_activations(cache_dir, eval_datasets, source, *, model_name, layer,
@@ -987,6 +1094,13 @@ resumed run's CSV covers only the iterations that run actually executed.
 - **Tool functions return the `{"content": [{"type": "text", "text": ...}]}`
   shape exactly.** Anything else breaks the Claude Agent SDK's tool result
   streaming.
+- **Load the extraction LLM through `model_loading.load_extraction_model`.** Never call
+  `LLMModel.load` directly for activation extraction. It is the one place that knows the
+  model only needs layers `0..probe.layer` — tuberlens truncates the *executed* stack
+  inside `HookedModel` but places the whole model first, so a direct load dispatches
+  ~24 GB of gemma-3-27b weights that never run a forward and pushes the executed tail
+  onto disk. Truncation is exact (causal stack), so it does **not** belong in any
+  activation cache key.
 - **Free GPU memory between heavy phases.** Every tuberlens load uses
   `device_map="auto"` + `max_memory=None`, re-inferring the layer split from
   *free* GPU memory at load time; torch's caching allocator holds freed memory as
