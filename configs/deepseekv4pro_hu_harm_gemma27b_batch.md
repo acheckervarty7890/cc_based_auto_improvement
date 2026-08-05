@@ -13,7 +13,7 @@
 #   probe.description                          harm, not stakes
 #   preprocessing.assistant_centric: true      (was false) — see below
 #   judge edge-case line                       assistant-centric — see below
-#   base training data                         data/hu_ha_200.jsonl (via the run script)
+#   base training data                         data/hu_harm_llama70b_50.jsonl (via the run script)
 #   eval splits                                eval_dataset_hu_ha/ (via the run script)
 #   kaggle: slugs                              the hu_ha splits' blobs, {slug} not {split}
 #   output paths                               per-concept, per-arm

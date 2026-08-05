@@ -8,7 +8,7 @@ set -e
 # feedback arms.
 #
 # What the concept swap changes, and nothing else does:
-#   base training data   data/hu_ha_200.jsonl      (was data/hs_ls_200.jsonl)
+#   base training data   data/hu_harm_llama70b_50.jsonl   (was data/hs_ls_200.jsonl)
 #   eval splits          eval_dataset_hu_ha/       (was eval_datasets/)
 #   probe labels         harmful_to_human / not_harmful_to_human
 #   preprocessing.assistant_centric: true — harm is a property of the ASSISTANT's reply, so the
@@ -33,7 +33,7 @@ set -e
 #                               probes/hu_harm_gemma27b_deepseekv4pro_batch
 #
 # The judge (openai/gpt-5.1), the preprocessing model (openai/gpt-5.1), the probe
-# (gemma-3-27b-it L32), the base data (data/hu_ha_200.jsonl) and every scheduling knob are
+# (gemma-3-27b-it L32), the base data (data/hu_harm_llama70b_50.jsonl) and every scheduling knob are
 # held fixed, so any delta in the comparison CSVs is attributable to the attacker.
 #
 # ACTIVATIONS. The shared cache dir (results_hu_harm_gemma27b_batch_ablation/) starts empty on
@@ -110,7 +110,7 @@ run_arm () {  # $1 = config, $2 = probe-out-dir, $3 = logfile
     local rc=0
     .venv_claude/bin/python scripts/iterative_retrain.py "$1" \
         --iterations 3 \
-        --base-training-data data/hu_ha_200.jsonl \
+        --base-training-data data/hu_harm_llama70b_50.jsonl \
         --probe-out-dir "$2" \
         --eval --eval-dataset-dir eval_dataset_hu_ha \
         > "$3" 2>&1 || rc=$?
