@@ -89,6 +89,10 @@ def _truncated_config(model_name: str, layer: int):
     otherwise have worked.
     """
     if not _truncation_enabled():
+        print(
+            f"[model_loading] {_TRUNCATE_ENV} disables layer truncation — placing ALL "
+            f"layers of {model_name} even though the probe only reads layer {layer}."
+        )
         return None
 
     from transformers import AutoConfig
@@ -109,7 +113,15 @@ def _truncated_config(model_name: str, layer: int):
     # text-only ones expose num_hidden_layers on the top-level config.
     text_config = getattr(config, "text_config", config)
     n_layers = getattr(text_config, "num_hidden_layers", None)
-    if not isinstance(n_layers, int) or n_layers <= layer + 1:
+    if not isinstance(n_layers, int):
+        print(
+            f"[model_loading] {type(config).__name__} for {model_name} exposes no int "
+            f"num_hidden_layers (got {n_layers!r}) — loading all layers."
+        )
+        return None
+    if n_layers <= layer + 1:
+        # Benign: the probe reads at or past the last layer, so there is nothing to
+        # drop. Not worth a line in the log.
         return None
     text_config.num_hidden_layers = layer + 1
     return config
@@ -122,6 +134,12 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
     buffers must offload too or accelerate warns about insufficient GPU buffer space
     and risks OOM), plus the layer truncation and optional ``max_memory`` pin
     documented at module level.
+
+    **The one-line summary of what was placed is printed unconditionally**, not gated
+    on ``verbose``. ``ProbeJudge._ensure_model`` — the red-team path, and the one whose
+    forwards dominate a rotation — calls this with ``verbose=False``, so gating it hid
+    the only evidence that truncation had silently not fired. A whole run does a
+    handful of loads, so this costs a handful of lines.
     """
     from tuberlens.model import LLMModel
 
@@ -130,18 +148,22 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
     config = _truncated_config(model_name, layer)
     if config is not None:
         model_kwargs["config"] = config
-        if verbose:
-            text_config = getattr(config, "text_config", config)
-            print(
-                f"Loading {model_name} truncated to {text_config.num_hidden_layers} "
-                f"layers (probe reads layer {layer}; deeper layers are never executed)"
-            )
+        text_config = getattr(config, "text_config", config)
+        placed = f"truncated to {text_config.num_hidden_layers} layers"
+    else:
+        placed = "ALL layers (not truncated)"
 
     raw_budget = os.environ.get(_MAX_MEMORY_ENV, "").strip()
     if raw_budget:
         model_kwargs["max_memory"] = _parse_max_memory(raw_budget)
-        if verbose:
-            print(f"Pinned max_memory={model_kwargs['max_memory']}")
+        budget = f"max_memory={model_kwargs['max_memory']}"
+    else:
+        budget = f"max_memory unpinned (set {_MAX_MEMORY_ENV} to pin it)"
+
+    print(
+        f"[model_loading] loading {model_name}, {placed} "
+        f"(probe reads layer {layer}); {budget}"
+    )
 
     return LLMModel.load(model_name, model_kwargs=model_kwargs)
 
