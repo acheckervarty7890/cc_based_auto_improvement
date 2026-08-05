@@ -59,7 +59,7 @@ def _exit_on_outage(fn):
 
 
 def _free_gpu() -> None:
-    """Release reserved GPU memory between heavy phases.
+    """Release reserved GPU **and host** memory between heavy phases.
 
     train/eval each load a gemma-sized LLM internally (tuberlens); on return the
     model is dereferenced but torch's caching allocator keeps its GPU memory
@@ -67,6 +67,17 @@ def _free_gpu() -> None:
     re-infers the layer split from *free* GPU memory, that leftover reservation
     pushes the next load into CPU/disk offload and ~5-10x slower forwards.
     Collecting + emptying the cache between phases keeps each load on a clean GPU.
+
+    **The host-RAM half matters just as much, and only the GPU half used to be done.**
+    accelerate sizes the ``"cpu"`` device's budget from ``psutil.virtual_memory()``'s
+    *available* figure at load time, and a phase that held tens of GB of CPU-offloaded
+    shards leaves that figure depressed: ``gc.collect()`` frees the Python objects but
+    glibc keeps the arenas mapped rather than returning them to the OS. So the *next*
+    load sees less RAM than really exists and spills the remainder to **disk** — which
+    is far slower than CPU offload, and is what turned a 3.2 s/attempt rotation into a
+    90-113 s/attempt one across an error-type boundary on a 57 GB box.
+    ``malloc_trim(0)`` hands the free arenas back. It is glibc-only and purely an
+    optimisation, so every failure mode (musl, macOS, no ctypes) is swallowed.
     """
     import gc
 
@@ -77,6 +88,13 @@ def _free_gpu() -> None:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     except ImportError:
+        pass
+
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # noqa: BLE001 — best-effort; not available off glibc
         pass
 
 
@@ -156,6 +174,7 @@ def run_redteam_main(argv: list[str] | None = None) -> int:
                 f"({s.total_messages} agent messages; stop={s.stop_reason})"
             )
             total_new += s.new_successes
+        _free_gpu()  # same reload boundary as the iterative loop — see _free_gpu
 
     print(f"\n=== Total new successes: {total_new} ===")
     return 0
@@ -502,6 +521,13 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             et_new = sum(s.new_successes for s in summaries)
             iteration_new_total += et_new
             print(f"  {et}: {et_new} new successes across {len(summaries)} model-rounds")
+            # run_redteam already called probe.release() on its way out, which frees the
+            # GPU — but not the host arenas glibc is still holding from the offloaded
+            # shards. The NEXT error type's rotation reloads the same model immediately
+            # and re-infers its device map from free GPU + available RAM, so without
+            # this the second rotation can land in disk offload while the first sat
+            # comfortably in CPU offload. See _free_gpu.
+            _free_gpu()
             # Record phase completion so a future resume can skip this rotation.
             marker_path.write_text(
                 json.dumps(
