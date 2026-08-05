@@ -51,3 +51,41 @@ Some parameters are on the meta device because they were offloaded to the cpu.
   [red-team activations] 80/239 (3.1s/sample, ~8 min left)
   [red-team activations] 100/239 (2.6s/sample, ~6 min left)
   [red-team activations] 120/239 (2.5s/sample, ~5 min left)
+  [red-team activations] 140/239 (3.6s/sample, ~6 min left)
+  [red-team activations] 160/239 (3.3s/sample, ~4 min left)
+  [red-team activations] 180/239 (3.9s/sample, ~4 min left)
+  [red-team activations] 200/239 (3.6s/sample, ~2 min left)
+  [red-team activations] 220/239 (3.5s/sample, ~1 min left)
+  [red-team activations] 239/239 (3.3s/sample, ~0 min left)
+Red-team activations: 0 loaded from cache, 46 to compute (chunk size 4) ...
+  [red-team activations] 20/46 (0.9s/sample, ~0 min left)
+  [red-team activations] 40/46 (1.3s/sample, ~0 min left)
+  [red-team activations] 46/46 (1.4s/sample, ~0 min left)
+Releasing extraction model before probe fit ...
+Train/validation: 418 train, 86 validation (base 160+40; red-team 258+46)
+Training probe...
+Epoch 1/200:   0%|                                                                                                                       | 0/27 [00:00<?, ?it/s]Epoch 1/200:   0%|                                                                                                          | 0/27 [00:00<?, ?it/s, loss=0.6836]Epoch 1/200:   4%|███▋                                                                                              | 1/27 [00:00<00:11,  2.21it/s, loss=0.6836]Epoch 1/200:   4%|███▋                                                                                              | 1/27 [00:00<00:15,  1.64it/s, loss=0.6836]
+Traceback (most recent call last):
+  File "/workspace/cc_based_auto_improvement/scripts/iterative_retrain.py", line 7, in <module>
+    raise SystemExit(iterative_retrain_main())
+                     ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/src/agentic_redteam/cli.py", line 46, in wrapper
+    return fn(argv)
+           ^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/src/agentic_redteam/cli.py", line 552, in iterative_retrain_main
+    result = retrain_probe(
+             ^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/src/agentic_redteam/retrain.py", line 1012, in retrain_probe
+    new_probe = _train_with_cached_base_activations(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/src/agentic_redteam/retrain.py", line 613, in _train_with_cached_base_activations
+    return ProbeFactory.build(
+           ^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/.venv_claude/src/tuberlens/src/tuberlens/probes/probe_factory.py", line 138, in build
+    probe.fit(train_dataset, validation_dataset)
+  File "/workspace/cc_based_auto_improvement/.venv_claude/src/tuberlens/src/tuberlens/probes/pytorch_probes.py", line 50, in fit
+    self._classifier.train(
+  File "/workspace/cc_based_auto_improvement/.venv_claude/src/tuberlens/src/tuberlens/probes/pytorch_classifiers.py", line 314, in train
+    assert not loss.isnan().any(), "Loss is NaN"
+           ^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Loss is NaN
