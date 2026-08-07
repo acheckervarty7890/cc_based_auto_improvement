@@ -626,6 +626,10 @@ def build_units(args: argparse.Namespace, cache_dir: Path) -> list[Unit]:
     units: list[Unit] = []
     if getattr(args, "base", True):
         units.extend(_base_unit(plans, cache_dir, args))
+    if getattr(args, "base_only", False):
+        # Retrying just the base unit, without re-packing multi-GB iteration archives that
+        # are already published. `--no-base` is the mirror image of this.
+        return units
     units.extend(_iteration_units(plans, args))
     return units
 
@@ -1004,7 +1008,21 @@ def _download_unit(api, unit: Unit, args: argparse.Namespace, cache_dir: Path) -
         dir=str(cache_dir), prefix=f".restore_{_slugify(unit.label)}_"
     ) as tmp:
         staging = Path(tmp)
-        api.dataset_download_file(handle, unit.archive_name, path=str(staging), quiet=False)
+        try:
+            api.dataset_download_file(
+                handle, unit.archive_name, path=str(staging), quiet=False
+            )
+        except Exception as e:  # noqa: BLE001 — retried as a whole-dataset pull below
+            # Kaggle EXPANDS an uploaded .zip server-side: the dataset's remote files are the
+            # archive's members at their arcnames, and the archive name we uploaded under is
+            # not addressable at all (404). Pulling the whole dataset gives one zip back in
+            # exactly that layout — manifest included — which _locate_archive then accepts.
+            print(
+                f"    {unit.archive_name} is not a remote file ({str(e)[:80]}); "
+                "pulling the whole dataset instead.",
+                flush=True,
+            )
+            api.dataset_download_files(handle, path=str(staging), quiet=False, unzip=False)
         archive = _locate_archive(staging, unit.archive_name)
         with zipfile.ZipFile(archive) as zf:
             names = [n for n in zf.namelist() if n != MANIFEST_NAME]
@@ -1239,6 +1257,12 @@ def _add_common(ap: argparse.ArgumentParser) -> None:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Include the base training split as a unit (default: yes).",
+    )
+    ap.add_argument(
+        "--base-only",
+        action="store_true",
+        help="Act on the base unit alone, skipping every iteration unit. Use to retry the "
+        "base upload without re-packing iteration archives that are already published.",
     )
     ap.add_argument(
         "--cache-dir",
