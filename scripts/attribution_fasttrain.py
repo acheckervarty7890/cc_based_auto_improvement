@@ -66,6 +66,11 @@ class Packed:
     lengths: torch.Tensor   # [n_rows], int64
     y: torch.Tensor         # [n_rows], float32
     dim: int
+    # A host-side copy of `lengths`, so a caller can work out a batch's padded width
+    # without reading back from the device. Reading one scalar off a CUDA tensor costs
+    # a full synchronisation, and this happens once per batch (~2400 times per fit) —
+    # invisible on a laptop GPU, expensive on a virtualised one.
+    lengths_cpu: torch.Tensor | None = None
 
     @property
     def n(self) -> int:
@@ -75,7 +80,7 @@ class Packed:
     def gb(self) -> float:
         return self.flat.numel() * self.flat.element_size() / 1e9
 
-    def gather(self, rows: torch.Tensor):
+    def gather(self, rows: torch.Tensor, lmax: int | None = None):
         """``(h, mask)`` for ``rows``: ``[B, Lmax_batch, dim]`` padded to the batch.
 
         Padded rather than ragged, and that choice is not cosmetic. A segment-softmax
@@ -92,14 +97,20 @@ class Packed:
         ~100 MB, which is why this stays fast despite materialising a dense block.
         """
         lens = self.lengths[rows]
-        lmax = int(lens.max())
+        if lmax is None:
+            lmax = int(lens.max())  # syncs; pass lmax from the host copy to avoid it
         ar = torch.arange(lmax, device=rows.device)
         mask = ar[None, :] < lens[:, None]
         idx = (self.offsets[rows][:, None] + ar[None, :]).clamp_(
             max=self.flat.shape[0] - 1
         )
-        h = self.flat[idx] * mask[:, :, None]
-        return h, mask
+        # Deliberately NOT zeroing the out-of-row positions. Clamping reads a few of
+        # the next row's tokens into the tail, but ``_pool`` masks the pad logits to 0
+        # and their softmax weights to exactly 0 before the weighted sum, so those
+        # values cannot reach the output — while the multiply itself would cost a full
+        # extra read+write of the ~100 MB block on every one of ~2400 batches per fit.
+        # Output is bit-identical either way.
+        return self.flat[idx], mask
 
 
 def pack(acts_iter, y: np.ndarray, device: str = "cuda", dtype=torch.float16) -> Packed:
@@ -120,6 +131,7 @@ def pack(acts_iter, y: np.ndarray, device: str = "cuda", dtype=torch.float16) ->
         lengths=lengths_t,
         y=torch.from_numpy(np.asarray(y, dtype=np.float32)).to(device),
         dim=flat.shape[1],
+        lengths_cpu=torch.tensor(lengths, dtype=torch.int64),
     )
 
 
@@ -149,28 +161,28 @@ def _auroc_saturated(y: np.ndarray, s: torch.Tensor) -> np.ndarray:
     """
     p = torch.sigmoid(s.float()).to(torch.bfloat16).float()
     n, k = p.shape
-    yt = torch.as_tensor(y, device=p.device, dtype=torch.float32)[:, None]
-    npos, nneg = float(yt.sum()), float((1 - yt).sum())
-    order = p.argsort(dim=0)
-    ranks = torch.empty_like(p)
-    ar = torch.arange(1, n + 1, device=p.device, dtype=torch.float32)[:, None]
-    ranks.scatter_(0, order, ar.expand(n, k))
-    # average ranks within ties, so the saturated block behaves as sklearn's does
-    ps = torch.gather(p, 0, order)
-    same = torch.zeros_like(ps, dtype=torch.bool)
-    same[1:] = ps[1:] == ps[:-1]
-    for col in range(k):  # tie groups are per column; n is small (<=400)
-        i = 0
-        sm = same[:, col]
-        while i < n:
-            j = i + 1
-            while j < n and sm[j]:
-                j += 1
-            if j - i > 1:
-                avg = (i + 1 + j) / 2.0
-                ranks[order[i:j, col], col] = avg
-            i = j
-    pos_rank_sum = (ranks * yt).sum(0)
+    yt = torch.as_tensor(y, device=p.device, dtype=torch.float32)
+    npos, nneg = float(yt.sum()), float((1.0 - yt).sum())
+    if npos == 0 or nneg == 0:
+        return np.full(k, 0.5)
+
+    # Tie-averaged ranks without a Python loop. For a value v, the tie run it belongs
+    # to occupies sorted positions [lo, hi), so its average 1-based rank is
+    # (lo + 1 + hi) / 2 — which is the plain rank when the value is unique. Two
+    # batched searchsorted calls give lo and hi for every element at once.
+    #
+    # The loop this replaces indexed a CUDA tensor one scalar at a time, and every
+    # such read is a device synchronisation: ~580k of them per pass, 6.2 s of a 26.6 s
+    # pass on a laptop GPU and far worse on a virtualised one, where sync latency is
+    # the thing that differs. Values are unchanged — all ranks are integers or halves,
+    # and float32 represents those (and their sums, max ~10^5 here) exactly, so the
+    # result is bit-identical to the loop regardless of summation order.
+    pt = p.t().contiguous()
+    ps, _ = torch.sort(pt, dim=1)
+    lo = torch.searchsorted(ps, pt, right=False).to(torch.float32)
+    hi = torch.searchsorted(ps, pt, right=True).to(torch.float32)
+    ranks = (lo + 1.0 + hi) * 0.5
+    pos_rank_sum = (ranks * yt[None, :]).sum(dim=1)
     return ((pos_rank_sum - npos * (npos + 1) / 2) / (npos * nneg)).cpu().numpy()
 
 
@@ -189,10 +201,14 @@ def _auroc_saturated_masked(y: np.ndarray, s: torch.Tensor,
     if full.any():
         cols = np.flatnonzero(full)
         out[cols] = _auroc_saturated(y, s[:, torch.from_numpy(cols).to(s.device)])
-    p_all = torch.sigmoid(s.float()).to(torch.bfloat16).float().cpu().numpy()
-    for j in np.flatnonzero(~full):
-        m = keep[:, j]
-        out[j] = roc_auc_score(y[m], p_all[m, j])
+    partial = np.flatnonzero(~full)
+    if partial.size:
+        # Only pulled to host when some column actually drops a validation row —
+        # this is a GPU->CPU sync, so it must not run on the common all-full path.
+        p_all = torch.sigmoid(s.float()).to(torch.bfloat16).float().cpu().numpy()
+        for j in partial:
+            m = keep[:, j]
+            out[j] = roc_auc_score(y[m], p_all[m, j])
     return out
 
 
@@ -297,7 +313,8 @@ def train_many(
     # as well as its exact initialisation, leaving only arithmetic order to differ.
     t0 = time.time()
     for epoch in range(epochs):
-        perm = torch.randperm(train.n).to(device)
+        perm_cpu = torch.randperm(train.n)
+        perm = perm_cpu.to(device)
         # RandomSampler draws a SECOND permutation per epoch and slices it to
         # `num_samples % n` == 0, discarding it (torch/utils/data/sampler.py). Harmless
         # there, but it advances the generator — so skipping it would desynchronise
@@ -306,7 +323,9 @@ def train_many(
         opt.zero_grad()
         for step, start in enumerate(range(0, train.n, bs)):
             rows = perm[start : start + bs]
-            h, mask = train.gather(rows)
+            # Batch width from the host-side lengths: same value, no device sync.
+            lmax = int(train.lengths_cpu[perm_cpu[start : start + bs]].max())
+            h, mask = train.gather(rows, lmax=lmax)
             s = _pool(h, mask, W, b, T, dtype)
             target = train.y[rows][:, None].to(s.dtype).expand_as(s)
             m = keep[rows].to(s.dtype)
@@ -378,8 +397,11 @@ def _forward_packed(pk: Packed, W: torch.Tensor, b: torch.Tensor, T: float, dtyp
     """Sequence logits ``[n_rows, K]`` for every row of ``pk``."""
     outs = []
     for start in range(0, pk.n, chunk):
-        rows = torch.arange(start, min(start + chunk, pk.n), device=pk.flat.device)
-        h, mask = pk.gather(rows)
+        stop = min(start + chunk, pk.n)
+        rows = torch.arange(start, stop, device=pk.flat.device)
+        lmax = (int(pk.lengths_cpu[start:stop].max())
+                if pk.lengths_cpu is not None else None)
+        h, mask = pk.gather(rows, lmax=lmax)
         # The eval packs stay in host RAM — train+val already fill most of an 8 GB
         # card — so a chunk may need moving. A no-op for the resident train/val packs.
         outs.append(_pool(h.to(W.device), mask.to(W.device), W, b, T, dtype))
