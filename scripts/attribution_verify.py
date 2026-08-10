@@ -5,7 +5,16 @@ flagged sets for real, retrains, and measures whether the eval AUROC actually mo
 — which is the only statement worth making after a sweep whose per-pair effects sit
 close to the noise.
 
-Four things make the check honest rather than self-confirming:
+Five things make the check honest rather than self-confirming:
+
+**Held-out seeds.** The drop-sets are chosen from the first half of the LOO cube's
+seeds and verified by refits on seeds the flagging never saw. Without this the check
+is circular and *will* manufacture a result: a 2-SE threshold over ~400 pairs x 4
+splits selects several dozen cells on noise alone, and re-measuring those on the same
+seeds reproduces the very noise that selected them. Measured on the gptoss arm, the
+same-seed version reported dropping 52 "harmful" pairs as worth +0.0135 AUROC on
+eval_ant_hh — a number that has to be re-earned against fresh seeds before it means
+anything.
 
 **Two flagging rules, not one.** ``2 SE`` is the loose reading; Benjamini-Hochberg at
 q=0.10 over all pairs x 4 splits is the multiplicity-corrected one. With 389 pairs and
@@ -57,15 +66,28 @@ def _bh_reject(pvals: np.ndarray, q: float) -> np.ndarray:
     return out
 
 
-def flag_sets(loo_path: Path, q: float = 0.10, rng_seed: int = 0):
-    """Turn the LOO cube into the drop-sets to verify, plus a size-matched control."""
+def flag_sets(loo_path: Path, q: float = 0.10, rng_seed: int = 0,
+              n_flag_seeds: int | None = None):
+    """Turn the LOO cube into the drop-sets to verify, plus a size-matched control.
+
+    ``n_flag_seeds`` restricts flagging to the FIRST n seeds of the cube, leaving the
+    rest for the verification refits. This is not a tuning knob — it is what stops the
+    check from being circular. A 2-SE threshold over 389 pairs x 4 splits selects
+    roughly 5% of cells on noise alone, and those are exactly the pairs whose noise
+    happened to look positive *in these seeds*; re-measuring them on the same seeds
+    reproduces the same noise realisation and manufactures an effect. The
+    size-matched random control does not fix this, because it is unselected — it
+    calibrates "dropping N pairs" but not "dropping the N that looked best".
+    """
     from scipy import stats
 
     d = np.load(loo_path, allow_pickle=True)
     deltas = d["deltas"][..., 0]              # pipeline scale
     splits = [str(s) for s in d["splits"]]
     keep = [i for i, s in enumerate(splits) if s != "mean"]
-    n_pairs, _, n_seeds = deltas.shape
+    n_pairs, _, n_seeds_total = deltas.shape
+    n_seeds = n_seeds_total if n_flag_seeds is None else min(n_flag_seeds, n_seeds_total)
+    deltas = deltas[:, :, :n_seeds]
 
     mean = np.nanmean(deltas[:, keep, :], axis=2)
     se = np.nanstd(deltas[:, keep, :], axis=2, ddof=1) / np.sqrt(n_seeds)
@@ -93,6 +115,7 @@ def flag_sets(loo_path: Path, q: float = 0.10, rng_seed: int = 0):
     return {
         "n_pairs": n_pairs,
         "n_seeds": int(n_seeds),
+        "n_seeds_total": int(n_seeds_total),
         "splits": [splits[i] for i in keep],
         "mean": mean,
         "se": se,
@@ -111,7 +134,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", choices=sorted(A.ARMS), required=True)
     ap.add_argument("--iteration", type=int, default=3)
-    ap.add_argument("--seeds", type=int, default=50)
+    ap.add_argument("--seeds", type=int, default=50,
+                    help="verification refits, run on seeds HELD OUT from flagging")
+    ap.add_argument("--flag-seeds", type=int, default=None,
+                    help="LOO seeds used to choose the drop-sets (default: half the cube)")
     ap.add_argument("--fdr", type=float, default=0.10)
     ap.add_argument(
         "--out-dir",
@@ -124,9 +150,18 @@ def main() -> None:
     if not loo_path.exists():
         raise SystemExit(f"no LOO result at {loo_path} — run attribution_loo.py first")
 
-    info = flag_sets(loo_path, q=args.fdr)
+    n_flag = args.flag_seeds
+    if n_flag is None:
+        n_flag = int(np.load(loo_path)["deltas"].shape[2]) // 2
+    info = flag_sets(loo_path, q=args.fdr, n_flag_seeds=n_flag)
+    # Verification seeds start where the flagging seeds stop, so no drop-set is ever
+    # tested on a noise realisation that helped select it.
+    verify_seed0 = A.SEED + info["n_seeds"]
     names = list(info["sets"])
-    print(f"{args.arm}: {info['n_pairs']} pairs, LOO used {info['n_seeds']} seeds")
+    print(f"{args.arm}: {info['n_pairs']} pairs; flagged on LOO seeds "
+          f"{A.SEED}..{A.SEED + info['n_seeds'] - 1} ({info['n_seeds']} of "
+          f"{info['n_seeds_total']}), verifying on held-out seeds "
+          f"{verify_seed0}..{verify_seed0 + args.seeds - 1}")
     for name in names:
         print(f"  {name:28s} {int(info['sets'][name].sum()):4d} pairs")
     print(f"  {'(pairs flagged as useful)':28s} {int(info['useful_2se'].sum()):4d} pairs")
@@ -138,7 +173,7 @@ def main() -> None:
     results = {n: [] for n in names}
     base_abs = []
     for si in range(args.seeds):
-        seed = A.SEED + si
+        seed = verify_seed0 + si
         keep = torch.ones((train.n, k), dtype=torch.bool)
         vkeep = torch.ones((val.n, k), dtype=torch.bool)
         for j, name in enumerate(names, start=1):
@@ -186,6 +221,8 @@ def main() -> None:
     out.write_text(json.dumps({
         "arm": args.arm,
         "seeds": args.seeds,
+        "flag_seeds": info["n_seeds"],
+        "verify_seed0": verify_seed0,
         "fdr_q": args.fdr,
         "set_sizes": {n: int(info["sets"][n].sum()) for n in names},
         "n_useful_2se": int(info["useful_2se"].sum()),

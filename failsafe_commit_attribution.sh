@@ -46,9 +46,32 @@ mkdir -p logs "$ATTRIB_DIR"
 
 say() { echo ">>> $(date -Is)  $*"; }
 
+# Stage one path, loudly. Errors are REPORTED, never swallowed: the first version of
+# this script ran `git add -f "$ATTRIB_DIR" :(exclude)**/*.pt 2>/dev/null || true`, which
+# worked on the box it was written on and silently added nothing on the box it ran on —
+# so 30+ checkpoints committed the logs and none of the results, and the failure was
+# invisible precisely because stderr was discarded. A checkpointer that cannot save the
+# thing it exists to save has to say so.
+stage() {
+    local f="$1" err
+    [ -e "$f" ] || return 0
+    case "$f" in *.pt) return 0 ;; esac          # activations: multi-GB, on Kaggle already
+    case "$f" in *_features.npz) return 0 ;; esac # 35 MB each, not needed downstream
+    if ! err=$(git add -f -- "$f" 2>&1); then
+        say "WARNING: could not stage $f: $err"
+        return 1
+    fi
+    return 0
+}
+
 snapshot() {  # $1 = commit subject suffix
-    git add -f "$ATTRIB_DIR" ':(exclude)**/*.pt' 2>/dev/null || true
-    git add -f logs/attribution_*.log logs/attribution_*.out 2>/dev/null || true
+    local f
+    # Explicit per-file globs rather than a directory plus an :(exclude) pathspec. The
+    # results are the payload, so they are staged first and each failure is named.
+    for f in "$ATTRIB_DIR"/*.jsonl "$ATTRIB_DIR"/*.npz "$ATTRIB_DIR"/*.json \
+             logs/attribution_*.log logs/attribution_*.out; do
+        stage "$f"
+    done
     if git diff --cached --quiet; then
         return 1
     fi
@@ -69,6 +92,20 @@ finish() {
 trap finish INT TERM
 
 say "watching $ATTRIB_DIR on branch '$BRANCH', every ${INTERVAL}s (NO_PUSH=${NO_PUSH:-unset})"
+
+# Self-test at startup: stage once and report whether the RESULTS (not just the logs)
+# actually made it into the index. The previous failure mode was silent for hours, so
+# the state of the thing being protected is checked in minute one, out loud.
+for f in "$ATTRIB_DIR"/*.jsonl "$ATTRIB_DIR"/*.npz "$ATTRIB_DIR"/*.json; do stage "$f"; done
+staged_results=$(git diff --cached --name-only -- "$ATTRIB_DIR" | wc -l)
+on_disk=$(ls -1 "$ATTRIB_DIR"/*.jsonl "$ATTRIB_DIR"/*.npz "$ATTRIB_DIR"/*.json 2>/dev/null | wc -l)
+tracked=$(git ls-files -- "$ATTRIB_DIR" | wc -l)
+if [ "$on_disk" -gt 0 ] && [ "$staged_results" -eq 0 ] && [ "$tracked" -eq 0 ]; then
+    say "FATAL: $on_disk result file(s) on disk, none stageable and none tracked."
+    say "       Checkpointing would silently protect nothing. Fix git first."
+    exit 1
+fi
+say "self-test: $on_disk result file(s) on disk, $staged_results newly staged, $tracked already tracked"
 
 # Poll rather than inotify: the signal we want is "a pass landed", which is a file append,
 # and a 5-minute granularity already bounds the loss to ~10 passes. Simpler, and it works
