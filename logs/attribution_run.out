@@ -54,3 +54,45 @@ packed gptoss120b: train 662 rows / 2.84 GB, val 166 rows / 0.71 GB, eval 866 ro
   seed 109 done (43/50)
   seed 110 done (44/50)
   seed 111 done (45/50)
+  seed 112 done (46/50)
+  seed 113 done (47/50)
+  seed 114 done (48/50)
+  seed 115 done (49/50)
+  seed 116 done (50/50)
+
+paired change vs the full-data baseline, pipeline scale, mean +/- SE over 50 seeds
+variant                                ai_dilemmas                ant_hh      balanced_refusal        daily_dilemmas                  mean
+drop_harmful_bh                   +0.0000+-0.0000       +0.0000+-0.0000       +0.0000+-0.0000       +0.0000+-0.0000       +0.0000+-0.0000 
+drop_harmful_2se                  +0.0012+-0.0007       -0.0021+-0.0015       +0.0005+-0.0039       -0.0009+-0.0008       -0.0003+-0.0012 
+drop_inert                        -0.0128+-0.0034*      +0.0064+-0.0028*      -0.0342+-0.0087*      -0.0035+-0.0011*      -0.0110+-0.0029*
+drop_harmful2se_and_inert         -0.0110+-0.0028*      -0.0062+-0.0024*      -0.0140+-0.0067*      -0.0011+-0.0012       -0.0081+-0.0022*
+drop_random_control               +0.0006+-0.0005       +0.0012+-0.0017       -0.0076+-0.0065       -0.0001+-0.0006       -0.0015+-0.0018 
+  baseline eval_ai_dilemmas         0.99691 +- 0.00057
+  baseline eval_ant_hh              0.75152 +- 0.00142
+  baseline eval_balanced_refusal    0.94916 +- 0.00345
+  baseline eval_daily_dilemmas      0.98454 +- 0.00074
+  baseline mean                     0.92053 +- 0.00110
+
+* = |mean| > 2 SE. Read drop_random_control FIRST: any variant that does not
+beat it by more than its error bar has not demonstrated that the flagging
+identified anything — only that the training set changed size.
+
+wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation/attribution/gptoss120b_iter3_verify.json
+>>> 2026-08-10T16:02:39+00:00  verification refits: deepseekv4pro
+deepseekv4pro: 439 pairs; flagged on LOO seeds 42..66 (25 of 50), verifying on held-out seeds 67..116
+  drop_harmful_bh                 0 pairs
+  drop_harmful_2se               18 pairs
+  drop_inert                    379 pairs
+  drop_harmful2se_and_inert     397 pairs
+  drop_random_control            18 pairs
+  (pairs flagged as useful)      44 pairs
+packed deepseekv4pro: train 747 rows / 3.40 GB, val 181 rows / 0.79 GB, eval 866 rows / 0.81 GB (host)
+  seed 67 done (1/50)
+  seed 68 done (2/50)
+  seed 69 done (3/50)
+  seed 70 done (4/50)
+  seed 71 done (5/50)
+  seed 72 done (6/50)
+  seed 73 done (7/50)
+  seed 74 done (8/50)
+  seed 75 done (9/50)
