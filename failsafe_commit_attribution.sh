@@ -69,7 +69,8 @@ snapshot() {  # $1 = commit subject suffix
     # Explicit per-file globs rather than a directory plus an :(exclude) pathspec. The
     # results are the payload, so they are staged first and each failure is named.
     for f in "$ATTRIB_DIR"/*.jsonl "$ATTRIB_DIR"/*.npz "$ATTRIB_DIR"/*.json \
-             logs/attribution_*.log logs/attribution_*.out; do
+             logs/attribution_*.log logs/attribution_*.out \
+             logs/failsafe_attribution.out; do
         stage "$f"
     done
     if git diff --cached --quiet; then

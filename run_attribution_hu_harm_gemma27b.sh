@@ -61,6 +61,9 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 PY=.venv_claude/bin/python
+export PYTHONUNBUFFERED=1   # logs go through `tee`; without this Python block-buffers
+                           # and the log trails reality by kilobytes — which made a
+                           # finished verify look stuck at 43/50.
 SEEDS="${SEEDS:-50}"
 K="${K:-64}"
 ARMS="${ARMS:-gptoss120b deepseekv4pro}"
