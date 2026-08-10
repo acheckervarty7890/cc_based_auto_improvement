@@ -135,3 +135,39 @@ packed deepseekv4pro: train 747 rows / 3.40 GB, val 181 rows / 0.79 GB, eval 866
   seed 112 done (46/50)
   seed 113 done (47/50)
   seed 114 done (48/50)
+  seed 115 done (49/50)
+  seed 116 done (50/50)
+
+paired change vs the full-data baseline, pipeline scale, mean +/- SE over 50 seeds
+variant                                ai_dilemmas                ant_hh      balanced_refusal        daily_dilemmas                  mean
+drop_harmful_bh                   +0.0000+-0.0000       +0.0000+-0.0000       +0.0000+-0.0000       +0.0000+-0.0000       +0.0000+-0.0000 
+drop_harmful_2se                  +0.0134+-0.0016*      -0.0134+-0.0014*      +0.0404+-0.0036*      +0.0032+-0.0004*      +0.0109+-0.0012*
+drop_inert                        -0.0431+-0.0077*      +0.0164+-0.0039*      -0.0913+-0.0099*      -0.0083+-0.0013*      -0.0315+-0.0036*
+drop_harmful2se_and_inert         +0.0074+-0.0042       +0.0020+-0.0027       -0.0120+-0.0057*      -0.0029+-0.0011*      -0.0014+-0.0020 
+drop_random_control               +0.0021+-0.0023       -0.0017+-0.0018       -0.0062+-0.0082       -0.0013+-0.0006*      -0.0018+-0.0025 
+  baseline eval_ai_dilemmas         0.97953 +- 0.00160
+  baseline eval_ant_hh              0.73199 +- 0.00141
+  baseline eval_balanced_refusal    0.88398 +- 0.00315
+  baseline eval_daily_dilemmas      0.98470 +- 0.00037
+  baseline mean                     0.89505 +- 0.00104
+
+* = |mean| > 2 SE. Read drop_random_control FIRST: any variant that does not
+beat it by more than its error bar has not demonstrated that the flagging
+identified anything — only that the training set changed size.
+
+wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation/attribution/deepseekv4pro_iter3_verify.json
+>>> 2026-08-10T16:22:06+00:00  done. Results in results_hu_harm_gemma27b_batch_ablation/attribution:
+total 11692
+drwxr-xr-x 2 root root    4096 Aug 10 15:34 .
+drwxr-xr-x 5 root root    4096 Aug 10 10:14 ..
+-rw-r--r-- 1 root root  882909 Aug 10 15:33 deepseekv4pro_iter3_loo.npz
+-rw-r--r-- 1 root root 5287940 Aug 10 15:33 deepseekv4pro_iter3_loo_progress.jsonl
+-rw-r--r-- 1 root root  186000 Aug 10 16:22 deepseekv4pro_iter3_verify.json
+-rw-r--r-- 1 root root  737272 Aug 10 15:33 gptoss120b_iter3_loo.npz
+-rw-r--r-- 1 root root 4662771 Aug 10 15:33 gptoss120b_iter3_loo_progress.jsonl
+-rw-r--r-- 1 root root  184880 Aug 10 16:02 gptoss120b_iter3_verify.json
+-rw-r--r-- 1 root root    6437 Aug 10 10:05 gptoss120b_noisefloor.json
+
+Read <arm>_iter3_verify.json (or the verify log) first, and inside it compare every
+variant against drop_random_control — a flagged set that does not beat a same-sized
+random set by more than its error bar has identified nothing.
