@@ -555,7 +555,8 @@ max_successes=30)`, called once per rotation *before* the retrain. Under its own
 retrained on these misclassified samples, and asked for three things: failure modes
 now covered by retraining, conversation types already handled correctly, and regions
 of the input space not yet examined — folding `prior_memo` in by rewriting rather
-than appending, capped at `_ITERATION_MEMO_WORD_BUDGET` (~900) words. Only the
+than appending, capped at `_ITERATION_MEMO_WORD_BUDGET` (150) words — a fixed
+constant, unlike the round memo's `max_tokens`-derived budget. Only the
 `max_successes` most recent successes are rendered (0 = all); returns `prior_memo`
 unchanged when the iteration produced neither successes nor a round memo.
 

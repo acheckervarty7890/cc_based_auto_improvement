@@ -614,11 +614,12 @@ def _drop_opposite_direction(
     return [r for r in records if _disagreement_direction(r) in ("", error_type)]
 
 
-# Word budget for the cross-iteration memo. Larger than the per-round budget: it is
-# written once per iteration and must carry a whole rotation's worth of
-# already-covered ground, but it is still rewritten (not appended) each iteration so
-# it stays bounded no matter how many iterations run.
-_ITERATION_MEMO_WORD_BUDGET = 900
+# Word budget for the cross-iteration memo. Like the per-round budget this is an
+# editorial choice, not a physical one: the memo is injected into every round's
+# attacker system prompt for a whole iteration, so a long one crowds out the
+# instructions it supplements. It is rewritten (not appended) each iteration, so it
+# stays bounded no matter how many iterations run.
+_ITERATION_MEMO_WORD_BUDGET = 150
 
 _ITERATION_SUMMARY_SYSTEM = (
     "You are a text-summarization assistant helping analyze the robustness of a text "
