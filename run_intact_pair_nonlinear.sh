@@ -8,16 +8,27 @@
 # 368/368 balance and means an arm removes whole pairs rather than half-pairs.
 #
 # Arms (10% of 736 = 74 rows each):
-#   full_s{S}            no removal                             -> seed-noise floor
-#   far_s{S}             the 74 farthest, taken from c2 then c5 -> fixed set, seed varies
-#   near_s{S}            the 74 nearest (mirror of far)         -> fixed set, seed varies
-#   neardraw_d{D}_s42    74 drawn at random from c3 u c4        -> fixed seed, draw varies
-#   neardraw_d0_s{S}     draw 0 across seeds                    -> puts near on the seed axis
+#   full_s{S}          x10  no removal                          -> seed-noise floor
+#   far_s{S}           x10  the 74 farthest, c6 then c1         -> SEED axis, paired with full
+#   neardraw_d{D}_s42  x10  74 drawn at random from c5 u c0     -> DRAW axis (which-rows null)
+#
+# 30 jobs per architecture. full and far share the same 10 seeds because far is only
+# interpretable paired against full at the SAME seed -- the seed spread is the same order
+# as the effect, so an unpaired comparison cannot see it. The draws stay at one seed:
+# they are measuring row choice, so holding the init still is the point.
+#
+# The fixed near_s{S} arm and the neardraw_d0_s{S} seed-cross are both OFF (they are
+# --fixed-near-arm / --neardraw-seed-cross). A single fixed near set cannot separate
+# "this region matters" from "these 74 rows mattered", which is what the 10 draws measure
+# properly; and with 10 seeds, `full` already estimates init noise on identical data.
 #
 # --near-pool-mult 2.5 sizes the near pool at 2.5 x 74 = 185, and the pool is grown by
-# whole clusters nearest-first, so it stops at c3 (89) + c4 (125) = 214 -- exactly the two
+# whole clusters nearest-first, so it stops at c5 (86) + c0 (148) = 234 -- exactly the two
 # nearest clusters and nothing else. Do not change it without re-checking which clusters
-# the pool lands on; 3.0 pulls in c1 as well.
+# the pool lands on; 3.0 pulls in a third.
+#
+# Cluster ids are those of the COMMITTED k=9 partition in clusters.json. Passing
+# --recluster, or a different --k-min/--k-max, renumbers them and can move the arms.
 #
 # Architectures: the four with a NON-LINEAR token aggregation, plus linear_then_mean as
 # the linear control. linear_then_mean is the right control specifically because it is the
@@ -44,7 +55,7 @@ LOG="${LOG:-$REPO_ROOT/intact_pair_nonlinear.log}"
 # linear_then_softmax first so the arm it already has 5 seeds of on the previous branch
 # lands early and is comparable soonest.
 ARCHS="${ARCHS:-linear_then_softmax linear_then_max linear_then_rolling_max attention linear_then_mean}"
-SEEDS="${SEEDS:-42 101 202 303 404}"
+SEEDS="${SEEDS:-42 101 202 303 404 505 606 707 808 909}"
 STAGES="${STAGES:-}"
 DRY_RUN="${DRY_RUN:-0}"
 

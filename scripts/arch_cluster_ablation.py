@@ -28,11 +28,19 @@ Three things are done differently from that first pass:
 
 Run matrix per architecture (the same design that produced the numbers above):
 
-    full_s{S}          no removal, weight-init seed S                    -> seed-noise floor
-    far_s{S}           remove the 10% farthest, seed S                   -> fixed set, seed varies
-    near_d{D}_s{S0}    remove 10% drawn from the nearest region, draw D  -> fixed seed, draw varies
-    near_d0_s{S}       near draw 0, seed S                               -> puts near on the seed axis
-    rand_d{D}_s{S0}    remove 10% drawn from anywhere (--with-random-arm)
+    full_s{S}            no removal, weight-init seed S                  -> seed-noise floor
+    far_s{S}             remove the 10% farthest, seed S                 -> SEED axis, paired with full
+    neardraw_d{D}_s{S0}  remove 10% drawn from the nearest region, draw D -> DRAW axis (which-rows null)
+    near_s{S}            remove the fixed 10% nearest (--fixed-near-arm)
+    neardraw_d0_s{S}     draw 0 at every seed (--neardraw-seed-cross)
+    rand_d{D}_s{S0}      remove 10% drawn from anywhere (--with-random-arm)
+
+The two default arms sit on different axes on purpose. `far` varies the seed against a
+fixed removal set, so full-vs-far is PAIRED and the seed noise differences out. The draws
+vary the rows at a fixed seed, giving the null the far effect has to clear: an effect
+inside the draw spread says only that removing 74 rows moved something, not that the far
+region did. Reading far_minus_full without that null is how a 0.016 shift gets mistaken
+for a finding when the which-rows sd is 0.016 too.
 
 SEED HANDLING — the one subtle thing here. ``retrain_probe``'s ``seed`` argument drives
 THREE things at once: the content-deterministic train/val split, the base activation
@@ -692,14 +700,23 @@ def stage_run(args, paths: dict) -> None:
         for s in seeds:
             jobs.append((arch, f"full_s{s}", [], s))
             jobs.append((arch, f"far_s{s}", cl["far"], s))
-            if cl.get("near"):
+            # The fixed near set is the deterministic mirror of far. It is off by default
+            # because the sampled `neardraw` arm answers the same question better: a
+            # single fixed near set cannot distinguish "this region matters" from "these
+            # 74 rows happened to matter", which is exactly what the draw spread measures.
+            if args.fixed_near_arm and cl.get("near"):
                 jobs.append((arch, f"near_s{s}", cl["near"], s))
         # `neardraw`, not `near` — `arm` is parsed off the name prefix, so the sampled
         # arm needs a name the fixed near set can't be confused with.
         for d, drop in enumerate(cl["near_draws"]):
             jobs.append((arch, f"neardraw_d{d}_s{seeds[0]}", drop, seeds[0]))
-        for s in seeds[1:]:
-            jobs.append((arch, f"neardraw_d0_s{s}", cl["near_draws"][0], s))
+        # Draw 0 re-run across the other seeds: the only cell where the seed and draw axes
+        # cross, which is what makes init noise and which-rows noise directly comparable.
+        # Off by default — with `seeds` long enough, `full` already estimates init noise
+        # on identical data, and these jobs cost one per extra seed for a second estimate.
+        if args.neardraw_seed_cross:
+            for s in seeds[1:]:
+                jobs.append((arch, f"neardraw_d0_s{s}", cl["near_draws"][0], s))
         for d, drop in enumerate(cl["rand_draws"]):
             jobs.append((arch, f"rand_d{d}_s{seeds[0]}", drop, seeds[0]))
 
@@ -794,37 +811,46 @@ def stage_analyze(args, paths: dict) -> None:
     mean.to_csv(paths["work"] / "all_means.csv", index=False)
 
     rows = []
-    print(f"\n{'arch':<24}{'n_seed':>7}{'full':>9}{'far':>9}{'near':>9}"
-          f"{'far-full':>10}{'near-full':>11}{'far-near':>10}{'p(f-n)':>9}{'w/l':>7}")
+    # Two axes, reported separately because they measure different noise sources:
+    #   SEED  — full vs far over the same weight-init seeds, paired and t-tested. The
+    #           pairing is what makes it sensitive; an unpaired comparison is swamped by
+    #           the seed spread, which is the same order as the effect.
+    #   DRAW  — the neardraw replicates at one fixed seed. Their spread is the "which rows
+    #           did you happen to remove" null, and `far_pctile` locates the far arm in it.
+    #           An effect inside that null is not evidence about the far REGION, only that
+    #           removing 74 rows moved something.
+    print(f"\n{'arch':<24}{'n_seed':>7}{'full':>9}{'far':>9}{'far-full':>10}{'p':>8}"
+          f"{'w/l':>7}{'seed_sd':>9}{'draw_mean':>10}{'draw_sd':>9}{'far_pct':>8}")
     for arch in sorted(mean.arch.unique()):
         a = mean[mean.arch == arch]
         full = a[a.run.str.startswith("full_")].set_index("init_seed").auroc
         far = a[a.run.str.startswith("far_")].set_index("init_seed").auroc
-        near_s = a[a.run.str.startswith("near_d0_")].set_index("init_seed").auroc
-        near_d = a[a.run.str.contains(r"^near_d\d+_", regex=True)].auroc
-        seeds = sorted(set(full.index) & set(far.index) & set(near_s.index))
+        # `neardraw_d{D}_s{S}`; the older `near_d{D}_` spelling is accepted so results
+        # written before the rename still aggregate.
+        draw = a[a.run.str.contains(r"^near(?:draw)?_d\d+_", regex=True)].auroc
+        seeds = sorted(set(full.index) & set(far.index))
         if not seeds:
             continue
-        f_, r_, n_ = full[seeds].values, far[seeds].values, near_s[seeds].values
-        d_fn = r_ - n_
-        if len(seeds) > 1:
-            p_fn = stats.ttest_rel(r_, n_).pvalue
-            p_ff = stats.ttest_rel(r_, f_).pvalue
-            p_nf = stats.ttest_rel(n_, f_).pvalue
-        else:
-            p_fn = p_ff = p_nf = float("nan")
-        wins = int((d_fn > 0).sum())
+        f_, r_ = full[seeds].values, far[seeds].values
+        d = r_ - f_
+        p_ff = stats.ttest_rel(r_, f_).pvalue if len(seeds) > 1 else float("nan")
+        wins = int((d > 0).sum())
+        seed_sd = float(np.std(np.concatenate([f_, r_ - d.mean()]), ddof=1)) \
+            if len(seeds) > 1 else 0.0
+        # Where the far arm sits in the draw null, compared at the draw arm's own seed.
+        dm = float(draw.mean()) if len(draw) else float("nan")
+        dsd = float(draw.std(ddof=1)) if len(draw) > 1 else float("nan")
+        pct = float((draw < r_.mean()).mean() * 100) if len(draw) else float("nan")
         rows.append({"arch": arch, "n_seeds": len(seeds),
                      "full": f_.mean(), "full_sd": f_.std(ddof=1) if len(seeds) > 1 else 0.0,
-                     "far": r_.mean(), "near_seedaxis": n_.mean(),
-                     "near_drawaxis": near_d.mean(), "near_draw_sd": near_d.std(ddof=1),
-                     "far_minus_full": r_.mean() - f_.mean(), "p_far_vs_full": p_ff,
-                     "near_minus_full": n_.mean() - f_.mean(), "p_near_vs_full": p_nf,
-                     "far_minus_near": d_fn.mean(), "p_far_vs_near": p_fn,
-                     "far_beats_near": f"{wins}/{len(seeds)}"})
-        print(f"{arch:<24}{len(seeds):>7}{f_.mean():>9.4f}{r_.mean():>9.4f}{n_.mean():>9.4f}"
-              f"{r_.mean()-f_.mean():>+10.4f}{n_.mean()-f_.mean():>+11.4f}"
-              f"{d_fn.mean():>+10.4f}{p_fn:>9.4f}{wins:>4}/{len(seeds)}")
+                     "far": r_.mean(), "far_sd": r_.std(ddof=1) if len(seeds) > 1 else 0.0,
+                     "far_minus_full": d.mean(), "p_far_vs_full": p_ff,
+                     "far_beats_full": f"{wins}/{len(seeds)}", "seed_sd": seed_sd,
+                     "neardraw_mean": dm, "neardraw_sd": dsd, "n_draws": int(len(draw)),
+                     "far_pctile_in_draws": pct})
+        print(f"{arch:<24}{len(seeds):>7}{f_.mean():>9.4f}{r_.mean():>9.4f}"
+              f"{d.mean():>+10.4f}{p_ff:>8.4f}{wins:>4}/{len(seeds)}{seed_sd:>9.4f}"
+              f"{dm:>10.4f}{dsd:>9.4f}{pct:>7.0f}%")
 
     summary = pd.DataFrame(rows)
     summary.to_csv(paths["work"] / "arch_summary.csv", index=False)
@@ -838,9 +864,12 @@ def stage_analyze(args, paths: dict) -> None:
 
     if summary.empty:
         return
-    best = summary.sort_values("far_minus_near", ascending=False).iloc[0]
-    print(f"\nlargest far-minus-near: {best.arch} {best.far_minus_near:+.4f} "
-          f"(p={best.p_far_vs_near:.4f}, {best.far_beats_near})")
+    best = summary.sort_values("far_minus_full", ascending=False).iloc[0]
+    print(f"\nlargest far-minus-full: {best.arch} {best.far_minus_full:+.4f} "
+          f"(p={best.p_far_vs_full:.4f}, {best.far_beats_full}), "
+          f"{best.far_pctile_in_draws:.0f}th pctile of its own near-draw null")
+    print("Read far_minus_full against BOTH seed_sd and neardraw_sd: an effect smaller "
+          "than either is not resolved by this design.")
 
 
 # --------------------------------------------------------------------------- #
@@ -947,6 +976,12 @@ def main(argv: list[str] | None = None) -> int:
                          "balance untouched. Also makes the near draws far less "
                          "overlapping when the far region is class-skewed.")
 
+    ap.add_argument("--fixed-near-arm", action="store_true",
+                    help="also run the deterministic near_s{S} arm (the mirror of far). "
+                         "Off by default: the sampled neardraw arm supersedes it.")
+    ap.add_argument("--neardraw-seed-cross", action="store_true",
+                    help="also re-run near draw 0 at every other seed, crossing the seed "
+                         "and draw axes. Off by default; costs one job per extra seed.")
     ap.add_argument("--intact-pairs-only", action="store_true",
                     help="keep only rows whose contrastive partner is also in the corpus, "
                          "so every arm removes whole pairs rather than orphaning halves. "

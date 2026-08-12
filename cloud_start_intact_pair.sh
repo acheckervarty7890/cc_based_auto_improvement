@@ -55,4 +55,4 @@ sleep 5
 tail -20 /tmp/intact_pair_launch.out
 
 echo
-echo "Both running. 145 jobs at ~5.5 min each is roughly 13 hours."
+echo "Both running. 150 jobs at ~5.5 min each is roughly 14 hours."
