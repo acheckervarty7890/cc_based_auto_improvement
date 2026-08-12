@@ -58,6 +58,7 @@ an interruption resumes. Use --stages to run a subset.
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import itertools
 import json
@@ -108,6 +109,49 @@ def _redteam_cache_key(messages: list[dict], *, combine: bool, convert: bool) ->
     return hashlib.sha256(
         f"model={MODEL_NAME}|layer={LAYER}|combine={combine}|convert={convert}|{basis}".encode()
     ).hexdigest()[:32]
+
+
+def _pair_partners(meta: list[dict], paths: dict, args) -> dict[int, int]:
+    """Map each row index to its contrastive partner's row index (see --intact-pairs-only).
+
+    The postprocessed dump carries only ``{id, inputs, label}`` with sequentially
+    reassigned ids, so the original->generated link is gone by the time we read it. The
+    contrastive cache is where it survives: every cached record holds both the generated
+    conversation (``inputs``) and the conversation it was generated FROM
+    (``original_messages``). Hashing each with the same content key `stage_pool` used to
+    name the activation blobs joins both sides back to their rows.
+
+    Cached rows are matched by content, so entries written for conversations that a later
+    ``filter_dataset`` pass dropped simply find no row and are ignored — the cache is a
+    superset of any one iteration's dump (488 records vs. 439 pairs at iter3).
+    """
+    src = paths["probe_dir"] / "contrastive_cache.jsonl"
+    if not src.is_file():
+        raise SystemExit(
+            f"--intact-pairs-only needs the contrastive cache at {src}, which records "
+            f"which generated conversation came from which original. Without it there is "
+            f"no way to tell a pair from an orphan."
+        )
+    key_of = {m["key"]: i for i, m in enumerate(meta)}
+    partner: dict[int, int] = {}
+    unmatched = 0
+    for line in src.read_text().splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line).get("record")
+        if isinstance(rec, str):          # older rows stored the dict's repr, not JSON
+            rec = ast.literal_eval(rec)
+        gk = _redteam_cache_key(rec["inputs"], combine=args.combine, convert=args.convert)
+        ok = _redteam_cache_key(rec["original_messages"], combine=args.combine,
+                                convert=args.convert)
+        gi, oi = key_of.get(gk), key_of.get(ok)
+        if gi is None or oi is None:
+            unmatched += 1
+            continue
+        partner[gi], partner[oi] = oi, gi
+    print(f"pairs: {len(partner)//2} pairs recovered from {src.name} "
+          f"({unmatched} cache rows matched no conversation in this iteration)")
+    return partner
 
 
 def _masked_mean(acts, mask):
@@ -394,6 +438,27 @@ def stage_cluster(args, paths: dict) -> None:
               f"{len(keep_idx)} of {len(meta_all)} rows remain")
     else:
         keep_idx, dropped = list(range(len(meta_all))), []
+
+    # ---- optionally keep only rows whose contrastive partner is also present ----
+    # The dump is emitted in matched pairs (an original and its opposite-class rewrite);
+    # `generate_contrastive_dataset` drops a source whose generation failed, so every row
+    # starts with a partner. The truncation filter above breaks that: it removes 71
+    # generated rows against 1 original, leaving 70 orphans and shifting the corpus from
+    # 439/439 to 372 neg / 434 pos. An arm that removes an orphan is a different kind of
+    # intervention from one that removes a whole pair, so leaving them in makes
+    # "pairs removed" a second, uncontrolled criterion alongside distance.
+    if args.intact_pairs_only:
+        partner = _pair_partners(meta_all, paths, args)
+        present = set(keep_idx)
+        intact = [i for i in keep_idx if partner.get(i, -1) in present]
+        orph = [i for i in keep_idx if i not in set(intact)]
+        ol = Counter(meta_all[i]["label"] for i in orph)
+        keep_idx = intact
+        dropped = sorted(set(dropped) | set(orph))
+        print(f"cluster: excluding {len(orph)} rows orphaned by the filter "
+              f"({ol['positive']} pos / {ol['negative']} neg); {len(keep_idx)} rows = "
+              f"{len(keep_idx)//2} intact pairs remain")
+
     rt = rt_all[keep_idx]
     meta = [meta_all[i] for i in keep_idx]
 
@@ -882,6 +947,10 @@ def main(argv: list[str] | None = None) -> int:
                          "balance untouched. Also makes the near draws far less "
                          "overlapping when the far region is class-skewed.")
 
+    ap.add_argument("--intact-pairs-only", action="store_true",
+                    help="keep only rows whose contrastive partner is also in the corpus, "
+                         "so every arm removes whole pairs rather than orphaning halves. "
+                         "Needs <probe-dir>/contrastive_cache.jsonl.")
     ap.add_argument("--exclude-truncated", action="store_true",
                     help="drop rows the 1024-token activation cap cut off (n_tokens >= "
                          "1024) before clustering, and from every run arm including full")

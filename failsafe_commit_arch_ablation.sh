@@ -207,6 +207,11 @@ ADD_EXCLUDES=(
     ':(exclude)__pycache__'
 )
 RESET_EXCLUDES=(
+    # Pooled activation blobs: ~19 MB each, so they slip under drop_oversize's 30 MB
+    # threshold and would be committed on every box that runs the pool stage. They are
+    # derived from the Kaggle caches and regenerable, and nothing downstream of
+    # stage_cluster reads them — stage_run needs only redteam_meta.jsonl + clusters.json.
+    ':(glob)**/pooled/*.npy'
     ':(glob)**/*.pt'
     ':(glob)**/*.pth'
     ':(glob)**/kaggle.json'
