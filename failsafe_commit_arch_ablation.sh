@@ -23,11 +23,27 @@
 #   otherwise look like a run that had not started.
 #
 # WHEN IT EXITS
-#   With --expect N, once N jobs have landed (CSV or FAILED) it takes a final
-#   commit and exits 0. Get N from the run's own dry-run:
-#       python scripts/arch_cluster_ablation.py --work-dir DIR --dry-run --stages run
-#   Without --expect it polls until you kill it. Either way the EXIT trap takes a
-#   final snapshot, so nothing is lost by stopping it.
+#   Whichever of these comes first:
+#     - <work-dir>/arch_summary.csv appears (--done-file). stage_analyze writes it
+#       only after every job has landed, so it is the run's own "I am finished"
+#       signal and needs no job count from you. This is the default.
+#     - --expect N jobs have landed (CSV or FAILED). A backstop for a run invoked
+#       with --stages run, which never reaches analyze. Get N from the dry run:
+#         python scripts/arch_cluster_ablation.py --work-dir DIR --dry-run --stages run
+#     - you kill it.
+#   In every case the EXIT trap takes a final snapshot first, so stopping it early
+#   loses nothing.
+#
+# SHUTTING THE BOX DOWN  (--close-script)
+#   Runs the given script after the run finishes, so an unattended overnight job
+#   does not leave a cloud box billing until someone notices. Guarded, because
+#   powering off with work still local destroys it:
+#     - only on a NORMAL finish. A Ctrl-C or `kill` still snapshots, but never
+#       closes the box — stopping the poller must not be a way to lose the machine.
+#     - only if nothing is left unpushed. After the final snapshot the branch is
+#       compared against its upstream and the close is REFUSED unless it is at 0
+#       commits ahead, which also covers push failures earlier in the run.
+#     - never with --no-push, where by construction nothing has been pushed.
 #
 # WHAT IS COMMITTED
 #   Everything under the repo root, force-added, so .gitignore'd run outputs
@@ -59,8 +75,13 @@
 #   switches branches. One run per branch.
 #
 # USAGE
+#   # commit + push until the run finishes, then stop
 #   nohup bash failsafe_commit_arch_ablation.sh --work-dir results/arch_abl \
-#         --expect 240 > /tmp/failsafe_arch.out 2>&1 &
+#         > /tmp/failsafe_arch.out 2>&1 &
+#
+#   # ... and power the box off once everything is safely pushed
+#   nohup bash failsafe_commit_arch_ablation.sh --work-dir results/arch_abl \
+#         --close-script close_this.sh > /tmp/failsafe_arch.out 2>&1 &
 #
 #   bash failsafe_commit_arch_ablation.sh --work-dir results/arch_abl --once
 #   bash failsafe_commit_arch_ablation.sh --work-dir results/arch_abl --no-push
@@ -74,7 +95,9 @@ WORK_DIR=""
 REMOTE="origin"
 POLL_INTERVAL=60      # seconds between result-count checks
 PERIODIC_INTERVAL=900 # seconds between snapshots taken regardless of progress
-EXPECT=0              # 0 = poll until killed
+EXPECT=0              # 0 = rely on DONE_FILE alone
+DONE_FILE=""          # default: <work-dir>/arch_summary.csv; "-" disables
+CLOSE_SCRIPT=""       # run after a clean, fully-pushed finish
 DO_PUSH=1
 ONCE=0
 MAX_SIZE_MB=30
@@ -86,7 +109,12 @@ usage() {
 Flags:
   --work-dir DIR        arch_cluster_ablation.py --work-dir (REQUIRED)
   --repo DIR            repo checkout (default: $REPO_ROOT)
-  --expect N            exit after N jobs land; 0 = poll forever (default: $EXPECT)
+  --done-file PATH      finish when this appears (default: <work-dir>/arch_summary.csv;
+                        "-" disables, leaving --expect or a kill as the only finish)
+  --expect N            also finish after N jobs land; 0 = off (default: $EXPECT)
+  --close-script PATH   run this after a normal, fully-pushed finish (e.g. to power
+                        the box off). Skipped on Ctrl-C/kill, with --no-push, or if
+                        anything is still unpushed.
   --poll-interval SEC   result-count poll cadence (default: $POLL_INTERVAL)
   --periodic-interval SEC  snapshot cadence regardless of progress (default: $PERIODIC_INTERVAL)
   --remote NAME         git remote to push to (default: $REMOTE)
@@ -109,6 +137,8 @@ while [[ $# -gt 0 ]]; do
         --work-dir)          need_arg "$@"; WORK_DIR="$2"; shift 2;;
         --repo)              need_arg "$@"; REPO_ROOT="$2"; shift 2;;
         --expect)            need_arg "$@"; EXPECT="$2"; shift 2;;
+        --done-file)         need_arg "$@"; DONE_FILE="$2"; shift 2;;
+        --close-script)      need_arg "$@"; CLOSE_SCRIPT="$2"; shift 2;;
         --poll-interval)     need_arg "$@"; POLL_INTERVAL="$2"; shift 2;;
         --periodic-interval) need_arg "$@"; PERIODIC_INTERVAL="$2"; shift 2;;
         --remote)            need_arg "$@"; REMOTE="$2"; shift 2;;
@@ -137,6 +167,33 @@ cd "$REPO_ROOT" || exit 1
 # Resolve --work-dir relative to the repo, matching how the ablation resolves it.
 [[ "$WORK_DIR" = /* ]] || WORK_DIR="$REPO_ROOT/$WORK_DIR"
 RESULTS_DIR="$WORK_DIR/results"
+
+# stage_analyze writes arch_summary.csv only after every job has landed, so its
+# appearance is the run's own finish signal — no job count needed from the caller.
+if [[ -z "$DONE_FILE" ]]; then
+    DONE_FILE="$WORK_DIR/arch_summary.csv"
+elif [[ "$DONE_FILE" == "-" ]]; then
+    DONE_FILE=""
+elif [[ "$DONE_FILE" != /* ]]; then
+    DONE_FILE="$REPO_ROOT/$DONE_FILE"
+fi
+
+# Fail on an unusable --close-script NOW rather than 13 hours from now, when the
+# only consequence left is a box that stays up.
+if [[ -n "$CLOSE_SCRIPT" ]]; then
+    [[ "$CLOSE_SCRIPT" = /* ]] || CLOSE_SCRIPT="$REPO_ROOT/$CLOSE_SCRIPT"
+    [[ -f "$CLOSE_SCRIPT" ]] || { echo "ERROR: --close-script not found: $CLOSE_SCRIPT" >&2; exit 2; }
+    if [[ "$DO_PUSH" -eq 0 ]]; then
+        echo "ERROR: --close-script with --no-push would power off a box holding" >&2
+        echo "       commits that were never pushed anywhere. Refusing." >&2
+        exit 2
+    fi
+fi
+if [[ -z "$DONE_FILE" && "$EXPECT" -eq 0 && -n "$CLOSE_SCRIPT" ]]; then
+    echo "ERROR: --close-script needs a finish condition — drop --done-file -," >&2
+    echo "       or pass --expect N." >&2
+    exit 2
+fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null)"
 if [[ -z "$BRANCH" || "$BRANCH" == "HEAD" ]]; then
@@ -228,6 +285,34 @@ snapshot() {
     fi
 }
 
+# Commits sitting on this branch that the remote does not have. This is the gate on
+# --close-script: it is the one check that covers every way work could still be local
+# — a push that failed and never retried, a push that failed on the FINAL snapshot,
+# a remote that rejected the branch — without having to reason about each of them.
+# No upstream at all counts as unpushed, which is the right answer.
+unpushed_count() {
+    local n
+    n=$(git rev-list --count '@{u}..HEAD' 2>/dev/null) || { echo 999; return; }
+    echo "${n:-999}"
+}
+
+NORMAL_FINISH=0
+run_close_script() {
+    [[ -n "$CLOSE_SCRIPT" ]] || return 0
+    if [[ "$NORMAL_FINISH" -ne 1 ]]; then
+        log "close: skipped — stopped by signal, not by the run finishing"
+        return 0
+    fi
+    local n; n=$(unpushed_count)
+    if [[ "$n" != "0" ]]; then
+        log "close: REFUSED — $n commit(s) not on $REMOTE/$BRANCH. Fix the push and"
+        log "close: shut the box down by hand; closing now would destroy the results."
+        return 0
+    fi
+    log "close: everything is on $REMOTE/$BRANCH — running $CLOSE_SCRIPT"
+    bash "$CLOSE_SCRIPT" || log "close: WARN: $CLOSE_SCRIPT exited $?"
+}
+
 FINALIZED=0
 finalize() {
     [[ "$FINALIZED" -eq 1 ]] && return
@@ -235,6 +320,7 @@ finalize() {
     log "finalizing: capturing latest state before exit"
     snapshot "final snapshot"
     log "done."
+    run_close_script
 }
 trap 'finalize; exit 0' INT TERM
 trap 'finalize' EXIT
@@ -242,7 +328,8 @@ trap 'finalize' EXIT
 log "repo:      $REPO_ROOT"
 log "branch:    $BRANCH$([[ "$DO_PUSH" -eq 1 ]] && echo " -> $REMOTE" || echo " (local only)")"
 log "work dir:  $WORK_DIR"
-log "expect:    $([[ "$EXPECT" -eq 0 ]] && echo "unset — polls until killed" || echo "$EXPECT jobs")"
+log "finish on: $([[ -n "$DONE_FILE" ]] && echo "$DONE_FILE" || echo "(no done-file)")$([[ "$EXPECT" -gt 0 ]] && echo " or $EXPECT jobs")$([[ -z "$DONE_FILE" && "$EXPECT" -eq 0 ]] && echo "kill only")"
+log "close:     $([[ -n "$CLOSE_SCRIPT" ]] && echo "$CLOSE_SCRIPT (normal finish + nothing unpushed)" || echo "none — box stays up")"
 log "cadence:   poll ${POLL_INTERVAL}s, snapshot ${PERIODIC_INTERVAL}s"
 log "excluded:  *.pt, *.pth, kaggle.json, .env, .venv*/, archive/, __pycache__/, *.pyc"
 log "size cap:  $([[ "$MAX_SIZE_MB" -eq 0 ]] && echo "none" || echo "${MAX_SIZE_MB} MB per file")"
@@ -285,8 +372,15 @@ while true; do
         SINCE_SNAPSHOT=0
     fi
 
+    if [[ -n "$DONE_FILE" && -e "$DONE_FILE" ]]; then
+        log "finished: $(basename "$DONE_FILE") exists — the run reached its analyze stage"
+        log "finished: $done job(s) total ($csv ok, $failed failed)"
+        NORMAL_FINISH=1
+        break
+    fi
     if (( EXPECT > 0 && done >= EXPECT )); then
-        log "all $EXPECT job(s) landed ($csv ok, $failed failed) — finishing"
+        log "finished: all $EXPECT job(s) landed ($csv ok, $failed failed)"
+        NORMAL_FINISH=1
         break
     fi
 done
