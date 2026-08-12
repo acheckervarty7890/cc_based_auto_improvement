@@ -36,13 +36,40 @@ class KaggleActivationError(RuntimeError):
     """A Kaggle activation blob could not be fetched, or failed validation."""
 
 
+def _slugify(split: str) -> str:
+    """Return ``split`` in the character set Kaggle allows in a dataset slug.
+
+    Kaggle slugs are lowercase alphanumerics and hyphens — an underscore is rejected
+    at creation time, so a split named ``eval_ai_dilemmas`` simply has no dataset
+    whose slug contains its stem verbatim. Runs of anything else collapse to a single
+    hyphen, and leading/trailing hyphens are dropped.
+    """
+    out = []
+    for ch in split.lower():
+        if ch.isalnum():
+            out.append(ch)
+        elif out and out[-1] != "-":
+            out.append("-")
+    return "".join(out).strip("-")
+
+
 @dataclass(frozen=True)
 class KaggleActivationSource:
     """Where a split's precomputed activations live on Kaggle.
 
-    ``dataset_slug`` and ``file_name`` are templates formatted with ``split=<name>``
-    (e.g. ``"{split}gemmaevalpt"`` / ``"{split}-gemmaeval.pt"``). A literal string
-    with no placeholder is also fine when every split maps to the same object.
+    ``dataset_slug`` and ``file_name`` are templates formatted with **two** keys:
+
+    * ``split`` — the split stem exactly as it appears on disk (``eval_ai_dilemmas``).
+    * ``slug``  — that stem run through :func:`_slugify` (``eval-ai-dilemmas``).
+
+    e.g. ``"{split}gemmaevalpt"`` / ``"{split}-gemmaeval.pt"``. A literal string with
+    no placeholder is also fine when every split maps to the same object.
+
+    Use ``{slug}`` in ``dataset_slug`` whenever a split stem contains an underscore
+    (the ``eval_dataset_hu_ha`` and ``eval_instructions`` splits all do): Kaggle would
+    reject ``eval_ai_dilemmasgemmaevalpt`` as a slug, so ``{split}`` there names a
+    dataset that cannot be created. ``file_name`` is a filename *inside* the dataset
+    and is unrestricted, so it normally stays on ``{split}``.
     """
 
     owner: str
@@ -50,10 +77,11 @@ class KaggleActivationSource:
     file_name: str
 
     def handle(self, split: str) -> str:
-        return f"{self.owner}/{self.dataset_slug.format(split=split)}"
+        rendered = self.dataset_slug.format(split=split, slug=_slugify(split))
+        return f"{self.owner}/{rendered}"
 
     def file_for(self, split: str) -> str:
-        return self.file_name.format(split=split)
+        return self.file_name.format(split=split, slug=_slugify(split))
 
 
 def _authenticate():
