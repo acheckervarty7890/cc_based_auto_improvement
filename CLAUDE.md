@@ -314,8 +314,13 @@ eval:                                 # OPTIONAL: dataset message transforms app
                                       #   → the CLI's --eval-max-samples default; the flag overrides.
 kaggle:                               # OPTIONAL: pull PRECOMPUTED eval activations from Kaggle
   owner: <kaggle username>            #   instead of extracting them (see kaggle_activations.py).
-  eval_dataset_slug: <template>       #   slug + file templates, formatted with `split=<split stem>`
-  eval_file_name: <template>          #   e.g. "{split}gemmaevalpt" / "{split}-gemmaeval.pt".
+  eval_dataset_slug: <template>       #   slug + file templates, formatted with BOTH `split=<split stem>`
+  eval_file_name: <template>          #   and `slug=<stem hyphenated>` — e.g. "{split}gemmaevalpt" /
+                                      #   "{split}-gemmaeval.pt". Kaggle slugs are lowercase
+                                      #   alphanumerics + hyphens, so any split stem with an
+                                      #   underscore (every eval_dataset_hu_ha / eval_instructions
+                                      #   split) must use {slug} in eval_dataset_slug; the FILE name
+                                      #   inside the dataset is unrestricted and stays on {split}.
                                       #   Requires eval.eval_max_samples: 0 (validated at parse time).
 output:   { jsonl_path, run_id,
             comparison_csv,             # OPTIONAL eval-output path (--eval); CLI --comparison-csv overrides
@@ -1203,7 +1208,18 @@ Deliberately **not** built on tuberlens' `get_activations(using_kaggle=True)`:
   `save_path` by stripping punctuation and truncating to the first 50 chars — our
   discriminating suffix is truncated away, so all four eval splits collapse to one
   slug. `KaggleActivationSource(owner, dataset_slug, file_name)` is explicit instead,
-  with both fields `str.format`-ed on `split=<split stem>`.
+  with both fields `str.format`-ed on **two** keys: `split=<split stem>` and
+  `slug=<that stem through `_slugify`>` (lowercased, runs of non-alphanumerics collapsed
+  to one hyphen). `{slug}` exists because Kaggle rejects underscores in a dataset slug,
+  so for any split stem containing one — every `eval_dataset_hu_ha` and
+  `eval_instructions` split — a `{split}`-based `dataset_slug` names a dataset that
+  cannot be created. Use `{slug}` there; `file_name` addresses a file *inside* the
+  dataset, is unrestricted, and normally stays on `{split}`.
+  The upload side is `scripts/publish_kaggle_eval_activations.py`, which stages
+  locally-computed `<split>-acts_full.pt` blobs under the published `file_name`
+  (hard-linked, not copied) and runs the **same** `_validate_blob` check before
+  uploading — so a blob that doesn't match the probe is caught at publish time rather
+  than hours into a remote run.
 - **Transfer volume.** tuberlens' `_download_from_kaggle` pulls and unzips the *whole*
   dataset to a temp dir per call. This fetches the one file, into a staging dir on the
   same filesystem as the cache, so landing it is a rename not a second copy.
