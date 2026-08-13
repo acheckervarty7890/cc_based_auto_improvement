@@ -1,1 +1,36 @@
 >>> failsafe committer -> /tmp/failsafe_intact_pair.out
+[failsafe-arch 2026-08-13 09:26:41] repo:      /workspace/cc_based_auto_improvement
+[failsafe-arch 2026-08-13 09:26:41] branch:    intact-pair-nonlinear -> origin
+[failsafe-arch 2026-08-13 09:26:41] work dir:  /workspace/cc_based_auto_improvement/results/intact_pair_nonlinear
+[failsafe-arch 2026-08-13 09:26:41] finish on: /workspace/cc_based_auto_improvement/results/intact_pair_nonlinear/arch_summary.csv
+[failsafe-arch 2026-08-13 09:26:41] close:     none — box stays up
+[failsafe-arch 2026-08-13 09:26:41] cadence:   poll 60s, snapshot 900s
+[failsafe-arch 2026-08-13 09:26:41] excluded:  *.pt, *.pth, kaggle.json, .env, .venv*/, archive/, __pycache__/, *.pyc
+[failsafe-arch 2026-08-13 09:26:41] size cap:  30 MB per file
+[failsafe-arch 2026-08-13 09:26:41] committed: failsafe(arch): startup snapshot @ 2026-08-13T09:26:41  (9018793)
+[failsafe-arch 2026-08-13 09:26:42] pushed to origin/intact-pair-nonlinear
+[failsafe-arch 2026-08-13 09:26:42] polling: 85 job(s) already present
+
+>>> ablation -> intact_pair_nonlinear.log
+
+torch 2.11.0+cu130 cuda=True (NVIDIA GeForce RTX 4060)
+tuberlens DEVICE=cuda DTYPE=torch.bfloat16  <- all arms must run on the SAME device: DTYPE differs by device, so CPU and GPU results are not comparable
+
+$ /workspace/cc_based_auto_improvement/.venv_claude/bin/python /workspace/cc_based_auto_improvement/scripts/fetch_kaggle_train_activations.py --cache-dir /workspace/cc_based_auto_improvement/results/intact_pair_nonlinear/base_activations --arm deepseekv4pro --iteration 3
+cache dir : /workspace/cc_based_auto_improvement/results/intact_pair_nonlinear/base_activations
+probe     : google/gemma-3-27b-it layer 32 (combine=True, convert=True)
+fetch     : kaggle.com/datasets/anku7890/hu-harm-gemma27b-base
+fetch     : kaggle.com/datasets/anku7890/hu-harm-gemma27b-deepseekv4pro-iter3
+Warning: Your Kaggle API key is readable by other users on this system! To fix this, you can run 'chmod 600 /workspace/cc_based_auto_improvement/kaggle/kaggle.json'
+Warning: Your Kaggle API key is readable by other users on this system! To fix this, you can run 'chmod 600 /workspace/cc_based_auto_improvement/kaggle/kaggle.json'
+
+>>> anku7890/hu-harm-gemma27b-base
+Dataset URL: https://www.kaggle.com/datasets/anku7890/hu-harm-gemma27b-base
+Downloading hu-harm-gemma27b-base.zip to /workspace/cc_based_auto_improvement/results/intact_pair_nonlinear/base_activations/.fetch_pnuhvbcf
+  0%|                                                                                                                                 | 0.00/26.3M [00:00<?, ?B/s]  4%|████▌                                                                                                                   | 1.00M/26.3M [00:00<00:03, 8.49MB/s] 38%|█████████████████████████████████████████████▌                                                                          | 10.0M/26.3M [00:00<00:00, 53.3MB/s] 68%|██████████████████████████████████████████████████████████████████████████████████                                      | 18.0M/26.3M [00:00<00:00, 66.4MB/s] 95%|█████████████████████████████████████████████████████████████████████████████████████████████████████████████████▉      | 25.0M/26.3M [00:00<00:00, 50.4MB/s]100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 26.3M/26.3M [00:00<00:00, 51.4MB/s]
+
+    kind=base n_blobs=2 installed=2 already-present=0
+
+>>> anku7890/hu-harm-gemma27b-deepseekv4pro-iter3
+
+Both running. 150 jobs at ~5.5 min each is roughly 14 hours.
