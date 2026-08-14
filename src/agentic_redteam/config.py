@@ -13,6 +13,7 @@ Config file shape:
           provider: claude_sdk
       max_turns: 30
       batch_target: 10
+      max_sample_tokens: 1024        # drop submissions longer than this (0 = no cap)
     judge:
       provider: claude_sdk            # claude_sdk | openrouter
       model: claude-sonnet-4-6
@@ -35,6 +36,7 @@ Config file shape:
       max_concurrent: 50
       max_tokens: 2048
       filter_percentile: 0.8
+      max_sample_tokens: 1024        # regenerate pairs longer than this (0 = no cap)
     output:
       jsonl_path: results/redteam.jsonl
       run_id: null
@@ -58,6 +60,8 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
+
+from agentic_redteam.token_budget import MAX_ACTIVATION_TOKENS
 
 ErrorType = Literal["false_positive", "false_negative"]
 Provider = Literal["claude_sdk", "openrouter"]
@@ -116,6 +120,12 @@ class AttackerConfig:
     #   sessions as a "recently rejected — avoid these" prompt block (cross-session
     #   steering). In-memory only, never written to the JSONL. Default off.
     near_dup_broadcast: bool = False
+    # max_sample_tokens: submit-time length cap, in tokens of the PROBE's tokenizer
+    #   (chat template applied, <bos> included). A longer submission is dropped before
+    #   probe/judge run and never persisted. Defaults to tuberlens' get_activations
+    #   max_length (1024), past which a conversation is truncated — scored, and later
+    #   trained on, without its tail. 0 (or less) disables the check.
+    max_sample_tokens: int = MAX_ACTIVATION_TOKENS
     # round_summaries: when True (default), rounds run SEQUENTIALLY — round N+1 waits
     #   for round N to finish, then the judge summarizes round N's attempts and that
     #   (cumulative) summary is injected into later rounds' attacker system prompts.
@@ -195,6 +205,12 @@ class PreprocessingConfig:
     # Retries per record when a contrastive generation fails; after them the
     # source record and its missing pair are dropped (see generate_contrastive_dataset).
     max_generation_retries: int = 2
+    # max_sample_tokens: length cap for a GENERATED contrastive pair, in tokens of the
+    #   probe's tokenizer. A pair over it is not accepted: the generator is asked again
+    #   and told how long its last attempt was (that retry comes out of
+    #   max_generation_retries). Defaults to tuberlens' 1024-token activation cap, past
+    #   which the pair would be trained on truncated. 0 (or less) disables the check.
+    max_sample_tokens: int = MAX_ACTIVATION_TOKENS
     # When true, the contrastive-generation prompt tells the model that the label
     # is determined by the *assistant's* response (not the user's message) and to
     # focus its edits on the assistant turns. Only correct for concepts that are a
@@ -551,6 +567,9 @@ def load_config(path: str | Path) -> RedteamConfig:
             max_tokens=int(pp.get("max_tokens", 2048)),
             filter_percentile=float(pp.get("filter_percentile", 0.8)),
             max_generation_retries=int(pp.get("max_generation_retries", 2)),
+            max_sample_tokens=int(
+                pp.get("max_sample_tokens", MAX_ACTIVATION_TOKENS)
+            ),
             assistant_centric=bool(pp.get("assistant_centric", False)),
             concept_description=str(pp.get("concept_description", "") or "").strip(),
             label_guidance=_parse_label_guidance(pp.get("label_guidance")),
@@ -572,6 +591,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             near_dup_guard=bool(a.get("near_dup_guard", False)),
             near_dup_threshold=float(a.get("near_dup_threshold", 0.8)),
             near_dup_broadcast=bool(a.get("near_dup_broadcast", False)),
+            max_sample_tokens=int(a.get("max_sample_tokens", MAX_ACTIVATION_TOKENS)),
             round_summaries=bool(a.get("round_summaries", True)),
             cross_iteration_memos=bool(a.get("cross_iteration_memos", False)),
             cross_iteration_memo_max_successes=int(

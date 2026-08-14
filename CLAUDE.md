@@ -222,6 +222,11 @@ attacker:
   near_dup_threshold: float           # difflib ratio the guard rejects at (default 0.8; >= 1.0 disables)
   near_dup_broadcast: bool            # default FALSE. Show guard-rejected openers to ALL sessions as an
                                       #   "avoid these" prompt block. In-memory only, never written to JSONL.
+  max_sample_tokens: int              # default 1024 (tuberlens' get_activations cap). Submit-time LENGTH
+                                      #   guard: a candidate longer than this — counted with the PROBE's
+                                      #   tokenizer + transforms — is dropped BEFORE probe/judge run and
+                                      #   never persisted, since past the cap the conversation is truncated.
+                                      #   The limit is also stated in the attacker system prompt. 0 disables.
   round_summaries: bool               # default true → rounds run SEQUENTIALLY; after each finished round the
                                       #   judge folds it into one bounded ROLLING memo (rewritten + condensed,
                                       #   not appended), injected into later rounds' attacker system prompts.
@@ -287,6 +292,12 @@ preprocessing:                        # OPTIONAL: collation-style preprocessing 
   max_concurrent: int                 # contrastive generation fan-out (default 50)
   max_tokens: int                     # per contrastive generation (default 2048)
   filter_percentile: float            # filter_dataset keep-threshold (default 0.8)
+  max_sample_tokens: int              # default 1024. LENGTH guard on GENERATED pairs (probe tokenizer):
+                                      #   the cap is stated in the generation prompt, and a pair that comes
+                                      #   back over it is REGENERATED with its measured length fed back
+                                      #   (consuming one max_generation_retries attempt) rather than
+                                      #   dropped. Cached pairs are re-checked, so caches written under an
+                                      #   older/absent cap are regenerated too. 0 disables.
   assistant_centric: bool             # default false; true → prompt says the label is set by
                                       #   the assistant's reply, so edit the assistant turns
   concept_description: str            # OPTIONAL free text: what the concept IS. Injected into
@@ -440,6 +451,37 @@ prompt, so those rows carry plural **`submissions` / `submission_keys` / `result
 leave the singular fields null — one row per conversation would repeat the whole message
 array once per batch member. A reader has to explode the list back out; the plural keys
 are simply absent on per-turn rows, so older captures still read unchanged.
+
+### `agentic_redteam/token_budget.py`
+The **length safeguard** against tuberlens' 1024-token activation cap
+(`MAX_ACTIVATION_TOKENS`). `get_activations` pads *or truncates* every conversation to
+`max_length=1024` (`tuberlens/model.py:394`), so a longer one is scored — and, once it
+becomes training data, trained on — from its opening only, tail silently dropped. Red-team
+data is *generated*, so both producers are stopped from emitting over-long samples:
+`tools.handle_submit_conversation` **drops** the attacker's submission, and
+`preprocessing.generate_contrastive_dataset` **re-asks** the generator.
+
+`count_tokens(model_name, messages, *, combine_consecutive_messages,
+convert_tool_to_assistant)` reproduces `tokenize_inputs` exactly, which has two traps:
+its `<bos>` strip is a **no-op** (the following `.to(device)` line reassigns the original
+tensor), so the width reaching the cap *includes* `<bos>` and you must never subtract 1;
+and the tokenizer is called with **`add_special_tokens=False`** (the chat template already
+emitted them), so counting with the default reads one token high. Verified against
+`tokenize_inputs` directly rather than against a reading of its source. The transforms are
+applied first (convert tool→assistant, then combine), matching `ProbeJudge.score` /
+`retrain._apply_message_transforms`, so the count is over the representation extraction
+will actually see.
+
+`TokenBudget(model_name, max_tokens, combine…, convert…)` binds that to a run;
+`overage(messages)` returns the token count **only when over the cap**, else `None`.
+Everything degrades to `None` rather than raising — an unloadable tokenizer or a
+conversation the chat template rejects must never cost a submission that would otherwise
+have been scored (the probe's own `ProbeScoringError` path already reports malformed
+conversations back to the attacker). `max_tokens <= 0` disables the check entirely.
+Tokenizers are `lru_cache`d per model name, and `warmup()` (called in `run_redteam`
+alongside `probe.warmup()`) loads one before the sessions start: unlike the probe forward,
+the count runs on the **asyncio loop thread**, so a first-call load would stall every
+concurrent session.
 
 ### `agentic_redteam/probe_judge.py`
 Wraps a pickled tuberlens probe. Lazily loads the extraction LLM on first score
@@ -700,6 +742,15 @@ deduplication, and JSONL persistence happen exactly once inside the handlers.
   When `ctx.near_dup_guard` is on, `try_reserve_opener` runs **before** the
   probe and judge — a rejected candidate returns `near_duplicate=True` having
   cost no scoring — and the reservation is dropped in a `finally`.
+  Ahead of even that, `ctx.token_budget` (a `TokenBudget`, see
+  `token_budget.py`) rejects a candidate **longer than the probe can read**:
+  it returns `too_long=True` with `n_tokens` / `max_tokens`, logs a `too_long`
+  runlog event, and persists **nothing** — an over-long conversation would be
+  scored on its first 1024 tokens and, if it counted as a success, retrained on
+  truncated. An uncountable conversation is allowed through (`overage` → `None`).
+  The cap is also stated in the attacker system prompt by
+  `_build_full_system_prompt`, so the constraint is known rather than only
+  enforced, and `_render_submission_feedback` reports the rejection in prompt mode.
 - `view_past_attempts(only_successful, limit)` — delegates to the shared
   `ViewSampler` (see `view_sampler.py`) so later attacker models in a rotation
   can learn from earlier ones. The default (`only_successful=false`) view is a
@@ -1081,6 +1132,22 @@ set, so configs that don't use them keep byte-identical keys (existing caches st
 hit), and it covers only the *target* label's guidance, so editing one class's text
 doesn't invalidate the other direction's pairs.
 
+**Length safeguard on generated pairs** (`token_budget=`, a `TokenBudget` built by
+`retrain._build_redteam_dataset` from the *probe's* `model_name` + transforms and
+`preprocessing.max_sample_tokens`). The cap is stated in the generation prompt
+(`_length_instruction`, placed next to the "similar structure and length" bullet
+because it overrides it), and a pair that still comes back over it is **regenerated**
+with its measured length fed back (`_length_retry_feedback`, appended to the user turn
+since each attempt is a fresh stateless call) rather than dropped. Regeneration —
+unlike the attacker's drop — is the right move here because the source record has no
+pair without it, so dropping would lose **both**; the retry comes out of the existing
+`max_generation_retries` budget, and a record that never comes back short enough is
+dropped exactly like any other failed generation. **Cache hits are re-checked against
+the budget**, not trusted: the cache is keyed by the *source* conversation, so pairs
+written before this cap existed would otherwise be reused forever. A stale one is
+regenerated and appended under the same key, and `_load_cache` is last-row-wins, so the
+shorter pair supersedes it.
+
 ### `agentic_redteam/evaluation.py`
 `evaluate_probe(probe_path, eval_dataset_dir, activations_cache_dir, splits=None,
 max_samples=100, seed=42, combine_consecutive_messages=False,
@@ -1270,6 +1337,15 @@ resumed run's CSV covers only the iterations that run actually executed.
   judge is told the two candidate labels but is **not** told which one the
   caller is hoping for, so it acts as an independent classifier. `success` is
   computed in `tools.py` after both run.
+- **Count tokens through `token_budget`, never by hand.** Both traps in
+  `tokenize_inputs` (the no-op `<bos>` strip ⇒ never subtract 1; the chat template's
+  own special tokens ⇒ `add_special_tokens=False`) are baked into `count_tokens`, and
+  a new counter that re-derives them from a reading of the source will be off by one
+  exactly where it matters — at the 1024 cap. Any new *producer* of red-team data
+  (a new attacker driver, another generation step) needs the same guard: the probe
+  reads at most `MAX_ACTIVATION_TOKENS`, so anything longer is scored and trained on
+  truncated. The guard must fail **open** — an uncountable conversation is allowed
+  through, never dropped.
 - **`OpenRouterOutageError` must never be swallowed.** Every `except Exception`
   around an OpenRouter call (`run_one_model`, `_summarize_round`,
   `_write_iteration_memo`, `_ContrastiveLLM.generate`) is there to absorb a

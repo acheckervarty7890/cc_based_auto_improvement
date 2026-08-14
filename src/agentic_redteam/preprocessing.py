@@ -38,6 +38,7 @@ from sklearn.linear_model import LogisticRegression
 
 from agentic_redteam import circuit_breaker as breaker
 from agentic_redteam.circuit_breaker import OpenRouterOutageError
+from agentic_redteam.token_budget import TokenBudget
 
 
 # --------------------------------------------------------------------------- #
@@ -199,6 +200,37 @@ def _label_guidance_for(
     return (text or "").strip()
 
 
+def _length_instruction(max_sample_tokens: int) -> str:
+    """Bullet telling the generator the hard length cap (empty when uncapped).
+
+    Stated in the prompt as well as enforced afterwards: a pair that comes back
+    over the cap costs a full regeneration, and the instruction removes most of
+    them. It sits next to the "similar structure and length" bullet because it
+    overrides it — a long source must yield a *shorter* pair, not an equally
+    truncated one.
+    """
+    if max_sample_tokens <= 0:
+        return ""
+    return (
+        f"- Keep the ENTIRE conversation under {max_sample_tokens} tokens "
+        f"(roughly {max_sample_tokens * 3} characters across all messages). This is a "
+        "hard limit: if the original is longer than that, write a shorter version "
+        "rather than matching its length\n"
+    )
+
+
+def _length_retry_feedback(n_tokens: int, max_sample_tokens: int) -> str:
+    """Follow-up nudge after an over-long generation, naming the measured length."""
+    target = max(1, int(max_sample_tokens * 0.85))
+    return (
+        f"\n\nNote: your previous attempt was {n_tokens} tokens, over the "
+        f"{max_sample_tokens}-token limit, so it was rejected. Write a shorter version "
+        f"this time — aim for at most {target} tokens (about {target * 3} characters "
+        "across all messages). Cut or condense actual content (fewer turns, shorter "
+        "turns); the class of the conversation must stay the same."
+    )
+
+
 def _generation_system_prompt(
     current_label: str,
     target_label: str,
@@ -206,6 +238,7 @@ def _generation_system_prompt(
     assistant_centric: bool = False,
     concept_description: str = "",
     label_guidance: dict[str, str] | None = None,
+    max_sample_tokens: int = 0,
 ) -> str:
     cur = _short_label(current_label)
     tgt = _short_label(target_label)
@@ -240,6 +273,7 @@ def _generation_system_prompt(
         "class instead.\n\n"
         "The new scenario should:\n"
         "- Have similar structure and length\n"
+        f"{_length_instruction(max_sample_tokens)}"
         "- Use similar language and style\n"
         "- Preserve the conversational format (roles) if applicable\n"
         f'- But clearly belong to "{tgt}" rather than "{cur}"\n'
@@ -287,6 +321,7 @@ class _ContrastiveLLM:
         assistant_centric: bool = False,
         concept_description: str = "",
         label_guidance: dict[str, str] | None = None,
+        max_sample_tokens: int = 0,
     ) -> None:
         self.provider = provider
         self.model = model
@@ -294,6 +329,10 @@ class _ContrastiveLLM:
         self.assistant_centric = assistant_centric
         self.concept_description = concept_description
         self.label_guidance = label_guidance or {}
+        # Length cap stated in the generation prompt. The measurement/rejection side
+        # lives in generate_contrastive_dataset (it needs the probe's tokenizer);
+        # 0 means uncapped and drops the instruction entirely.
+        self.max_sample_tokens = max_sample_tokens
         self._client: Any = None
 
     def _ensure_client(self) -> Any:
@@ -311,8 +350,20 @@ class _ContrastiveLLM:
         return self._client
 
     def generate(
-        self, messages: list[dict[str, str]], current_label: str, target_label: str
+        self,
+        messages: list[dict[str, str]],
+        current_label: str,
+        target_label: str,
+        feedback: str = "",
     ) -> dict | None:
+        """One generation call. ``feedback`` is appended to the user turn.
+
+        The retry loop uses it to tell the model why the previous attempt was
+        rejected (currently: it was over the token limit, and by how much). The
+        call is stateless otherwise — each attempt re-sends the original
+        conversation rather than continuing a chat — so the feedback has to
+        travel here rather than in a message history.
+        """
         client = self._ensure_client()
         system = _generation_system_prompt(
             current_label,
@@ -320,11 +371,13 @@ class _ContrastiveLLM:
             assistant_centric=self.assistant_centric,
             concept_description=self.concept_description,
             label_guidance=self.label_guidance,
+            max_sample_tokens=self.max_sample_tokens,
         )
         user = (
             f'Original "{_short_label(current_label)}" conversation:\n\n'
             f"{_render_transcript(messages)}\n\n"
             f'Now produce the "{_short_label(target_label)}" version as instructed.'
+            f"{feedback}"
         )
         openrouter = self.provider != "claude_sdk"
         if not openrouter:
@@ -468,6 +521,7 @@ def generate_contrastive_dataset(
     assistant_centric: bool = False,
     concept_description: str = "",
     label_guidance: dict[str, str] | None = None,
+    token_budget: TokenBudget | None = None,
 ) -> list[dict]:
     """Return ``records`` plus one opposite-class contrastive example per record.
 
@@ -487,11 +541,20 @@ def generate_contrastive_dataset(
 
     Each eligible record is retried up to ``max_retries`` times (i.e. up to
     ``max_retries + 1`` LLM calls) when a generation fails — an LLM exception,
-    an unparseable/missing response, or a malformed (non-well-formed)
-    conversation. If it still fails after the retries, **both the source record
-    and its (missing) contrastive pair are dropped** from the returned data,
-    rather than keeping an unpaired source. Failed generations are never cached,
-    so a dropped source is re-attempted on the next iteration's retrain.
+    an unparseable/missing response, a malformed (non-well-formed) conversation,
+    or a conversation **longer than ``token_budget``**. If it still fails after
+    the retries, **both the source record and its (missing) contrastive pair are
+    dropped** from the returned data, rather than keeping an unpaired source.
+    Failed generations are never cached, so a dropped source is re-attempted on
+    the next iteration's retrain.
+
+    ``token_budget`` (a :class:`TokenBudget` over the *probe's* tokenizer) is the
+    length safeguard: activation extraction truncates at 1024 tokens, so a longer
+    pair would be trained on with its tail cut off. An over-long generation is
+    rejected and regenerated with the measured length fed back, rather than
+    dropped outright — unlike the attacker path, where a rejected submission
+    costs one turn; here the source record has no pair without it, so both would
+    be lost. ``None`` (or a disabled budget) skips the check.
     """
     records = list(records)
     valid = [r for r in records if r.get(label_key) in (pos_class_label, neg_class_label)]
@@ -524,19 +587,36 @@ def generate_contrastive_dataset(
             _guidance_fingerprint(concept_description, target_label, label_guidance),
         )
 
-    # Partition into cache hits and the records that still need an LLM call.
+    length_capped = token_budget is not None and token_budget.enabled
+
+    # Partition into cache hits and the records that still need an LLM call. A cached
+    # pair is re-checked against the budget rather than trusted: caches written before
+    # this cap existed (or under a larger one) hold over-long pairs, and the cache is
+    # keyed by the *source* conversation, so nothing else would ever revisit them.
+    # Regenerating appends a fresh row under the same key, and _load_cache is
+    # last-row-wins, so the shorter pair supersedes it from the next run on.
     generated: list[dict] = []
     to_generate: list[tuple[int, dict, list[dict[str, str]], str, str]] = []
+    n_cached_too_long = 0
     for idx, record in enumerate(valid):
         messages = _extract_messages(record, text_key)
         current_label = str(record.get(label_key, ""))
         target_label = _target(current_label)
         key = _key(messages, target_label)
-        if key in cache:
-            generated.append(cache[key])
+        cached = cache.get(key)
+        if cached is not None and length_capped:
+            if token_budget.overage(_extract_messages(cached, text_key)) is not None:
+                cached = None
+                n_cached_too_long += 1
+        if cached is not None:
+            generated.append(cached)
         else:
             to_generate.append((idx, record, messages, current_label, target_label))
-
+    if n_cached_too_long:
+        print(
+            f"  [contrastive] regenerating {n_cached_too_long} cached pairs that exceed "
+            f"the {token_budget.max_tokens}-token limit"
+        )
     if to_generate:
         llm = _ContrastiveLLM(
             provider,
@@ -545,14 +625,22 @@ def generate_contrastive_dataset(
             assistant_centric=assistant_centric,
             concept_description=concept_description,
             label_guidance=label_guidance,
+            max_sample_tokens=token_budget.max_tokens if length_capped else 0,
         )
         llm._ensure_client()  # initialize once before fan-out
 
-        def _attempt(messages, current_label, target_label):
-            """One generation attempt → contrastive dict, or None on any failure."""
-            response = llm.generate(messages, current_label, target_label)
+        def _attempt(messages, current_label, target_label, feedback=""):
+            """One generation attempt.
+
+            Returns ``(contrastive, feedback_for_next_attempt)``. ``contrastive`` is
+            None on any failure; the second element is non-empty only when the
+            failure is one the model can act on — currently an over-long generation,
+            where the retry is told the measured length. An unparseable or malformed
+            response carries no such signal, so it retries unchanged.
+            """
+            response = llm.generate(messages, current_label, target_label, feedback)
             if not response or "generated_messages" not in response:
-                return None
+                return None, ""
             new_messages = _extract_messages(
                 {text_key: response["generated_messages"]}, text_key
             )
@@ -560,7 +648,13 @@ def generate_contrastive_dataset(
             # lone assistant message) — they have no valid chat-template rendering
             # and would crash activation extraction.
             if not _is_well_formed_conversation(new_messages):
-                return None
+                return None, ""
+            # Length safeguard: a pair over the cap would be *trained on* truncated
+            # at 1024 tokens, so regenerate it shorter rather than accept it.
+            if length_capped:
+                n_tokens = token_budget.overage(new_messages)
+                if n_tokens is not None:
+                    return None, _length_retry_feedback(n_tokens, token_budget.max_tokens)
             return {
                 text_key: new_messages,
                 label_key: target_label,
@@ -569,7 +663,7 @@ def generate_contrastive_dataset(
                 "generation_explanation": str(response.get("explanation", "")),
                 "generation_model": model,
                 "is_generated": True,
-            }
+            }, ""
 
         def _work(item):
             """Retry a record up to ``max_retries`` times.
@@ -577,10 +671,15 @@ def generate_contrastive_dataset(
             Returns ``("ok", record, key, contrastive)`` on success or
             ``("fail", record, None, None)`` once every attempt has failed — the
             caller drops the source of a failed record (and never caches junk).
+            Any feedback an attempt produced (e.g. "that was N tokens, too long")
+            is carried into the next attempt's prompt.
             """
             _idx, record, messages, current_label, target_label = item
+            feedback = ""
             for attempt in range(max_retries + 1):
-                contrastive = _attempt(messages, current_label, target_label)
+                contrastive, feedback = _attempt(
+                    messages, current_label, target_label, feedback
+                )
                 if contrastive is not None:
                     return "ok", record, _key(messages, target_label), contrastive
                 if attempt < max_retries:

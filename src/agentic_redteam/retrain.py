@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 import torch
 
 from agentic_redteam.persistence import AttemptRecord, JsonlStore
+from agentic_redteam.token_budget import TokenBudget
 
 if TYPE_CHECKING:
     from agentic_redteam.config import PreprocessingConfig
@@ -767,6 +768,9 @@ def _build_redteam_dataset(
     preprocessing: "PreprocessingConfig | None",
     contrastive_cache_path: str | Path | None,
     verbose: bool,
+    model_name: str = "",
+    combine_consecutive_messages: bool = False,
+    convert_tool_to_assistant: bool = False,
 ):
     """Convert red-team successes into a LabelledDataset, optionally preprocessing.
 
@@ -774,6 +778,11 @@ def _build_redteam_dataset(
     With one, it mirrors the collation step of tuberlens' pipeline applied to the
     "extra" data: drop confounders (``filter_dataset``) then add contrastive
     pairs (``generate_contrastive_dataset``).
+
+    ``model_name`` and the two transform flags build the :class:`TokenBudget` the
+    contrastive generator regenerates over-long pairs against — they describe the
+    *probe's* tokenization, which is what activation extraction truncates at 1024
+    tokens. With no model name the length safeguard is simply inert.
     """
     if preprocessing is None or not successes:
         return _records_to_labelled_dataset(successes)
@@ -805,6 +814,12 @@ def _build_redteam_dataset(
         assistant_centric=preprocessing.assistant_centric,
         concept_description=preprocessing.concept_description,
         label_guidance=preprocessing.label_guidance,
+        token_budget=TokenBudget(
+            model_name=model_name,
+            max_tokens=preprocessing.max_sample_tokens,
+            combine_consecutive_messages=combine_consecutive_messages,
+            convert_tool_to_assistant=convert_tool_to_assistant,
+        ),
     )
     return _dicts_to_labelled_dataset(dicts, pos_label, neg_label)
 
@@ -932,6 +947,9 @@ def retrain_probe(
         preprocessing,
         contrastive_cache_path,
         verbose,
+        model_name=str(base_probe.model_name),
+        combine_consecutive_messages=combine_consecutive_messages,
+        convert_tool_to_assistant=convert_tool_to_assistant,
     )
     redteam_dataset = _apply_message_transforms(
         redteam_dataset, combine_consecutive_messages, convert_tool_to_assistant
