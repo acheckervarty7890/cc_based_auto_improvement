@@ -1267,6 +1267,54 @@ rows are not consulted, and new ones simply append). Note the eval comparison CS
 **not** resume: `eval_results` is in-process and the CSV is rewritten at the end, so a
 resumed run's CSV covers only the iterations that run actually executed.
 
+### `dev_samples/` and the two ceiling experiments
+
+`dev_samples/train_{ai_dilemmas,ant_hh,balanced_refusal,daily_dilemmas}.jsonl` are 30-row,
+exactly class-balanced companions to the four `eval_dataset_hu_ha/` splits — same schema
+(`inputs` as a JSON-encoded string, `labels`, `harm_explanation`, `source`), same
+generators, **disjoint rows**. Verified at both levels that matter: zero shared
+conversations *and* zero shared first-user prompts against the eval splits (three of the
+four are internally paired, so the prompt-level check is the load-bearing one), and zero
+overlap with `data/hu_harm_llama70b_50.jsonl`. They exist to answer "what does a little
+in-distribution data buy?" without touching the eval set.
+
+Two scripts use them, both driven by `run_devsamples_kfold.sh` (launcher
+`cloud_start_devsamples.sh`, checkpointer `failsafe_commit_devsamples.sh`):
+
+- **`scripts/eval_kfold_cv.py`** — k-fold CV with the hu_harm eval set as **both** train
+  and test, i.e. the in-distribution **ceiling**, not a comparable baseline. Two
+  geometries, both reported: `pooled` (four splits concatenated, folds stratified on
+  (split, label), held-out fold scored overall *and* per source split) and `within`
+  (k-fold inside each split alone). The validation set for early stopping is carved from
+  the k-1 *training* folds, never the held-out one. `within` runs first because `pooled`
+  builds its corpus with `_concatenate_consuming`, which consumes the per-split datasets
+  — 866 rows padded to 1024 at hidden 5376/fp16 is ~9.5 GB, and tuberlens'
+  `concatenate` would peak at ~2x that.
+- **`scripts/dev_sample_retrain.py`** — an iteration-3 retrain with N ∈ {0,2,8,16,30} dev
+  rows **per split** added to the red-team set, both attacker arms, one weight-init seed.
+  Trains from `redteam_postprocessed_iter{N}.jsonl` with `preprocessing=None`: the dump is
+  already filtered + contrastive-generated, and re-running that step would refit
+  `filter_dataset`'s bag-of-words dropper on a different set and change which rows
+  survive — a second variable. The N levels are **nested** prefixes of a per-split
+  shuffle seeded by sha256 (not `hash()`, which Python salts per process), so the curve is
+  dose-response. Dev rows go through `stable_train_test_split` like any other non-base
+  sample, so ~20% land in validation; the plan printed at startup reports the exact
+  fit/val breakdown per level (N=2 → 6 fitted, N=30 → 94 fitted) and that is what the
+  curve's x-axis really is.
+
+Both load **no model** off the caches; the one exception is `dev_sample_retrain.py`'s
+`extract` stage, which pushes the 120 dev conversations through gemma-3-27b once and
+writes them into the same content-addressed per-conversation cache, so every arm and
+every N level shares them.
+
+`scripts/prune_stale_redteam_activations.py` deletes red-team blobs no postprocessed dump
+on the branch references — the ~105 conversations rewritten by the contrastive-pair
+shortening left their old blobs behind. It is a **disk** tool, not a correctness one
+(content-addressed keys mean a stale blob is simply never requested), and the keep set is
+computed from *every* iteration's dump because the iterations do not nest. Run it *after*
+`restore`, never instead of it: wiping and re-fetching moves ~1500 valid blobs to replace
+105.
+
 ## Conventions to preserve
 
 - **Probe metadata is the source of truth.** Don't pass `pos_class_label` /

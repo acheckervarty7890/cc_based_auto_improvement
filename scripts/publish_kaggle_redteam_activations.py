@@ -1275,6 +1275,16 @@ def cmd_restore(args: argparse.Namespace) -> int:
     cache_dir.mkdir(parents=True, exist_ok=True)
     units = build_units(args, cache_dir)
 
+    # --dry-run is in _add_common, so it is accepted on every stage; without this it was
+    # accepted and ignored here, and a caller who wrapped `restore` in a dry-run switch
+    # (as run_devsamples_kfold.sh does) would pull ~10 GB while believing it had asked
+    # for a plan. Printing the plan and stopping is what the flag means everywhere else.
+    if args.dry_run:
+        print(f"cache dir: {cache_dir}")
+        _print_plan(units, args)
+        print("\n--dry-run: nothing downloaded.")
+        return 0
+
     api = _authenticate()
     failures = 0
     for unit in units:
