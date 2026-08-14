@@ -58,8 +58,13 @@ Typical use::
 
 Outputs, under ``--work-dir``:
 
-    kfold_cv_folds.csv     one row per (geometry, fold, scored split) + the "all" rollup
-    kfold_cv_summary.csv   mean/sd/min/max over folds, per geometry and scored split
+    folds/<geometry>__f<N>.csv   one file per fold, written AS THAT FOLD FINISHES
+    kfold_cv_folds.csv           all of the above concatenated
+    kfold_cv_summary.csv         mean/sd/min/max over folds, per geometry and scored split
+
+The per-fold files are what make the stage resumable and what give a long run something
+on disk to look at (and for the failsafe committer to checkpoint) before it ends. A fold
+whose CSV exists is skipped on a re-run; delete the file to recompute it.
 """
 
 from __future__ import annotations
@@ -257,16 +262,40 @@ def _score(fitted, dataset, idx: list[int], split_of: list[str]) -> list[dict]:
 # --------------------------------------------------------------------------- #
 # geometries
 # --------------------------------------------------------------------------- #
+def _fold_csv(work_dir: Path, label: str, fold: int) -> Path:
+    """Per-fold result path. ``:`` is not portable in a filename, so it is rewritten."""
+    return work_dir / "folds" / f"{label.replace(':', '__')}__f{fold}.csv"
+
+
 def _run_geometry(
     label: str, dataset, split_of: list[str], args, probe, probe_spec
 ) -> list[dict]:
-    """k-fold over one corpus. ``split_of`` names each row's source split."""
+    """k-fold over one corpus. ``split_of`` names each row's source split.
+
+    Each fold's rows are written to their own CSV **as the fold finishes**, and a fold
+    whose CSV already exists is skipped. Three things follow, all of which the first
+    cloud run wanted and did not have: a 40-minute stage leaves a trace on disk while it
+    runs (the failsafe committer has something to checkpoint, and `ls` answers "is it
+    working?"), an interrupted stage resumes instead of restarting, and the summary at
+    the end is assembled from the same files rather than from memory alone.
+    """
     import time
+
+    import pandas as pd
 
     strata = [f"{s}|{lab.to_int()}" for s, lab in zip(split_of, dataset.labels)]
     folds = _stratified_folds(strata, args.k, args.seed)
     out: list[dict] = []
     for f, test_idx in enumerate(folds):
+        csv = _fold_csv(args.work_dir, label, f)
+        if csv.exists():
+            done = pd.read_csv(csv).to_dict("records")
+            out += done
+            roll = next(r for r in done if r["scored"] == "all")
+            print(f"  {label:28s} fold {f + 1}/{args.k}  already done "
+                  f"(AUROC={roll['auroc']:.4f})", flush=True)
+            continue
+
         t0 = time.time()
         test_set = set(test_idx)
         train_idx = [i for i in range(len(dataset)) if i not in test_set]
@@ -277,6 +306,13 @@ def _run_geometry(
                    "n_fit": len(fit_idx), "n_val": len(val_idx)}
             for row in _score(fitted, dataset, test_idx, split_of)
         ]
+        csv.parent.mkdir(parents=True, exist_ok=True)
+        # Written via a temp file + rename so a crash mid-write cannot leave a partial
+        # CSV that the resume path above would then trust and skip.
+        tmp = csv.with_suffix(".csv.tmp")
+        pd.DataFrame(scored).to_csv(tmp, index=False)
+        tmp.replace(csv)
+
         out += scored
         roll = scored[0]  # _score always emits the "all" rollup first
         print(
@@ -316,6 +352,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--fetch-kaggle", action="store_true",
                     help="Fill --eval-cache from Kaggle before running")
     args = ap.parse_args(argv)
+    # Before anything runs, not after: the per-fold CSVs are written as folds finish.
+    args.work_dir.mkdir(parents=True, exist_ok=True)
 
     if args.fetch_kaggle:
         import subprocess
@@ -377,7 +415,6 @@ def main(argv: list[str] | None = None) -> int:
         rows += _run_geometry("pooled", pooled, split_of, args, probe, probe_spec)
         del pooled
 
-    args.work_dir.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(rows)[
         ["geometry", "fold", "scored", "n", "n_fit", "n_val",
          "auroc", "accuracy", "tpr_at_fpr", "fpr"]
