@@ -212,6 +212,22 @@ ADD_EXCLUDES=(
     ':(exclude).venv_claude'
     ':(exclude)archive'
     ':(exclude)__pycache__'
+    # THE ACTIVATION CACHES. These MUST be excluded on the ADD side, not merely reset
+    # afterwards. `git add -f` on a .pt writes the blob into .git/objects — hashing it in
+    # full — and the later `git reset` of the *.pt glob only unstages it; the loose object
+    # stays until a prune. This run's cache is ~14 GB (1656 red-team blobs at ~5.8 MB plus
+    # four eval blobs totalling 4.6 GB), so the first snapshot would hash all of it into
+    # the object store and can fill a container's disk outright. That is not hypothetical:
+    # it is what stopped the committer on the first run of this branch, while the reset
+    # glob did exactly what it was written to do and hid the symptom by keeping the
+    # COMMITS clean.
+    #
+    # Named explicitly rather than excluding the whole results_hu_harm_gemma27b_batch_ablation
+    # tree, which also holds attribution/*.npz and the results JSONLs that are worth
+    # capturing. Add a line here for any new cache dir; the *.pt reset below stays as the
+    # backstop for blobs written somewhere unanticipated, which is all it can be.
+    ':(exclude)results_hu_harm_gemma27b_batch_ablation/base_activations'
+    ':(exclude)results_hu_harm_gemma27b_batch_ablation/eval_activations'
 )
 RESET_EXCLUDES=(
     # Pooled activation blobs, if any tooling on this branch writes them: ~19 MB each,
