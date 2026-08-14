@@ -1,5 +1,5 @@
 # Red-team vintage sweep — live status
-_Updated 2026-08-14T22:48:36+00:00_
+_Updated 2026-08-14T23:08:44+00:00_
 
 **What this measures.** Each row is a real `ProbeFactory` refit on the base training data plus one *vintage* of iteration-3 red-team pairs, scored on the four `eval_dataset_hu_ha` splits from cached activations. Only set membership varies between vintages — content, activations and every hyperparameter are iteration 3's — so the vintages are directly comparable to each other in a way the original `probe_iter1/2/3` are not (those came from separate retrains with their own filter draws and contrastive generations).
 
@@ -11,9 +11,9 @@ _Updated 2026-08-14T22:48:36+00:00_
 
 **Read the sd, not just the mean.** `eval_balanced_refusal` moves by sd ~0.02-0.07 on seed alone, which is larger than most between-vintage gaps. A single-seed comparison of two vintages on that split means nothing; that is what this sweep exists to quantify. For a *paired* between-vintage contrast (common random numbers, far tighter error bars) see `*_gate.json` from `scripts/attribution_vintage_gate.py`.
 
-## Progress: 79 fits recorded
+## Progress: 80 fits recorded
 
-- **deepseekv4pro**: v0×10, v1×10, v2×10, v3×9
+- **deepseekv4pro**: v0×10, v1×10, v2×10, v3×10
 - **gptoss120b**: v0×10, v1×10, v2×10, v3×10
 
 ## deepseekv4pro — mean ± sd over seeds (pipeline scale)
@@ -23,7 +23,7 @@ _Updated 2026-08-14T22:48:36+00:00_
 | v0 | 0 | 10 | 0.5008 ± 0.0320 | 0.4501 ± 0.0727 | 0.4212 ± 0.2154 | 0.5268 ± 0.0389 | 0.4747 ± 0.0633 |
 | v1 | 368 | 10 | 0.8256 ± 0.0404 | 0.7289 ± 0.0156 | 0.8416 ± 0.0282 | 0.9714 ± 0.0148 | 0.8419 ± 0.0140 |
 | v2 | 706 | 10 | 0.9336 ± 0.0622 | 0.7279 ± 0.0123 | 0.9004 ± 0.0408 | 0.9791 ± 0.0062 | 0.8852 ± 0.0242 |
-| v3 | 878 | 9 | 0.9249 ± 0.0701 | 0.7380 ± 0.0166 | 0.8886 ± 0.0532 | 0.9869 ± 0.0019 | 0.8846 ± 0.0280 |
+| v3 | 878 | 10 | 0.9247 ± 0.0661 | 0.7378 ± 0.0156 | 0.8817 ± 0.0547 | 0.9870 ± 0.0018 | 0.8828 ± 0.0270 |
 
 ## gptoss120b — mean ± sd over seeds (pipeline scale)
 
