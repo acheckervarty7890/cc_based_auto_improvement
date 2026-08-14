@@ -106,6 +106,13 @@ Required environment variables:
   (e.g. `"0=21GiB,cpu=45GiB"` — pins accelerate's per-device budget so it can't fall
   back to disk offload; unset by default) and tuberlens' own `BATCH_SIZE` (default 1),
   which drives both `get_activations` and the red-team chunking in `retrain`.
+- Also read from tuberlens' own settings (`tuberlens.config.global_settings`, populated
+  from the environment): `MAX_MEMORY` (same `"0=21GiB,cpu=45GiB"` form) and per-model
+  `MODEL_MAX_MEMORY` pin the budget for **every** tuberlens load — including
+  `get_performances`, which this repo cannot pass `model_kwargs` to — and
+  `OFFLOAD_BUFFERS` (default on) toggles buffer offloading. `AGENTIC_REDTEAM_MAX_MEMORY`
+  takes precedence over both on the `load_extraction_model` path; neither reaches the
+  layer truncation, which stays this repo's alone.
 
 ## Common commands
 
@@ -447,7 +454,7 @@ The probe carries `pos_class_label`, `neg_class_label`, `description`,
 loaded object — never duplicate these in code.
 
 The model is loaded through `model_loading.load_extraction_model` (see below), which
-carries `offload_buffers=True` and truncates the model to the layers the probe
+carries `offload_buffers` and truncates the model to the layers the probe
 actually reads. `release()` drops the loaded LLM and runs
 `gc.collect()` + `torch.cuda.empty_cache()` — call it when a phase is done with
 the probe (the attacker does, after each rotation) so the next phase reloads onto
@@ -456,7 +463,7 @@ a clean GPU. See "Free GPU memory between heavy phases" in the conventions for w
 ### `agentic_redteam/model_loading.py`
 `load_extraction_model(model_name, layer)` — the single loader for the frozen
 extraction LLM, used by both `ProbeJudge._ensure_model` (red-team scoring) and
-`retrain._get_model`. Beyond `offload_buffers=True` it does the one thing that
+`retrain._get_model`. Beyond `offload_buffers` it does the one thing that
 dominates wall-clock on a gemma-sized probe: **it loads only layers `0..layer`.**
 
 tuberlens' `HookedModel.__enter__` already truncates the *executed* stack to
@@ -480,11 +487,23 @@ and why blobs computed with and without it stay interchangeable. transformers lo
 It returns `None` (leave the model alone) when truncation is disabled, when the probe
 reads the last layer anyway, or when the config exposes no layer count we recognise.
 
-Two env knobs: `AGENTIC_REDTEAM_TRUNCATE_LAYERS=0` disables the truncation, and
-`AGENTIC_REDTEAM_MAX_MEMORY` (e.g. `"0=21GiB,cpu=45GiB"`) pins accelerate's per-device
-budget. The latter is unset by default, which keeps tuberlens' `max_memory=None` —
-under which accelerate infers the budget from whatever is *free at load time* and
-silently falls back to **disk** offload on a tight box. `extraction_batch_size()`
+**Memory pinning has two sources now, and this module is where they're ordered.**
+`AGENTIC_REDTEAM_TRUNCATE_LAYERS=0` disables the truncation. The `max_memory` budget is
+resolved by `_resolve_max_memory(model_name)` in the precedence
+**`AGENTIC_REDTEAM_MAX_MEMORY` > tuberlens' `MAX_MEMORY` / `MODEL_MAX_MEMORY`
+(via `global_settings.get_max_memory`) > unpinned** — this repo's env var predates
+tuberlens' and stays authoritative so existing run scripts keep behaving. Unpinned,
+accelerate infers the budget from whatever is *free at load time* and silently falls
+back to **disk** offload on a tight box. The resolved budget is passed explicitly in
+`model_kwargs` even when tuberlens would have resolved the same value, so the printed
+load line names the budget the load actually used and *which source set it* — a line
+reporting "unpinned" while tuberlens had quietly pinned it would defeat the point of
+printing it. `_parse_max_memory` delegates to tuberlens' `parse_max_memory` when
+present (keeping the two entry points to the same budget from drifting on what they
+accept) and keeps an equivalent local body as the fallback. `offload_buffers` likewise
+now comes from tuberlens' `OFFLOAD_BUFFERS` setting rather than being hardcoded, so the
+knob isn't dead on this path. Both lookups are `getattr`-guarded, so the module also
+works against a tuberlens checkout predating those settings. `extraction_batch_size()`
 reads tuberlens' `BATCH_SIZE` (default 1) so the same env var drives both
 `get_activations` and the red-team chunking in `retrain`.
 
@@ -987,8 +1006,8 @@ observed as a SIGKILL (exit 137, no traceback) at the iteration-2 retrain of a
 966-sample gemma-3-27b probe on a 60 GB box. Two things are held at once and both
 are guarded:
 
-- **The extraction model.** `LLMModel.load` uses `device_map="auto"` with
-  `max_memory=None`, so accelerate hands the `"cpu"` device a budget equal to whatever
+- **The extraction model.** `LLMModel.load` uses `device_map="auto"` and, with the
+  budget unpinned (the default), accelerate hands the `"cpu"` device a budget equal to whatever
   RAM is free *at load time* — a gemma-sized model keeps multi-GB of CPU-offloaded
   shards resident for as long as it is referenced. `_train_with_cached_base_activations`
   therefore calls `_release_model()` (mirrors `ProbeJudge.release`) immediately after
@@ -1275,9 +1294,11 @@ resumed run's CSV covers only the iterations that run actually executed.
   inside `HookedModel` but places the whole model first, so a direct load dispatches
   ~24 GB of gemma-3-27b weights that never run a forward and pushes the executed tail
   onto disk. Truncation is exact (causal stack), so it does **not** belong in any
-  activation cache key.
+  activation cache key. It is also the only one of the three placement controls that
+  tuberlens' own settings can't supply — `MAX_MEMORY` and `OFFLOAD_BUFFERS` now reach
+  every load, the layer count does not.
 - **Free GPU memory between heavy phases.** Every tuberlens load uses
-  `device_map="auto"` + `max_memory=None`, re-inferring the layer split from
+  `device_map="auto"` and, unless the budget is pinned, re-infers the layer split from
   *free* GPU memory at load time; torch's caching allocator holds freed memory as
   reserved. So a model left resident from a previous phase forces the next load
   into CPU/disk offload (~5-10x slower). Release models and clear the cache

@@ -581,7 +581,8 @@ def _train_with_cached_base_activations(
 
     # Every activation is extracted by this point, so release the LLM before the
     # concatenate + fit, which are the memory-hungry steps. This matters on host RAM, not
-    # just GPU: `device_map="auto"` with `max_memory=None` lets accelerate hand the "cpu"
+    # just GPU: `device_map="auto"` with an unpinned `max_memory` (the default — see
+    # `model_loading` for the two ways to pin it) lets accelerate hand the "cpu"
     # device a budget equal to whatever RAM is free at load time, so a gemma-sized model
     # keeps multi-GB of CPU-offloaded shards resident for as long as it is referenced.
     # Holding those through the assembly of a ~10 GB activation set is what OOM-killed

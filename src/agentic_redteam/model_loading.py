@@ -35,10 +35,21 @@ Set ``AGENTIC_REDTEAM_TRUNCATE_LAYERS=0`` to disable (e.g. to A/B the timing, or
 future architecture mis-handles the rebuilt config).
 
 ``AGENTIC_REDTEAM_MAX_MEMORY`` optionally pins accelerate's per-device budget, e.g.
-``"0=21GiB,cpu=45GiB"``. Unset (the default) keeps tuberlens' ``max_memory=None``,
-under which accelerate infers the budget from whatever is *free at load time* and
-will silently fall back to **disk** offload when the box is tight — the state the
-gemma-3-27b runs were in, and worth ~40 s/sample.
+``"0=21GiB,cpu=45GiB"``. Fully unpinned, accelerate infers the budget from whatever is
+*free at load time* and will silently fall back to **disk** offload when the box is
+tight — the state the gemma-3-27b runs were in, and worth ~40 s/sample.
+
+tuberlens now carries its **own** pin (``MAX_MEMORY`` / per-model ``MODEL_MAX_MEMORY``,
+resolved by ``global_settings.get_max_memory``) plus an ``OFFLOAD_BUFFERS`` toggle, so
+the budget is no longer something only this repo can set. Precedence here is
+``AGENTIC_REDTEAM_MAX_MEMORY`` > tuberlens' settings > unpinned, and whichever won is
+named in the printed load line — a log that reported "unpinned" while tuberlens had
+quietly pinned it would defeat the point of printing it at all. The resolved budget is
+passed explicitly to ``LLMModel.load`` so the line and the load can't disagree.
+
+Everything here degrades to the old behaviour on a tuberlens checkout predating those
+settings (``get_max_memory`` / ``OFFLOAD_BUFFERS`` are looked up defensively), so this
+module works against both.
 """
 
 from __future__ import annotations
@@ -63,7 +74,18 @@ def _parse_max_memory(raw: str) -> dict[int | str, str]:
 
     GPU indices must be ints (accelerate keys devices by ordinal); ``cpu`` / ``disk``
     stay strings.
+
+    Delegates to tuberlens' ``parse_max_memory`` when it exists so the two entry points
+    to the same budget can't drift apart in what they accept; the body below is the
+    fallback for checkouts predating it, and is deliberately equivalent.
     """
+    try:
+        from tuberlens.config import parse_max_memory
+    except ImportError:
+        pass
+    else:
+        return parse_max_memory(raw) or {}
+
     budget: dict[int | str, str] = {}
     for item in raw.split(","):
         item = item.strip()
@@ -77,6 +99,32 @@ def _parse_max_memory(raw: str) -> dict[int | str, str]:
             )
         budget[int(device) if device.isdigit() else device] = size
     return budget
+
+
+def _resolve_max_memory(model_name: str) -> tuple[dict[int | str, Any] | None, str]:
+    """Resolve accelerate's per-device budget for ``model_name``, and say who set it.
+
+    Precedence: this repo's ``AGENTIC_REDTEAM_MAX_MEMORY`` (which predates tuberlens'
+    own knob and stays authoritative, so existing run scripts keep behaving), then
+    tuberlens' ``MAX_MEMORY`` / ``MODEL_MAX_MEMORY`` settings, then unpinned.
+
+    Returns ``(None, "")`` when nothing pinned it. The second element is only ever used
+    for the log line.
+    """
+    raw = os.environ.get(_MAX_MEMORY_ENV, "").strip()
+    if raw:
+        return _parse_max_memory(raw), _MAX_MEMORY_ENV
+
+    from tuberlens.config import global_settings
+
+    # Absent on tuberlens checkouts predating the memory-pinning settings, where the
+    # only budget was MODEL_MAX_MEMORY[DEFAULT_MODEL] and nothing here populated it.
+    resolve = getattr(global_settings, "get_max_memory", None)
+    if resolve is not None:
+        budget = resolve(model_name)
+        if budget:
+            return budget, "tuberlens MAX_MEMORY/MODEL_MAX_MEMORY"
+    return None, ""
 
 
 def _truncated_config(model_name: str, layer: int):
@@ -130,10 +178,11 @@ def _truncated_config(model_name: str, layer: int):
 def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False):
     """Load the tuberlens ``LLMModel`` used to extract layer-``layer`` activations.
 
-    Carries ``offload_buffers=True`` (when ``device_map="auto"`` offloads layers,
-    buffers must offload too or accelerate warns about insufficient GPU buffer space
-    and risks OOM), plus the layer truncation and optional ``max_memory`` pin
-    documented at module level.
+    Carries ``offload_buffers`` (when ``device_map="auto"`` offloads layers, buffers
+    must offload too or accelerate warns about insufficient GPU buffer space and risks
+    OOM) — taken from tuberlens' ``OFFLOAD_BUFFERS`` setting, which now owns that knob,
+    defaulting to True as before on checkouts that don't have it. Plus the layer
+    truncation and the ``max_memory`` pin documented at module level.
 
     **The one-line summary of what was placed is printed unconditionally**, not gated
     on ``verbose``. ``ProbeJudge._ensure_model`` — the red-team path, and the one whose
@@ -141,9 +190,12 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
     the only evidence that truncation had silently not fired. A whole run does a
     handful of loads, so this costs a handful of lines.
     """
+    from tuberlens.config import global_settings
     from tuberlens.model import LLMModel
 
-    model_kwargs: dict[str, Any] = {"offload_buffers": True}
+    model_kwargs: dict[str, Any] = {
+        "offload_buffers": getattr(global_settings, "OFFLOAD_BUFFERS", True)
+    }
 
     config = _truncated_config(model_name, layer)
     if config is not None:
@@ -153,10 +205,12 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
     else:
         placed = "ALL layers (not truncated)"
 
-    raw_budget = os.environ.get(_MAX_MEMORY_ENV, "").strip()
-    if raw_budget:
-        model_kwargs["max_memory"] = _parse_max_memory(raw_budget)
-        budget = f"max_memory={model_kwargs['max_memory']}"
+    resolved, source = _resolve_max_memory(model_name)
+    if resolved:
+        # Passed explicitly even when tuberlens would have resolved the same thing, so
+        # the line below reports the budget the load actually used.
+        model_kwargs["max_memory"] = resolved
+        budget = f"max_memory={resolved} (from {source})"
     else:
         budget = f"max_memory unpinned (set {_MAX_MEMORY_ENV} to pin it)"
 

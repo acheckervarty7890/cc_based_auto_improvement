@@ -138,9 +138,11 @@ class ProbeJudge:
     def release(self) -> None:
         """Drop the loaded LLM and return its GPU memory to the CUDA driver.
 
-        Models are loaded with ``device_map="auto"`` + ``max_memory=None``, so
-        accelerate re-infers the GPU/CPU layer split from whatever GPU memory is
-        *free at load time*. torch's caching allocator keeps freed memory
+        Models are loaded with ``device_map="auto"`` and — unless the budget is
+        pinned (``AGENTIC_REDTEAM_MAX_MEMORY`` / tuberlens' ``MAX_MEMORY``) —
+        ``max_memory=None``, so accelerate re-infers the GPU/CPU layer split from
+        whatever GPU memory is *free at load time*. torch's caching allocator
+        keeps freed memory
         reserved, so a model that is merely dereferenced still makes the next
         load see less free GPU — pushing more layers to CPU/disk offload and
         slowing every subsequent forward pass. Call this when a phase is done

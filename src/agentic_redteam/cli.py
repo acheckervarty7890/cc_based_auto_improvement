@@ -63,7 +63,7 @@ def _free_gpu() -> None:
 
     train/eval each load a gemma-sized LLM internally (tuberlens); on return the
     model is dereferenced but torch's caching allocator keeps its GPU memory
-    reserved. Since every load uses device_map="auto" + max_memory=None and
+    reserved. Since every load uses device_map="auto" and, unpinned (the default),
     re-infers the layer split from *free* GPU memory, that leftover reservation
     pushes the next load into CPU/disk offload and ~5-10x slower forwards.
     Collecting + emptying the cache between phases keeps each load on a clean GPU.
