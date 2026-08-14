@@ -254,6 +254,17 @@ def _generation_system_prompt(
     )
 
 
+def _generation_user_prompt(
+    messages: Sequence[dict[str, str]], current_label: str, target_label: str
+) -> str:
+    """The user turn of a contrastive generation: the source transcript + the ask."""
+    return (
+        f'Original "{_short_label(current_label)}" conversation:\n\n'
+        f"{_render_transcript(messages)}\n\n"
+        f'Now produce the "{_short_label(target_label)}" version as instructed.'
+    )
+
+
 def _parse_json_object(text: str) -> dict | None:
     """Best-effort parse of a single JSON object, tolerating code fences / prose."""
     text = text.strip()
@@ -313,19 +324,27 @@ class _ContrastiveLLM:
     def generate(
         self, messages: list[dict[str, str]], current_label: str, target_label: str
     ) -> dict | None:
+        return self.call(
+            _generation_system_prompt(
+                current_label,
+                target_label,
+                assistant_centric=self.assistant_centric,
+                concept_description=self.concept_description,
+                label_guidance=self.label_guidance,
+            ),
+            _generation_user_prompt(messages, current_label, target_label),
+        )
+
+    def call(self, system: str, user: str) -> dict | None:
+        """One generation call for an already-built (system, user) prompt pair.
+
+        Split out of ``generate`` so callers that need a *different* prompt — e.g.
+        ``scripts/shorten_long_contrastive_pairs.py``, which re-asks for an
+        over-length pair under a word budget — reuse this exact call path
+        (circuit-breaker reporting, connection retries, refusal-tolerant JSON
+        parsing) instead of reimplementing it.
+        """
         client = self._ensure_client()
-        system = _generation_system_prompt(
-            current_label,
-            target_label,
-            assistant_centric=self.assistant_centric,
-            concept_description=self.concept_description,
-            label_guidance=self.label_guidance,
-        )
-        user = (
-            f'Original "{_short_label(current_label)}" conversation:\n\n'
-            f"{_render_transcript(messages)}\n\n"
-            f'Now produce the "{_short_label(target_label)}" version as instructed.'
-        )
         openrouter = self.provider != "claude_sdk"
         if not openrouter:
             try:

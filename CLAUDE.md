@@ -1067,6 +1067,24 @@ set, so configs that don't use them keep byte-identical keys (existing caches st
 hit), and it covers only the *target* label's guidance, so editing one class's text
 doesn't invalidate the other direction's pairs.
 
+**Generated pairs can overrun the activation window.** `get_activations` *truncates*
+at `max_length=1024` (`tuberlens/model.py:433`), and the generation prompt only asks
+for "similar structure and length" — so the generator routinely writes a pair far
+longer than its source (in experiment11, 8.7% / 16.2% of the two arms' iteration-3
+pairs were over 1024 tokens, against ~0.4% of the attacker-written *sources*). For an
+assistant-centric concept the truncated tail is exactly the assistant turn that
+carries the label. `scripts/shorten_long_contrastive_pairs.py` re-asks for those pairs
+under an explicit word budget — tightened from each rejected attempt's measured
+words-per-token — and rewrites them into `contrastive_cache.jsonl` **under the pair's
+original key** (the key is derived from the *source* + target label, and `_load_cache`
+is last-write-wins, so appending is an update) plus the
+`redteam_postprocessed_iter{N}.jsonl` snapshot it was found in. It reuses the retrain's
+own call path: `_ContrastiveLLM.generate` is now prompt-building over
+`_ContrastiveLLM.call(system, user)`, which holds the breaker reporting, connection
+retries and JSON parsing — new callers that need a different prompt should use `call`
+rather than reimplement it. Changed conversations get new content-addressed activation
+keys, so re-run `publish_kaggle_redteam_activations.py sync` afterwards.
+
 ### `agentic_redteam/evaluation.py`
 `evaluate_probe(probe_path, eval_dataset_dir, activations_cache_dir, splits=None,
 max_samples=100, seed=42, combine_consecutive_messages=False,
