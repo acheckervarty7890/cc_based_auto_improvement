@@ -8219,3 +8219,65 @@ within:eval_balanced_refusal eval_balanced_refusal      0.9992     0.0018     0.
 
 wrote /workspace/cc_based_auto_improvement/results/devsamples_kfold/kfold_cv/kfold_cv_folds.csv
 wrote /workspace/cc_based_auto_improvement/results/devsamples_kfold/kfold_cv/kfold_cv_summary.csv
+work dir  : /workspace/cc_based_auto_improvement/results/devsamples_kfold/dev_samples
+cache     : /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation
+arms      : deepseekv4pro, gptoss120b  (iteration 3)
+dev levels: [0, 2, 8, 16, 30] per split; seeds [42]
+dev pool  :
+  train_ai_dilemmas        15 positive / 15 negative
+  train_ant_hh             15 positive / 15 negative
+  train_balanced_refusal   15 positive / 15 negative
+  train_daily_dilemmas     15 positive / 15 negative
+
+selection per level (train/val landing is deterministic):
+  N=0   -> 0 rows
+  N=2   ->   8 rows  (6 fitted, 2 to validation)
+  N=8   ->  32 rows  (24 fitted, 8 to validation)
+  N=16  ->  64 rows  (49 fitted, 15 to validation)
+  N=30  -> 120 rows  (94 fitted, 26 to validation)
+
+extract: 120 dev conversations, 120 not yet cached
+Red-team activations: 0 loaded from cache, 120 to compute (chunk size 1) ...
+[model_loading] loading google/gemma-3-27b-it, truncated to 33 layers (probe reads layer 32); max_memory unpinned (set AGENTIC_REDTEAM_MAX_MEMORY to pin it)
+Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
+[tuberlens] loading google/gemma-3-27b-it on device_map='auto'; max_memory unpinned (set MAX_MEMORY to pin it)
+Fetching 12 files:   0%|                                                                                                                   | 0/12 [00:00<?, ?it/s]Fetching 12 files:   8%|████████▋                                                                                               | 1/12 [10:16<1:53:03, 616.72s/it]Fetching 12 files:  25%|██████████████████████████▌                                                                               | 3/12 [10:22<24:17, 161.89s/it]Fetching 12 files:  33%|███████████████████████████████████▎                                                                      | 4/12 [10:22<14:07, 105.91s/it]Fetching 12 files:  42%|████████████████████████████████████████████▌                                                              | 5/12 [10:27<08:28, 72.69s/it]Fetching 12 files:  50%|█████████████████████████████████████████████████████▌                                                     | 6/12 [10:29<04:59, 49.94s/it]Fetching 12 files:  75%|████████████████████████████████████████████████████████████████████████████████▎                          | 9/12 [13:51<03:00, 60.00s/it]Fetching 12 files:  83%|████████████████████████████████████████████████████████████████████████████████████████▎                 | 10/12 [14:25<01:48, 54.32s/it]Fetching 12 files:  92%|█████████████████████████████████████████████████████████████████████████████████████████████████▏        | 11/12 [14:29<00:42, 42.59s/it]Fetching 12 files: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████| 12/12 [14:29<00:00, 72.48s/it]
+Traceback (most recent call last):
+  File "/workspace/cc_based_auto_improvement/scripts/dev_sample_retrain.py", line 612, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/workspace/cc_based_auto_improvement/scripts/dev_sample_retrain.py", line 603, in main
+    stage_extract(args, pool)
+  File "/workspace/cc_based_auto_improvement/scripts/dev_sample_retrain.py", line 319, in stage_extract
+    _activate_redteam_cached(
+  File "/workspace/cc_based_auto_improvement/src/agentic_redteam/retrain.py", line 423, in _activate_redteam_cached
+    acts, computed = _compute(dataset[chunk], show_progress=False)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/src/agentic_redteam/retrain.py", line 375, in _compute
+    acts = get_model().get_activations(
+           ^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/scripts/dev_sample_retrain.py", line 315, in _get_model
+    loaded["m"] = load_extraction_model(args.model_name, args.layer, verbose=True)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/src/agentic_redteam/model_loading.py", line 168, in load_extraction_model
+    return LLMModel.load(model_name, model_kwargs=model_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/.venv_claude/src/tuberlens/src/tuberlens/model.py", line 312, in load
+    model = AutoModelForCausalLM.from_pretrained(**model_kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/.venv_claude/lib/python3.12/site-packages/transformers/models/auto/auto_factory.py", line 573, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/.venv_claude/lib/python3.12/site-packages/transformers/modeling_utils.py", line 272, in _wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/.venv_claude/lib/python3.12/site-packages/transformers/modeling_utils.py", line 4455, in from_pretrained
+    ) = cls._load_pretrained_model(
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/.venv_claude/lib/python3.12/site-packages/transformers/modeling_utils.py", line 4804, in _load_pretrained_model
+    disk_only_shard_files = get_disk_only_shard_files(device_map, weight_map)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/cc_based_auto_improvement/.venv_claude/lib/python3.12/site-packages/transformers/modeling_utils.py", line 5864, in get_disk_only_shard_files
+    files_content[filename].append(device_map[weight_name])
+                                   ~~~~~~~~~~^^^^^^^^^^^^^
+KeyError: ''
