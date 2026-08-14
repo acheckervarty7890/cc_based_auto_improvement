@@ -1,5 +1,5 @@
 # Red-team vintage sweep — live status
-_Updated 2026-08-14T18:06:09+00:00_
+_Updated 2026-08-14T18:26:15+00:00_
 
 **What this measures.** Each row is a real `ProbeFactory` refit on the base training data plus one *vintage* of iteration-3 red-team pairs, scored on the four `eval_dataset_hu_ha` splits from cached activations. Only set membership varies between vintages — content, activations and every hyperparameter are iteration 3's — so the vintages are directly comparable to each other in a way the original `probe_iter1/2/3` are not (those came from separate retrains with their own filter draws and contrastive generations).
 
@@ -11,10 +11,10 @@ _Updated 2026-08-14T18:06:09+00:00_
 
 **Read the sd, not just the mean.** `eval_balanced_refusal` moves by sd ~0.02-0.07 on seed alone, which is larger than most between-vintage gaps. A single-seed comparison of two vintages on that split means nothing; that is what this sweep exists to quantify. For a *paired* between-vintage contrast (common random numbers, far tighter error bars) see `*_gate.json` from `scripts/attribution_vintage_gate.py`.
 
-## Progress: 29 fits recorded
+## Progress: 32 fits recorded
 
 - **deepseekv4pro**: v0×1, v1×1, v2×1, v3×1
-- **gptoss120b**: v0×7, v1×6, v2×6, v3×6
+- **gptoss120b**: v0×7, v1×7, v2×7, v3×7
 
 ## deepseekv4pro — mean ± sd over seeds (pipeline scale)
 
@@ -30,6 +30,6 @@ _Updated 2026-08-14T18:06:09+00:00_
 | vintage | rows | seeds | ai_dilemmas | ant_hh | balanced_refusal | daily_dilemmas | mean |
 |---|---|---|---|---|---|---|---|
 | v0 | 0 | 7 | 0.4982 ± 0.0361 | 0.4684 ± 0.0795 | 0.3953 ± 0.1956 | 0.5167 ± 0.0285 | 0.4697 ± 0.0650 |
-| v1 | 356 | 6 | 0.9350 ± 0.0170 | 0.7040 ± 0.0115 | 0.9175 ± 0.0112 | 0.9682 ± 0.0060 | 0.8812 ± 0.0056 |
-| v2 | 546 | 6 | 0.9827 ± 0.0246 | 0.7421 ± 0.0167 | 0.9264 ± 0.0074 | 0.9888 ± 0.0051 | 0.9100 ± 0.0101 |
-| v3 | 778 | 6 | 0.9948 ± 0.0040 | 0.7332 ± 0.0185 | 0.9276 ± 0.0465 | 0.9811 ± 0.0041 | 0.9092 ± 0.0150 |
+| v1 | 356 | 7 | 0.9398 ± 0.0199 | 0.7055 ± 0.0113 | 0.9185 ± 0.0106 | 0.9695 ± 0.0064 | 0.8833 ± 0.0076 |
+| v2 | 546 | 7 | 0.9848 ± 0.0232 | 0.7430 ± 0.0155 | 0.9148 ± 0.0314 | 0.9889 ± 0.0047 | 0.9079 ± 0.0108 |
+| v3 | 778 | 7 | 0.9940 ± 0.0043 | 0.7350 ± 0.0176 | 0.9296 ± 0.0428 | 0.9803 ± 0.0043 | 0.9097 ± 0.0138 |
