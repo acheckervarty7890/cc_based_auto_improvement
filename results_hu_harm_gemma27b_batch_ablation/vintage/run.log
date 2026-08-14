@@ -1,0 +1,49 @@
+
+=== gptoss120b ===
+  vintage 1:  356 rows of iter3 (178 of 195 iter1 pairs survive; 17 dropped before iter3)
+  vintage 2:  546 rows of iter3 (273 of 292 iter2 pairs survive; 19 dropped before iter3)
+  vintage 3:  778 rows of iter3 (389 of 389 iter3 pairs survive; 0 dropped before iter3)
+  pairs in vintage 1 but not vintage 2: 2
+  red-team activations: 778 rows, 8.6 GB (12s); 155 on the val side
+/workspace/cc_based_auto_improvement/.venv_claude/src/tuberlens/src/tuberlens/probes/pytorch_classifiers.py:345: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  scheduler.step()
+  vintage 0: fit  25.0s  score 20.3s  train=42 val=8  best_epoch=1
+     ai_dilemmas   =0.4918  ant_hh        =0.4840  balanced_refusal=0.6014  daily_dilemmas=0.5426  MEAN=0.5299
+  vintage 1: fit 183.1s  score 16.1s  train=321 val=85  best_epoch=1
+     ai_dilemmas   =0.9078  ant_hh        =0.7061  balanced_refusal=0.9253  daily_dilemmas=0.9683  MEAN=0.8768
+  vintage 2: fit 267.1s  score 17.6s  train=478 val=118  best_epoch=2
+     ai_dilemmas   =0.9949  ant_hh        =0.7440  balanced_refusal=0.9155  daily_dilemmas=0.9945  MEAN=0.9122
+  vintage 3: fit 399.7s  score 17.1s  train=665 val=163  best_epoch=5
+     ai_dilemmas   =0.9902  ant_hh        =0.7495  balanced_refusal=0.8698  daily_dilemmas=0.9816  MEAN=0.8978
+
+=== deepseekv4pro ===
+  vintage 1:  368 rows of iter3 (184 of 226 iter1 pairs survive; 42 dropped before iter3)
+  vintage 2:  706 rows of iter3 (353 of 370 iter2 pairs survive; 17 dropped before iter3)
+  vintage 3:  878 rows of iter3 (439 of 439 iter3 pairs survive; 0 dropped before iter3)
+  pairs in vintage 1 but not vintage 2: 10
+  red-team activations: 878 rows, 9.7 GB (15s); 173 on the val side
+/workspace/cc_based_auto_improvement/.venv_claude/src/tuberlens/src/tuberlens/probes/pytorch_classifiers.py:345: UserWarning: Detected call of `lr_scheduler.step()` before `optimizer.step()`. In PyTorch 1.1.0 and later, you should call them in the opposite order: `optimizer.step()` before `lr_scheduler.step()`.  Failure to do this will result in PyTorch skipping the first value of the learning rate schedule. See more details at https://pytorch.org/docs/stable/optim.html#how-to-adjust-learning-rate
+  scheduler.step()
+  vintage 0: fit  21.8s  score 16.7s  train=42 val=8  best_epoch=1
+     ai_dilemmas   =0.4918  ant_hh        =0.4840  balanced_refusal=0.6014  daily_dilemmas=0.5426  MEAN=0.5299
+  vintage 1: fit 156.2s  score 15.3s  train=334 val=84  best_epoch=1
+     ai_dilemmas   =0.8179  ant_hh        =0.7591  balanced_refusal=0.8434  daily_dilemmas=0.9796  MEAN=0.8500
+  vintage 2: fit 316.4s  score 16.4s  train=606 val=150  best_epoch=5
+     ai_dilemmas   =0.9868  ant_hh        =0.7367  balanced_refusal=0.8852  daily_dilemmas=0.9797  MEAN=0.8971
+  vintage 3: fit 584.4s  score 16.2s  train=747 val=181  best_epoch=36
+     ai_dilemmas   =0.9813  ant_hh        =0.7098  balanced_refusal=0.9688  daily_dilemmas=0.9850  MEAN=0.9112
+
+
+=== eval AUROC by red-team vintage (pipeline scale) ===
+arm            vintage  rows       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas     MEAN
+-------------------------------------------------------------------------------------------------------------
+gptoss120b           0     0            0.4918            0.4840            0.6014            0.5426   0.5299
+gptoss120b           1   356            0.9078            0.7061            0.9253            0.9683   0.8768
+gptoss120b           2   546            0.9949            0.7440            0.9155            0.9945   0.9122
+gptoss120b           3   778            0.9902            0.7495            0.8698            0.9816   0.8978
+deepseekv4pro        0     0            0.4918            0.4840            0.6014            0.5426   0.5299
+deepseekv4pro        1   368            0.8179            0.7591            0.8434            0.9796   0.8500
+deepseekv4pro        2   706            0.9868            0.7367            0.8852            0.9797   0.8971
+deepseekv4pro        3   878            0.9813            0.7098            0.9688            0.9850   0.9112
+
+wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation/vintage/vintage_auroc.csv
