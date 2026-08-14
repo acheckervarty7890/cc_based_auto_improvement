@@ -4,17 +4,20 @@
 ``evaluate_probe`` does not extract eval activations the way the rest of this repo
 extracts activations. It hands the splits to tuberlens' ``get_performances``, which
 calls ``LLMModel.load(probe.model_name)`` directly (``tuberlens/evaluation.py:79``)
-with ``max_memory=global_settings.MODEL_MAX_MEMORY.get(...)`` — a dict nothing in this
-repo ever populates, so ``None``. That path therefore gets **none** of what
+with no ``model_kwargs`` of its own. That path therefore gets **none** of what
 ``model_loading.load_extraction_model`` gives the red-team and retrain paths:
 
 * no truncation to layers ``0..probe.layer`` — for ``google/gemma-3-27b-it`` at layer 32
   that is 29 of 62 layers, ~24 GB of bf16 weights, downloaded and dispatched without
   ever running a forward, and (since ``device_map="auto"`` fills the GPU in layer order)
-  exactly what pushes the *executed* tail onto disk;
-* no ``offload_buffers=True``;
+  exactly what pushes the *executed* tail onto disk. **This is the one that still can't
+  be fixed from the outside**, and it is the expensive one;
 * no ``AGENTIC_REDTEAM_MAX_MEMORY`` pin — setting that env var does not affect
-  ``get_performances`` at all, because that path never reads it.
+  ``get_performances`` at all, because that path never reads it. tuberlens' own
+  ``MAX_MEMORY`` / ``MODEL_MAX_MEMORY`` settings *do* reach it (they are resolved inside
+  ``LLMModel.load``), as does ``OFFLOAD_BUFFERS``, which now defaults on — so a budget
+  and buffer offloading can be pinned there without going through this script. The
+  layers still can't.
 
 It never mattered before because every gemma run so far carried a ``kaggle:`` section,
 so its eval was a pure cache hit and no model was loaded. It matters the first time a
