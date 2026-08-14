@@ -1,5 +1,5 @@
 # Red-team vintage sweep — live status
-_Updated 2026-08-14T22:08:09+00:00_
+_Updated 2026-08-14T22:28:22+00:00_
 
 **What this measures.** Each row is a real `ProbeFactory` refit on the base training data plus one *vintage* of iteration-3 red-team pairs, scored on the four `eval_dataset_hu_ha` splits from cached activations. Only set membership varies between vintages — content, activations and every hyperparameter are iteration 3's — so the vintages are directly comparable to each other in a way the original `probe_iter1/2/3` are not (those came from separate retrains with their own filter draws and contrastive generations).
 
@@ -11,19 +11,19 @@ _Updated 2026-08-14T22:08:09+00:00_
 
 **Read the sd, not just the mean.** `eval_balanced_refusal` moves by sd ~0.02-0.07 on seed alone, which is larger than most between-vintage gaps. A single-seed comparison of two vintages on that split means nothing; that is what this sweep exists to quantify. For a *paired* between-vintage contrast (common random numbers, far tighter error bars) see `*_gate.json` from `scripts/attribution_vintage_gate.py`.
 
-## Progress: 71 fits recorded
+## Progress: 75 fits recorded
 
-- **deepseekv4pro**: v0×8, v1×8, v2×8, v3×7
+- **deepseekv4pro**: v0×9, v1×9, v2×9, v3×8
 - **gptoss120b**: v0×10, v1×10, v2×10, v3×10
 
 ## deepseekv4pro — mean ± sd over seeds (pipeline scale)
 
 | vintage | rows | seeds | ai_dilemmas | ant_hh | balanced_refusal | daily_dilemmas | mean |
 |---|---|---|---|---|---|---|---|
-| v0 | 0 | 8 | 0.4968 ± 0.0337 | 0.4599 ± 0.0775 | 0.4055 ± 0.1834 | 0.5129 ± 0.0286 | 0.4688 ± 0.0602 |
-| v1 | 368 | 8 | 0.8282 ± 0.0363 | 0.7281 ± 0.0173 | 0.8381 ± 0.0256 | 0.9698 ± 0.0160 | 0.8410 ± 0.0152 |
-| v2 | 706 | 8 | 0.9321 ± 0.0676 | 0.7270 ± 0.0123 | 0.8998 ± 0.0368 | 0.9780 ± 0.0066 | 0.8842 ± 0.0253 |
-| v3 | 878 | 7 | 0.9158 ± 0.0765 | 0.7373 ± 0.0187 | 0.8864 ± 0.0535 | 0.9867 ± 0.0022 | 0.8816 ± 0.0298 |
+| v0 | 0 | 9 | 0.4970 ± 0.0315 | 0.4578 ± 0.0727 | 0.3816 ± 0.1860 | 0.5217 ± 0.0375 | 0.4645 ± 0.0577 |
+| v1 | 368 | 9 | 0.8325 ± 0.0363 | 0.7291 ± 0.0165 | 0.8365 ± 0.0245 | 0.9714 ± 0.0157 | 0.8424 ± 0.0148 |
+| v2 | 706 | 9 | 0.9370 ± 0.0649 | 0.7262 ± 0.0117 | 0.9060 ± 0.0391 | 0.9785 ± 0.0063 | 0.8869 ± 0.0250 |
+| v3 | 878 | 8 | 0.9244 ± 0.0749 | 0.7369 ± 0.0174 | 0.8941 ± 0.0541 | 0.9869 ± 0.0021 | 0.8856 ± 0.0298 |
 
 ## gptoss120b — mean ± sd over seeds (pipeline scale)
 
