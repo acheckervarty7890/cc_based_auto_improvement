@@ -1,5 +1,5 @@
 # Red-team vintage sweep — live status
-_Updated 2026-08-14T17:45:58+00:00_
+_Updated 2026-08-14T18:06:09+00:00_
 
 **What this measures.** Each row is a real `ProbeFactory` refit on the base training data plus one *vintage* of iteration-3 red-team pairs, scored on the four `eval_dataset_hu_ha` splits from cached activations. Only set membership varies between vintages — content, activations and every hyperparameter are iteration 3's — so the vintages are directly comparable to each other in a way the original `probe_iter1/2/3` are not (those came from separate retrains with their own filter draws and contrastive generations).
 
@@ -11,10 +11,10 @@ _Updated 2026-08-14T17:45:58+00:00_
 
 **Read the sd, not just the mean.** `eval_balanced_refusal` moves by sd ~0.02-0.07 on seed alone, which is larger than most between-vintage gaps. A single-seed comparison of two vintages on that split means nothing; that is what this sweep exists to quantify. For a *paired* between-vintage contrast (common random numbers, far tighter error bars) see `*_gate.json` from `scripts/attribution_vintage_gate.py`.
 
-## Progress: 23 fits recorded
+## Progress: 29 fits recorded
 
 - **deepseekv4pro**: v0×1, v1×1, v2×1, v3×1
-- **gptoss120b**: v0×5, v1×5, v2×5, v3×4
+- **gptoss120b**: v0×7, v1×6, v2×6, v3×6
 
 ## deepseekv4pro — mean ± sd over seeds (pipeline scale)
 
@@ -29,7 +29,7 @@ _Updated 2026-08-14T17:45:58+00:00_
 
 | vintage | rows | seeds | ai_dilemmas | ant_hh | balanced_refusal | daily_dilemmas | mean |
 |---|---|---|---|---|---|---|---|
-| v0 | 0 | 5 | 0.4987 ± 0.0431 | 0.4756 ± 0.0871 | 0.3529 ± 0.2089 | 0.5057 ± 0.0262 | 0.4582 ± 0.0756 |
-| v1 | 356 | 5 | 0.9334 ± 0.0185 | 0.7078 ± 0.0075 | 0.9148 ± 0.0101 | 0.9672 ± 0.0060 | 0.8808 ± 0.0062 |
-| v2 | 546 | 5 | 0.9922 ± 0.0089 | 0.7468 ± 0.0134 | 0.9262 ± 0.0083 | 0.9892 ± 0.0056 | 0.9136 ± 0.0054 |
-| v3 | 778 | 4 | 0.9957 ± 0.0041 | 0.7417 ± 0.0111 | 0.9381 ± 0.0476 | 0.9811 ± 0.0040 | 0.9141 ± 0.0115 |
+| v0 | 0 | 7 | 0.4982 ± 0.0361 | 0.4684 ± 0.0795 | 0.3953 ± 0.1956 | 0.5167 ± 0.0285 | 0.4697 ± 0.0650 |
+| v1 | 356 | 6 | 0.9350 ± 0.0170 | 0.7040 ± 0.0115 | 0.9175 ± 0.0112 | 0.9682 ± 0.0060 | 0.8812 ± 0.0056 |
+| v2 | 546 | 6 | 0.9827 ± 0.0246 | 0.7421 ± 0.0167 | 0.9264 ± 0.0074 | 0.9888 ± 0.0051 | 0.9100 ± 0.0101 |
+| v3 | 778 | 6 | 0.9948 ± 0.0040 | 0.7332 ± 0.0185 | 0.9276 ± 0.0465 | 0.9811 ± 0.0041 | 0.9092 ± 0.0150 |
