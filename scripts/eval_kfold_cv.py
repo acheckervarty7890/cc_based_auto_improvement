@@ -267,6 +267,44 @@ def _fold_csv(work_dir: Path, label: str, fold: int) -> Path:
     return work_dir / "folds" / f"{label.replace(':', '__')}__f{fold}.csv"
 
 
+def _backfill_folds(work_dir: Path) -> int:
+    """Split a pre-existing ``kfold_cv_folds.csv`` into the per-fold files.
+
+    Only for runs finished by the version of this script that wrote its results once, at
+    the end. Those runs left no ``folds/`` directory, so without this a re-run would
+    recompute all 25 folds even though every answer is already on disk — which would make
+    picking up the per-fold change cost exactly the compute the change exists to protect.
+
+    Conservative in both directions: it does nothing if ``folds/`` already holds anything
+    (a newer run is authoritative over an older summary), and it never overwrites a file
+    that exists. Returns the number of files written.
+    """
+    import pandas as pd
+
+    combined = work_dir / "kfold_cv_folds.csv"
+    folds_dir = work_dir / "folds"
+    if not combined.is_file():
+        return 0
+    if folds_dir.is_dir() and any(folds_dir.glob("*.csv")):
+        return 0
+
+    df = pd.read_csv(combined)
+    if not {"geometry", "fold"} <= set(df.columns):
+        return 0
+    written = 0
+    for (label, fold), group in df.groupby(["geometry", "fold"]):
+        path = _fold_csv(work_dir, str(label), int(fold))
+        if path.exists():
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        group.to_csv(path, index=False)
+        written += 1
+    if written:
+        print(f"backfilled {written} per-fold file(s) from {combined.name} — "
+              f"these folds will be reused, not recomputed")
+    return written
+
+
 def _run_geometry(
     label: str, dataset, split_of: list[str], args, probe, probe_spec
 ) -> list[dict]:
@@ -354,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     # Before anything runs, not after: the per-fold CSVs are written as folds finish.
     args.work_dir.mkdir(parents=True, exist_ok=True)
+    _backfill_folds(args.work_dir)
 
     if args.fetch_kaggle:
         import subprocess
