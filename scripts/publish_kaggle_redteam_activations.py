@@ -104,8 +104,10 @@ import json
 import os
 import sys
 import tempfile
+import threading
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -994,6 +996,140 @@ def _locate_archive(staging: Path, archive_name: str) -> Path:
     )
 
 
+def _remote_file_names(api, handle: str, page_size: int = 200) -> set[str]:
+    """Every file name in a dataset, following pagination.
+
+    Load-bearing for the per-file path below: it is the only way to tell "Kaggle does
+    not have this blob" from "Kaggle refused to serve it just now". The listing pages at
+    20 by default and returns a ``next_page_token``; a single page is ~4% of a 778-file
+    unit, so not paging would classify almost everything as absent.
+    """
+    names: set[str] = set()
+    token = None
+    while True:
+        page = api.dataset_list_files(handle, page_token=token, page_size=page_size)
+        batch = [f.name if hasattr(f, "name") else str(f) for f in page.files]
+        if not batch:
+            break
+        names.update(batch)
+        token = getattr(page, "next_page_token", None)
+        if not token:
+            break
+    return names
+
+
+def _download_unit_per_file(api, unit: Unit, args: argparse.Namespace, cache_dir: Path) -> int:
+    """Pull a unit's blobs one file at a time instead of as the whole-dataset archive.
+
+    Why this exists: Kaggle serves an uploaded .zip's *members* as individually
+    addressable files, and serves them far faster than ``dataset_download_files``, which
+    has to generate the whole-dataset zip server-side first (measured ~10 MB/s against
+    0.5-1.0 MB/s). Only the blobs this repo still expects are requested, so blobs made
+    stale by an edit are never transferred at all.
+
+    **Absence is decided by the remote listing, never by a failed download.** Kaggle
+    rate-limits a burst of per-file requests by answering **404** — the same status a
+    genuinely missing file gets. An earlier version read those 404s as "newer than the
+    upload, must be recomputed": it restored 56 of 1551 blobs, reported success, exited
+    0, and would have sent ~1600 conversations through a 27B model instead of 105. So a
+    404 for a name that IS listed remotely is a transport failure — retried with backoff,
+    and fatal if it persists — while only a name absent from the listing counts as owed.
+
+    Correctness of what does land is unchanged: blobs are content-addressed, so a file
+    whose name matches is the same conversation by construction.
+    """
+    handle = f"{args.owner}/{unit.slug}"
+    expected = [
+        (arcname, path)
+        for arcname, path in unit.files
+        if not path.exists() or getattr(args, "force", False)
+    ]
+    if not expected:
+        return 0
+
+    remote = _remote_file_names(api, handle)
+    todo = [(a, p) for a, p in expected if a in remote]
+    owed = [a for a, _ in expected if a not in remote]
+    print(
+        f"    dataset lists {len(remote)} file(s); {len(todo)} of {len(expected)} wanted "
+        f"blob(s) are there, {len(owed)} must be computed.",
+        flush=True,
+    )
+    if not todo:
+        return 0
+
+    workers = max(1, int(getattr(args, "download_workers", 2)))
+    delay = float(getattr(args, "download_delay", 0.0))
+    attempts = max(1, int(getattr(args, "download_attempts", 4)))
+    lock = threading.Lock()
+    state = {"written": 0, "failed": []}
+    started = time.monotonic()
+
+    with tempfile.TemporaryDirectory(
+        dir=str(cache_dir), prefix=f".restore_{_slugify(unit.label)}_"
+    ) as tmp:
+        staging = Path(tmp)
+
+        def fetch(item) -> None:
+            arcname, dest = item
+            landed = staging / Path(arcname).name
+            last = ""
+            for attempt in range(attempts):
+                if delay:
+                    time.sleep(delay)
+                try:
+                    api.dataset_download_file(handle, arcname, path=str(staging), quiet=True)
+                except Exception as e:  # noqa: BLE001 — retried; fatal only after `attempts`
+                    last = f"{type(e).__name__}: {str(e)[:90]}"
+                else:
+                    if not landed.is_file():
+                        zipped = landed.with_suffix(landed.suffix + ".zip")
+                        if zipped.is_file():
+                            with zipfile.ZipFile(zipped) as zf:
+                                zf.extractall(staging)
+                            zipped.unlink(missing_ok=True)
+                    if landed.is_file():
+                        break
+                    last = "request returned no file"
+                if attempt < attempts - 1:
+                    # Kaggle's throttle is time-based, so back off in tens of seconds,
+                    # not the sub-second retries a transient 5xx would want.
+                    time.sleep(min(120, 10 * (2 ** attempt)))
+            else:
+                with lock:
+                    state["failed"].append((arcname, last))
+                return
+
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            tmp_dest = dest.with_suffix(".pt.partial")
+            os.replace(landed, tmp_dest)
+            os.replace(tmp_dest, dest)
+            with lock:
+                state["written"] += 1
+                n = state["written"]
+                if n % 50 == 0 or n == len(todo):
+                    rate = n / max(1e-9, time.monotonic() - started)
+                    print(
+                        f"    {n}/{len(todo)} blob(s) ({rate:.2f}/s, "
+                        f"ETA {(len(todo) - n) / max(rate, 1e-9) / 60:.1f} min)",
+                        flush=True,
+                    )
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(fetch, todo))
+
+    if state["failed"]:
+        for arcname, why in state["failed"][:5]:
+            print(f"    FAILED {arcname}: {why}", file=sys.stderr)
+        raise KaggleActivationError(
+            f"{unit.label}: {len(state['failed'])} blob(s) are listed in the dataset but "
+            f"could not be downloaded after {attempts} attempts (Kaggle rate limit?). "
+            "Refusing to continue — treating these as missing would recompute them on a "
+            "27B model. Re-run later, or use --no-per-file for the archive path."
+        )
+    return state["written"]
+
+
 def _download_unit(api, unit: Unit, args: argparse.Namespace, cache_dir: Path) -> int:
     """Pull one unit's archive into the cache dir. Returns the number of blobs written.
 
@@ -1029,10 +1165,27 @@ def _download_unit(api, unit: Unit, args: argparse.Namespace, cache_dir: Path) -
             unexpected = set(names) - set(expected)
             absent = set(expected) - set(names)
             if unexpected or absent:
-                raise KaggleActivationError(
-                    f"{unit.label}: archive does not match this repo "
-                    f"({len(absent)} expected file(s) absent, {len(unexpected)} unexpected)."
+                if not getattr(args, "allow_partial", False):
+                    raise KaggleActivationError(
+                        f"{unit.label}: archive does not match this repo "
+                        f"({len(absent)} expected file(s) absent, {len(unexpected)} "
+                        "unexpected). Pass --allow-partial to pull the intersection."
+                    )
+                # --allow-partial: the published archive predates an edit to this unit's
+                # conversations, so it holds blobs for content that no longer exists and
+                # lacks blobs for content that now does. Pulling the *intersection* is
+                # still strictly correct — the blobs are content-addressed, so a name that
+                # matches is the same conversation — and it saves recomputing everything
+                # the edit did not touch. What it cannot do is make the unit complete, so
+                # say exactly what is still owed rather than let a later step discover it.
+                print(
+                    f"    --allow-partial: {len(set(expected)) - len(absent)} of "
+                    f"{len(expected)} expected blob(s) are in the archive; "
+                    f"{len(absent)} must still be computed, {len(unexpected)} archived "
+                    "blob(s) are stale and will be ignored.",
+                    flush=True,
                 )
+                names = [n for n in names if n in expected]
             written = 0
             for name in names:
                 dest = expected[name]
@@ -1130,7 +1283,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
             continue
         print(f">>> {unit.label}: downloading {args.owner}/{unit.slug} ...", flush=True)
         try:
-            written = _download_unit(api, unit, args, cache_dir)
+            fetch = _download_unit_per_file if args.per_file else _download_unit
+            written = fetch(api, unit, args, cache_dir)
         except Exception as e:  # noqa: BLE001 — report and continue to the next unit
             failures += 1
             print(f"    FAILED {unit.label}: {e}", file=sys.stderr)
@@ -1358,7 +1512,8 @@ def main(argv: list[str] | None = None) -> int:
         "reload per unit; pass --no-release-between-units on a box with RAM to spare.",
     )
     p_sync.add_argument("--force", action="store_true", help="Overwrite blobs already on disk")
-    p_sync.set_defaults(func=cmd_sync)
+    p_sync.set_defaults(func=cmd_sync, per_file=False, download_workers=2,
+                        download_delay=0.25, download_attempts=4, allow_partial=False)
 
     p_ex = sub.add_parser("extract", help="Compute missing blobs only; upload nothing")
     _add_common(p_ex)
@@ -1376,6 +1531,45 @@ def main(argv: list[str] | None = None) -> int:
     _add_common(p_res)
     _add_kaggle(p_res)
     p_res.add_argument("--force", action="store_true", help="Overwrite blobs already on disk")
+    p_res.add_argument(
+        "--per-file",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Fetch blobs individually rather than as the whole-dataset archive "
+        "(default: yes). Kaggle generates the archive server-side and serves it at "
+        "~0.5-1 MB/s; the same blobs fetched per file measured 6.9 MB/s at 8 workers, and "
+        "only the blobs this repo still expects are transferred. Pass --no-per-file for "
+        "the archive path, which additionally verifies the archive's whole file list.",
+    )
+    p_res.add_argument(
+        "--download-workers",
+        type=int,
+        default=2,
+        help="Parallel per-file downloads (default 2). Kaggle throttles a burst of "
+        "per-file requests by answering 404, so this is deliberately low.",
+    )
+    p_res.add_argument(
+        "--download-delay",
+        type=float,
+        default=0.25,
+        help="Seconds to wait before each per-file request (default 0.25), to stay "
+        "under Kaggle's per-file rate limit.",
+    )
+    p_res.add_argument(
+        "--download-attempts",
+        type=int,
+        default=4,
+        help="Attempts per blob before the restore fails (default 4), with 10/20/40s "
+        "backoff. A listed blob that still will not download is fatal, never 'missing'.",
+    )
+    p_res.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="Accept an archive that only partly matches this repo, pulling the "
+        "intersection instead of refusing. Use after editing a unit's conversations: the "
+        "blobs are content-addressed, so a matching name is the same conversation, and "
+        "only the edited ones then need recomputing. The count still owed is reported.",
+    )
     p_res.set_defaults(func=cmd_restore)
 
     args = ap.parse_args(argv)
