@@ -321,7 +321,14 @@ def run_arm(arm: str, iteration: int, seeds: list[int], eval_dir: Path, out_dir:
             "n_redteam_rows": len(keep[k]),
             "n_train": n_tr,
             "n_val": n_val,
-            "best_epoch": int(probe._classifier.best_epoch),
+            # None when validation AUROC never improved on its initial value — which
+            # happens on the tiny base-only vintage (42 train / 8 val rows), where a
+            # seed can leave the probe at chance for all 200 epochs. Not an error, and
+            # it must not abort a sweep whose other 39 fits are fine.
+            "best_epoch": (
+                None if probe._classifier.best_epoch is None
+                else int(probe._classifier.best_epoch)
+            ),
             "fit_seconds": fit_s,
             "auroc": res,
         }
