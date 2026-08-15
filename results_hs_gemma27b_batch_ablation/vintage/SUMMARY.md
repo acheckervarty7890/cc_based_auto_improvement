@@ -1,5 +1,5 @@
 # Red-team vintage sweep — HIGH-STAKES (experiment9)
-_Updated 2026-08-15T12:20:17+00:00_
+_Updated 2026-08-15T12:50:21+00:00_
 
 **What this measures.** Each row is a real `ProbeFactory` refit on the base training data (`data/hs_ls_200.jsonl`) plus one *vintage* of iteration-3 red-team pairs, scored on the four `eval_datasets/` splits from cached activations. Only set membership varies between vintages — content, activations and every hyperparameter are iteration 3's — so the vintages are directly comparable to each other in a way the original `probe_iter1/2/3` are not (those came from separate retrains with their own filter draws and contrastive generations).
 
@@ -15,12 +15,13 @@ _Updated 2026-08-15T12:20:17+00:00_
 
 **Read the sd, not just the mean.** These are unpaired refits with independent initialisations, so the seed-to-seed sd is the quantity that makes or breaks a single-seed reading — where it is comparable to a between-vintage gap, that gap is not evidence of anything.
 
-## Progress: 10 fits recorded
+## Progress: 20 fits recorded
 
-- **deepseekv4pro**: v0×10
+- **deepseekv4pro**: v0×10, v3×10
 
 ## deepseekv4pro — mean ± sd over seeds (pipeline scale)
 
 | vintage | rows | seeds | anthropic | mt | mts | toolace | mean |
 |---|---|---|---|---|---|---|---|
 | v0 | 0 | 10 | 0.9531 ± 0.0044 | 0.8673 ± 0.0495 | 0.9436 ± 0.0094 | 0.7080 ± 0.0252 | 0.8680 ± 0.0121 |
+| v3 | 716 | 10 | 0.9539 ± 0.0028 | 0.9127 ± 0.0097 | 0.9275 ± 0.0179 | 0.7708 ± 0.0093 | 0.8912 ± 0.0064 |
