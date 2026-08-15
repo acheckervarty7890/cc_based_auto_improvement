@@ -485,6 +485,30 @@ and why blobs computed with and without it stay interchangeable. transformers lo
 It returns `None` (leave the model alone) when truncation is disabled, when the probe
 reads the last layer anyway, or when the config exposes no layer count we recognise.
 
+**Truncation + disk offload needs `_install_truncated_load_shims`.** Truncating makes the
+model's module tree a strict subset of the checkpoint's, and transformers' *disk*-offload
+bookkeeping does not tolerate that: `_get_key_renaming_mapping` maps **every** serialized
+key, so the dropped layers stay in the `weight_map`, and the two helpers that then look
+those names up in the `device_map` — which only knows about modules that exist — blow up.
+`get_disk_only_shard_files` walks a name's prefixes looking for a key of the map, bottoms
+out at `""` and indexes with it (`KeyError: ''`); `expand_device_map` omits the names
+entirely, so the `disk_offload_index` comprehension built right after raises on them in
+turn. Neither runs unless `"disk" in device_map.values()`, which is the whole shape of the
+bug: **truncation is free on a box roomy enough to hold layers `0..layer` across GPU+CPU
+and crashes the load on the tight box it exists to help** — it killed the dev-sample
+extraction (gemma-3-27b at layer 32, 30 GB of executed weights, 8 GB GPU + 15 GB RAM).
+`load_extraction_model` installs the two replacements, once per process and only when
+truncation actually fired. A checkpoint weight with no module resolves to `"meta"` rather
+than raising (never `"disk"` — there is nothing to offload it *to*, and nothing will ever
+ask for it), and a shard holding only dropped layers is now classified skippable instead
+of being opened and discarded key by key. Both are behaviour-preserving when there is no
+mismatch. `scripts/check_truncated_disk_offload.py` reproduces the whole thing in seconds
+on a randomly-initialised ~1 M-parameter Llama saved in tiny shards (no network, no token,
+no GPU): `KeyError: ''` unpatched, loads patched, kept layers **bit-identical** to the
+untruncated model. Run it after touching either the truncation or the shims — the real
+model needs a 54 GB download and a box tight enough to offload to disk before it would
+tell you anything.
+
 Two env knobs: `AGENTIC_REDTEAM_TRUNCATE_LAYERS=0` disables the truncation, and
 `AGENTIC_REDTEAM_MAX_MEMORY` (e.g. `"0=21GiB,cpu=45GiB"`) pins accelerate's per-device
 budget. The latter is unset by default, which keeps tuberlens' `max_memory=None` —
