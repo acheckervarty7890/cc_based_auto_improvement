@@ -229,12 +229,67 @@ def test_hyperparam_override_reaches_the_trainer() -> list[str]:
     return failures
 
 
+def test_lda_pooling_chunk_is_exact() -> list[str]:
+    """Chunking the LDA's float64 cast must bound memory without changing the answer.
+
+    ``_fit_shrinkage_lda`` mean-pools in float64. Casting the whole ``[n, seq, embed]``
+    tensor at once is 747 x 1024 x 5376 x 8 B = **32.9 GB** on a real training set, which
+    OOM-killed a running sweep; it is chunked to ~176 MB instead. The other tests here all
+    use tiny synthetic dimensions (10 tokens, 64 dims) where the whole-tensor cast is a few
+    MB, so **none of them can catch that class of bug** — hence this one, which checks the
+    property the chunking has to preserve rather than the memory it saves.
+
+    Ragged masks and a sequence length coprime to the chunk sizes, so a boundary error in
+    the per-row denominators would show up.
+    """
+    import agentic_redteam.probe_architectures as PA
+    from tuberlens.interfaces.activations import Activation
+
+    print("\n--- 5. chunked float64 pooling in the LDA is exact ---")
+    torch.manual_seed(0)
+    n, seq, embed = 40, 37, 96
+    acts = torch.randn(n, seq, embed)
+    y = (torch.arange(n) % 2).float()
+    acts[:, :, 0] += (y[:, None] - 0.5) * 3
+    mask = torch.zeros(n, seq, dtype=torch.bool)
+    for i in range(n):
+        mask[i, : 5 + (i * 7) % (seq - 5)] = True
+    activation = Activation(
+        activations=acts.to(torch.bfloat16),
+        attention_mask=mask,
+        input_ids=torch.ones(n, seq, dtype=torch.long),
+    )
+
+    original = PA._LDA_POOL_CHUNK
+    results = {}
+    try:
+        for chunk in (1, 4, 7, 10_000):
+            PA._LDA_POOL_CHUNK = chunk
+            with contextlib.redirect_stdout(io.StringIO()):
+                results[chunk] = PA._fit_shrinkage_lda(activation, y, "auto")
+    finally:
+        PA._LDA_POOL_CHUNK = original
+
+    ref_w, ref_b = results[1]
+    failures = []
+    for chunk, (w, b) in results.items():
+        dw = (w - ref_w).abs().max().item()
+        db = abs(b - ref_b)
+        print(f"  chunk={chunk:<6} max|dw|={dw:.3e}  |db|={db:.3e}")
+        if dw > 0 or db > 0:
+            failures.append(f"LDA pooling at chunk={chunk} differs (dw={dw:.3e})")
+    if not failures:
+        print("  ok: bit-identical direction and bias at every chunk size")
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
     failures += test_every_architecture_trains()
     failures += test_best_epoch_is_restored()
     failures += test_tuberlens_lda_is_difference_of_means()
     failures += test_hyperparam_override_reaches_the_trainer()
+    failures += test_lda_pooling_chunk_is_exact()
 
     print()
     if failures:

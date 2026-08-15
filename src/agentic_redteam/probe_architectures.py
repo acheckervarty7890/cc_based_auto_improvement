@@ -285,6 +285,10 @@ def _make_adam_classifier(architecture, hyperparams: dict, restore_best_epoch: b
 #: the sample estimate is singular and unshrunk LDA is undefined.
 DEFAULT_SHRINKAGE: Any = "auto"
 
+#: Rows cast to float64 at a time when mean-pooling for the LDA fit. At 1024 tokens x 5376
+#: dims x 8 B that is ~176 MB per chunk; the whole tensor at once is ~33 GB.
+_LDA_POOL_CHUNK = 4
+
 
 def _ledoit_wolf_alpha(x: torch.Tensor, cov: torch.Tensor) -> float:
     """Ledoit-Wolf shrinkage intensity toward ``(tr(S)/d) I``.
@@ -327,11 +331,22 @@ def _fit_shrinkage_lda(activations, y, shrinkage: Any) -> tuple[torch.Tensor, fl
     there, whereas consumer GPUs run float64 at 1/64 rate, and float32 on a matrix this
     ill-conditioned is where a shrinkage estimator would quietly lose its point.
     """
+    # Pool in chunks. Casting the whole [n, seq, embed] tensor to float64 at once is
+    # 747 x 1024 x 5376 x 8 B = 32.9 GB on a real training set — it OOM-killed the sweep.
+    # The pooled result is only [n, embed] (32 MB), so only the cast needs bounding, and
+    # a mean over the token axis is per-row so chunking is exact.
     mask = activations.attention_mask.bool().cpu()
-    acts = activations.activations.cpu().to(torch.float64)
-    acts = acts.masked_fill(~mask.unsqueeze(-1), 0.0)
-    x = acts.sum(dim=1) / mask.sum(dim=1, keepdim=True).clamp(min=1).to(torch.float64)
-    del acts
+    acts = activations.activations
+    n_rows, _seq, embed_dim = acts.shape
+    x = torch.empty((n_rows, embed_dim), dtype=torch.float64)
+    for i in range(0, n_rows, _LDA_POOL_CHUNK):
+        m = mask[i : i + _LDA_POOL_CHUNK]
+        h = acts[i : i + _LDA_POOL_CHUNK].cpu().to(torch.float64)
+        h = h.masked_fill(~m.unsqueeze(-1), 0.0)
+        x[i : i + _LDA_POOL_CHUNK] = (
+            h.sum(dim=1) / m.sum(dim=1, keepdim=True).clamp(min=1).to(torch.float64)
+        )
+        del h, m
 
     y = y.cpu().flatten() > 0.5
     if not y.any() or y.all():
