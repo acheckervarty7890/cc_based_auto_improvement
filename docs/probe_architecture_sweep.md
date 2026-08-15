@@ -343,6 +343,16 @@ deepseekv4pro:
 red-team training data was written by different attacker models and shares no
 conversations.
 
+**The linear row is an exact reproduction of the prior work's, per split.** gptoss120b's
+linear transfer scores `ai_dilemmas` 0.6356, `ant_hh` 0.7721, `balanced_refusal` 0.9126,
+`daily_dilemmas` 0.7773, mean 0.7744 — every one of which matches
+`why_last_iteration_adds_nothing.md`'s "v3 achieved (gptoss)" column and its §1 vintage
+table to four decimals. Together with the four ceilings, that means **both halves of §1
+here reproduce both halves of that investigation exactly**: the same features, pooling,
+split and fit, independently re-derived. The non-linear columns are therefore additions to
+that measurement rather than a parallel one, and a reader who trusts §2 of
+`why_last_iteration_adds_nothing.md` can read these on the same footing.
+
 **RBF-SVM against linear: +0.0004 mean AUROC and one extra core row out of 31.** So the
 in-domain bound is not merely an upper bound that transfer fails to reach — there is
 nothing there to reach. Trees are *worse* overall by 0.07, so no family here transfers
