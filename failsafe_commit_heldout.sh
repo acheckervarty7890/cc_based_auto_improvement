@@ -72,7 +72,12 @@ stage() {
 }
 
 # One row per finished (arm, condition, seed) refit, both arms in one sidecar.
-n_fits() { wc -l < "$ODIR/eval_tags_progress.jsonl" 2>/dev/null || echo 0; }
+# The redirection itself fails when the sidecar does not exist yet (the first minutes of
+# a run), so guard on the file rather than letting bash write to stderr each poll.
+n_fits() {
+    local p="$ODIR/eval_tags_progress.jsonl"
+    [ -f "$p" ] && wc -l < "$p" || echo 0
+}
 
 snapshot() {  # $1 = commit subject suffix
     local f n
