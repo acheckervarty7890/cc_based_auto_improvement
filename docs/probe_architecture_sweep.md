@@ -164,6 +164,40 @@ transfer worse, which under distribution shift is the common case rather than th
 exception. Model selection there uses the pipeline's own validation side, never the eval
 splits.
 
+### A caveat this run discovered: the in-domain ceiling is only valid for models that cannot memorise
+
+The gradient-boosted trees scored **0.148 AUROC** on `eval_ai_dilemmas` — not merely bad,
+but far *below* chance, i.e. systematically inverted. That is a property of the eval data,
+not of the model, and it invalidates the ungrouped ceiling protocol for any
+high-capacity family.
+
+Three of the four hu_ha splits are **prompt-paired**: the same user prompt appears twice,
+once with a harmful assistant reply and once with a non-harmful one, so the label is
+carried *entirely* by the assistant turn. Measured over the splits as loaded:
+
+| split | rows | prompt-groups | rows in mixed-label groups | hard-core rows |
+|---|---|---|---|---|
+| `eval_ai_dilemmas` | 136 | 68, all pairs | **100%** | 0 |
+| `eval_ant_hh` | 134 | 133 (132 singletons + 1 pair) | **0%** | 21 |
+| `eval_balanced_refusal` | 400 | 179 (158 pairs + 21 quads) | **100%** | 7 |
+| `eval_daily_dilemmas` | 196 | 98, all pairs | **100%** | 3 |
+
+Under ungrouped 5-fold CV roughly 80% of a row's partners sit in the training fold. Since
+the user prompt dominates a *mean-pooled* activation, a model with enough capacity to key
+on the prompt predicts the partner's label — which is the opposite one — and is wrong
+systematically rather than randomly. Hence far below 0.5.
+
+This does **not** invalidate the linear column: L2-regularised logistic regression cannot
+memorise a prompt sharply enough for the effect to bite, and the linear numbers here
+reproduce `why_last_iteration_adds_nothing.md` §2 to four decimals on the splits measured
+so far. It does mean the tree column has to be read as a diagnostic of pair-memorisation
+rather than as a ceiling, and that any future ceiling measurement over these splits should
+group by prompt (`GroupKFold` on the user-turn hash) before trusting a high-capacity model.
+
+`eval_ant_hh` — the one **unpaired** split, and the one holding 21 of the 31 hard-core
+rows — is unaffected by this, which is convenient: it is the split the whole question
+turns on.
+
 ## Results
 
 *Pending — see the status banner.*

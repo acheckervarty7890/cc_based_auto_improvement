@@ -215,29 +215,75 @@ def _grids(quick: bool) -> dict[str, list[dict]]:
 # --- 1. in-domain ceiling -----------------------------------------------------------
 
 
-def ceiling(eval_x: dict, eval_y: dict, quick: bool) -> dict:
+def prompt_groups(split: str) -> np.ndarray:
+    """Group id per row, keyed on the conversation's **user turns**.
+
+    Three of the four hu_ha splits are prompt-paired: the same user prompt appears once
+    with a harmful assistant reply and once with a non-harmful one, so the label lives
+    entirely in the assistant turn. Measured over the splits as loaded, 100% of
+    `ai_dilemmas`, `balanced_refusal` and `daily_dilemmas` rows sit in a group carrying
+    **both** labels; `eval_ant_hh` is unpaired (132 of 133 groups are singletons).
+    """
+    import hashlib
+    from collections import defaultdict
+
+    from tuberlens.interfaces.dataset import LabelledDataset
+
+    ds = LabelledDataset.load_from(
+        A.EVAL_DATASET_DIR / f"{split}.jsonl",
+        pos_class_label="harmful_to_human",
+        neg_class_label="not_harmful_to_human",
+        combine_consecutive_messages=A.COMBINE_CONSECUTIVE_MESSAGES,
+        convert_tool_to_assistant=A.CONVERT_TOOL_TO_ASSISTANT,
+    )
+    by_prompt: dict[str, list[int]] = defaultdict(list)
+    for i, messages in enumerate(ds.inputs):
+        user = "".join(m.content for m in messages if m.role == "user")
+        by_prompt[hashlib.sha256(user.encode("utf-8")).hexdigest()].append(i)
+    gid = np.empty(len(ds), dtype=int)
+    for k, (_h, idxs) in enumerate(sorted(by_prompt.items())):
+        for i in idxs:
+            gid[i] = k
+    return gid
+
+
+def ceiling(eval_x: dict, eval_y: dict, quick: bool, group_by_prompt: bool = False) -> dict:
     """Best 5-fold-CV AUROC per split per model family, fitting on the split itself.
 
-    Folds are ``StratifiedKFold(5, shuffle=True, random_state=0)``, identical to
+    Default folds are ``StratifiedKFold(5, shuffle=True, random_state=0)``, identical to
     ``why_iter3_null.section_ceiling``, so every family sees the same partition and the
     linear column is directly comparable to the published §2 table.
+
+    ``group_by_prompt`` switches to ``GroupKFold`` keyed on :func:`prompt_groups`, which
+    is what a high-capacity family needs. Ungrouped, a row's opposite-label partner is in
+    the training fold ~80% of the time, and since the user prompt dominates a mean-pooled
+    activation, a model able to key on it predicts the partner's label and is inverted
+    rather than merely wrong: gradient-boosted trees measured **0.148** on
+    `eval_ai_dilemmas` this way (orientation verified separately — trees score 1.0000 on
+    synthetic separable data, so this is the data, not a sign bug). The linear column is
+    largely unaffected, since L2 logistic regression cannot memorise a prompt that
+    sharply, which is why the ungrouped numbers still reproduce §2 exactly.
     """
     from sklearn.metrics import roc_auc_score
-    from sklearn.model_selection import StratifiedKFold
+    from sklearn.model_selection import GroupKFold, StratifiedKFold
 
     grids = _grids(quick)
     out: dict = {}
     for split in A.EVAL_SPLITS:
         x, y = eval_x[split], eval_y[split]
+        gid = prompt_groups(split) if group_by_prompt else None
         out[split] = {}
         for kind, grid in grids.items():
             best, best_params = -1.0, None
             t0 = time.time()
             for params in grid:
                 s = np.zeros(len(y))
-                for tr, te in StratifiedKFold(
-                    5, shuffle=True, random_state=0
-                ).split(x, y):
+                folds = (
+                    GroupKFold(5).split(x, y, groups=gid)
+                    if group_by_prompt
+                    else StratifiedKFold(5, shuffle=True, random_state=0).split(x, y)
+                )
+                for tr, te in folds:
                     s[te] = _fit_score(kind, params, x[tr], y[tr], x[te])
                 auc = roc_auc_score(y, s)
                 if auc > best:
@@ -415,8 +461,17 @@ def main() -> None:
     ap.add_argument("--quick", action="store_true",
                     help="smaller hyperparameter grids (smoke test, not a result)")
     ap.add_argument("--skip-transfer", action="store_true")
-    ap.add_argument("--out", type=Path, default=OUT_DIR / "nonlinear_ceiling.json")
+    ap.add_argument("--group-by-prompt", action="store_true",
+                    help="GroupKFold on the user-turn hash instead of StratifiedKFold. "
+                         "Required for any high-capacity family: three of the four splits "
+                         "are prompt-paired with opposite labels, which inverts an "
+                         "ungrouped CV. Ungrouped is the default so the linear column "
+                         "stays comparable to why_iter3_null section 2.")
+    ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
+    if args.out is None:
+        suffix = "_grouped" if args.group_by_prompt else ""
+        args.out = OUT_DIR / f"nonlinear_ceiling{suffix}.json"
 
     print("loading eval features (mean-pooled layer 32) ...", flush=True)
     eval_x, eval_y = {}, {}
@@ -425,7 +480,8 @@ def main() -> None:
         print(f"  {split:24s} {eval_x[split].shape}", flush=True)
 
     print("\n--- in-domain ceiling ---", flush=True)
-    res = {"quick": args.quick, "ceiling": ceiling(eval_x, eval_y, args.quick),
+    res = {"quick": args.quick, "group_by_prompt": args.group_by_prompt,
+           "ceiling": ceiling(eval_x, eval_y, args.quick, args.group_by_prompt),
            "transfer": {}}
 
     if not args.skip_transfer:
