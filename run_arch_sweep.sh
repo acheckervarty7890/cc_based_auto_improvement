@@ -27,6 +27,15 @@
 #
 # To stop it, kill the python child by PID — a `pkill -f arch_sweep` also matches the
 # shell wrapper of whatever command you typed it in, and will kill that too.
+#
+# DO NOT run `arch_sweep.py --summarize-only` (or anything else that loads activations)
+# while this is going. Each new (seed, arm) starts with an assembly + train/val build that
+# transiently peaks near 20 GB, and this box's cgroup limit sits just above that: a
+# concurrent summarize was enough to get the sweep OOM-killed mid-run (exit 137). The
+# damage is worse than one lost fit, because this loop treats a non-zero exit as "move to
+# the next seed" — so the killed seed is left half-finished and loses the property that
+# every completed seed is a full comparison. If a seed dies, re-run it explicitly:
+# resume skips the fits it already has.
 
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"

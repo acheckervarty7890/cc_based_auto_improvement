@@ -757,7 +757,10 @@ def print_tradeoff_test(rows: list[dict]) -> None:
     fits = [r for r in rows
             if "error" not in r and not r.get("variant")
             and not r.get("legacy_best_epoch")]
-    if len(fits) < 6:
+    # Needs at least two seeds. At one fit per architecture the residual IS the
+    # deviation and its sd is 0, so any verdict rule fires on a single noisy point —
+    # observed doing exactly that at n=8.
+    if len({r["seed"] for r in fits}) < 2 or len(fits) < 10:
         return
     others = [s for s in A.EVAL_SPLITS if s != "eval_ant_hh"]
     x = np.array([np.mean([r["auroc"][s]["pipeline"] for s in others]) for r in fits])
@@ -777,8 +780,11 @@ def print_tradeoff_test(rows: list[dict]) -> None:
         print("  splits goes with doing WORSE on eval_ant_hh — the trade-off is real and")
         print("  an ant_hh gain alone is not evidence an architecture helps.")
     else:
-        print("  Slope is positive: the splits move together, so the trade-off story does")
-        print("  NOT hold here and an ant_hh gain can be read at face value.")
+        print("  Slope is positive: over this range the splits move together rather than")
+        print("  trading off. Note the fit spans architectures of very different overall")
+        print("  quality, and a weak family that is bad EVERYWHERE (difference_of_means)")
+        print("  anchors the low end and pulls the slope positive, which can mask a")
+        print("  trade-off operating among the stronger heads. Read the residuals.")
 
     by: dict = defaultdict(list)
     for r, e in zip(fits, resid):
@@ -789,7 +795,11 @@ def print_tradeoff_test(rows: list[dict]) -> None:
         if arch not in by:
             continue
         v = np.array(by[arch])
-        sd = v.std(ddof=1) if len(v) > 1 else 0.0
+        if len(v) < 2:
+            print(f"{arch:24s} {v.mean():>+10.4f}{'':>8s} {len(v):>4d}   "
+                  f"(one fit — no verdict)")
+            continue
+        sd = v.std(ddof=1)
         # "above the line" only counts when the whole spread clears it
         verdict = ("ABOVE the line" if v.mean() - sd > 0
                    else "below" if v.mean() + sd < 0 else "on the line")
