@@ -550,7 +550,22 @@ though: the gains do not scale with the loss. `attention` gives up 0.095 of mean
 `mean_then_mlp` 0.150, yet both gain ~0.055 on `ant_hh` — if `ant_hh` were simply rising as
 overall fit degrades, the bigger sacrifice should buy more. It does not; the gain looks
 capped at ~0.05. That is what `print_tradeoff_test`'s residuals will quantify once more
-seeds land, and it is the single most interesting open question in this run.
+seeds land.
+
+> **And a second seed says the effect size is at the edge of the noise.** The *same*
+> architecture — the deployed head on deepseekv4pro — scores `ant_hh` **0.7149 at seed 42
+> and 0.7601 at seed 43**, a swing of **0.045** from reseeding alone, while its mean AUROC
+> barely moves (0.9112 → 0.9105, Δ 0.0007). So `eval_ant_hh` is by a wide margin the
+> noisiest split — unsurprising for the smallest, hardest and most out-of-distribution one
+> — and a per-seed `ant_hh` delta of ~0.05 is roughly **one seed-sd**, not the comfortable
+> margin it looks like in a single-seed table.
+>
+> What survives that is the *cross-arm* agreement: `attention` measured +0.059 and +0.052
+> against two independent baselines, `pre_mean` +0.060 and +0.049, `mean_then_mlp` +0.057
+> and +0.051. Independent noise would not line up that closely three times. But the
+> per-seed effect is not large relative to its own noise, which is exactly why the design
+> called for five seeds, and why nothing in §2b should be quoted as a settled effect size
+> until they are in.
 
 ### 3. Hard-core recovery
 
