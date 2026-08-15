@@ -266,20 +266,30 @@ each family's grid. The linear column is the protocol `why_last_iteration_adds_n
 | `eval_ai_dilemmas` | 0.7997 | **0.8588** | 0.1481 † | **+0.0591** | 0 |
 | `eval_ant_hh` | **0.9599** | 0.9595 | 0.9035 | **−0.0004** | **21** |
 | `eval_balanced_refusal` | **0.9977** | 0.9969 | 0.9919 | **−0.0008** | 7 |
-| `eval_daily_dilemmas` | 0.9050 | **0.9237** | *pending* | **+0.0187** | 3 |
+| `eval_daily_dilemmas` | 0.9050 | **0.9237** | 0.7188 † | **+0.0187** | 3 |
 
 **Every linear value reproduces `why_last_iteration_adds_nothing.md` §2 exactly** — 0.7997,
 0.9599, 0.9977, 0.9050, all four to four decimals. The non-linear columns are therefore
 measured on the same instrument, not a re-derived one.
 
-† inverted by prompt-pairing, not a ceiling — see the caveat above. `eval_ant_hh` is the
-only unpaired split, and its tree score of 0.9035 (above chance, merely worse than linear)
-is the control that confirms the mechanism: same code path, same grid, no inversion where
-there are no pairs. Note `eval_balanced_refusal` is 100% paired yet its trees score 0.9919
-rather than inverting — which sharpens the mechanism usefully: the inversion takes hold
-only when memorising the prompt is *easier* than learning the real signal. That split's
-signal is nearly perfect (linear ceiling 0.9977), so there is no incentive to memorise;
-`eval_ai_dilemmas` is the weakest split (0.7997) and inverts hardest.
+† depressed or inverted by prompt-pairing, not a ceiling — see the caveat above.
+
+The tree column turns out to be a clean readout of the pairing mechanism rather than
+noise. Ordered by how strong the split's real signal is, the damage is **monotone**:
+
+| split | paired | linear ceiling | trees | trees − linear |
+|---|---|---|---|---|
+| `eval_ai_dilemmas` | 100% | 0.7997 (weakest) | 0.1481 | **−0.652** (inverted) |
+| `eval_daily_dilemmas` | 100% | 0.9050 | 0.7188 | −0.186 |
+| `eval_balanced_refusal` | 100% | 0.9977 (strongest) | 0.9919 | −0.006 |
+| `eval_ant_hh` | **0%** | 0.9599 | 0.9035 | −0.056 (no pairing to exploit) |
+
+So memorising the prompt wins exactly to the extent that learning the real signal is
+hard. `eval_ai_dilemmas` has the weakest signal and inverts outright;
+`eval_balanced_refusal` is nearly perfectly separable and is barely touched despite being
+just as paired. `eval_ant_hh`, the unpaired split, sits outside the ordering entirely —
+its trees are simply worse than its linear fit, which is the control that shows the
+effect is pairing and not capacity.
 
 **The headline.** On `eval_ant_hh` — the split holding 21 of the 31 hard-core rows, and the
 one split whose CV is not compromised by pairing — the best non-linear ceiling is
