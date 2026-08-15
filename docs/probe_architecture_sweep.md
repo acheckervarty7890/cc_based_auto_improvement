@@ -287,6 +287,18 @@ reading. The prediction it licenses: **the MLP heads should not recover hard-cor
 If they don't, they are confirming a measured bound rather than being under-tuned — and
 no amount of hyperparameter search reaches those rows.
 
+> **Scope — this bounds the readout axis only, not pooling.** Every family here is fitted
+> on **mean-pooled** activations, so what is held fixed is the pooling and what varies is
+> the readout. The result therefore says a non-linear *readout* has nothing extra to
+> extract on `eval_ant_hh`; it says nothing whatever about whether a different *pooling*
+> could. That distinction is not pedantic — the first partial sweep result already points
+> the other way. At seed 42 on deepseekv4pro, `attention` (decoupled-query pooling, linear
+> readout) scores **0.7740 on `eval_ant_hh` against `linear_then_softmax`'s 0.7149**, a
+> +0.059 gain on precisely the split that matters, while losing 0.095 of mean AUROC
+> everywhere else. One seed, and confounded by the batch-size difference documented above,
+> so it is a lead rather than a result — but it is the reason §§2-4 are worth waiting for
+> rather than being pre-empted by this section.
+
 ### 2. Per-architecture performance
 
 ### 2. Per-architecture performance
