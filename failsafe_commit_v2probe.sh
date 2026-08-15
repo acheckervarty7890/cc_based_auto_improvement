@@ -28,15 +28,29 @@
 # WHY force-add: .gitignore carries both `results*` and `*.log`, which is exactly the
 # material that has to survive. Same reasoning as the sibling scripts.
 #
-# BRANCH MODEL: commits and pushes onto whatever branch is already checked out.
+# BRANCH MODEL: commits onto whatever branch is checked out, but PUSHES to
+# TARGET_BRANCH (default experiment11_cloud) via `HEAD:$TARGET_BRANCH`. The two differ
+# because this payload belongs to the experiment11_cloud run while the working tree is
+# checked out elsewhere, and switching branches mid-run would swap the probes and
+# red-team dumps out from under the sweep — it reassembles per arm, so the second arm
+# would read a different tree than the first.
 #
-# EXIT: Ctrl-C / SIGTERM makes a final commit via the trap.
+# The push is a plain fast-forward: no --force, ever. The self-test refuses to start
+# unless origin/$TARGET_BRANCH is an ancestor of HEAD, so this can only ever advance
+# that branch and never rewrite someone else's commits. If the check fails, or if the
+# branch moves under us mid-run, the push is rejected and reported rather than forced.
+#
+# EXIT: Ctrl-C / SIGTERM makes a final commit via the trap. NOTE bash defers a trap
+# until the current foreground command finishes, so a SIGTERM during the poll `sleep`
+# is not acted on until that sleep elapses — use SIGKILL if you need it to stop now
+# and are willing to skip the final snapshot.
 #
 # USAGE:
 #   nohup bash failsafe_commit_v2probe.sh > logs/failsafe_v2probe.out 2>&1 &
 #
-#   INTERVAL=1200  seconds between polls (default 1200 = 20 min)
-#   NO_PUSH=1      commit locally only
+#   INTERVAL=1200       seconds between polls (default 1200 = 20 min)
+#   TARGET_BRANCH=...   remote branch to push to (default experiment11_cloud)
+#   NO_PUSH=1           commit locally only
 
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -45,6 +59,7 @@ INTERVAL="${INTERVAL:-1200}"
 VDIR=results_hu_harm_gemma27b_batch_ablation/vintage
 LOG=logs/v2probe_on_new_v3.log
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+TARGET_BRANCH="${TARGET_BRANCH:-experiment11_cloud}"
 
 mkdir -p logs "$VDIR"
 
@@ -80,7 +95,8 @@ snapshot() {  # $1 = commit subject suffix
     n=$(n_fits)
     git commit -q -m "failsafe(v2probe): $1 — ${n}/20 seed refits done @ $(date -Is)"
     if [ -z "${NO_PUSH:-}" ]; then
-        git push -q origin "$BRANCH" || say "push failed (committed locally; retry next poll)"
+        git push -q origin "HEAD:$TARGET_BRANCH" \
+            || say "push to $TARGET_BRANCH failed (committed locally; retry next poll)"
     fi
     return 0
 }
@@ -92,7 +108,25 @@ finish() {
 }
 trap finish INT TERM
 
-say "watching $VDIR on branch '$BRANCH', every ${INTERVAL}s (NO_PUSH=${NO_PUSH:-unset})"
+say "watching $VDIR, committing on '$BRANCH', pushing to origin/$TARGET_BRANCH, every ${INTERVAL}s (NO_PUSH=${NO_PUSH:-unset})"
+
+# Refuse to run at all unless the push can only fast-forward the target. A checkpointer
+# that force-pushes is worse than none: these commits land unattended every 20 min, and
+# the target is a shared experiment branch.
+if [ -z "${NO_PUSH:-}" ]; then
+    git fetch -q origin "$TARGET_BRANCH" 2>/dev/null \
+        || say "WARNING: could not fetch origin/$TARGET_BRANCH; using the cached ref"
+    if ! git rev-parse --verify -q "origin/$TARGET_BRANCH" >/dev/null; then
+        say "FATAL: origin/$TARGET_BRANCH does not exist."
+        exit 1
+    fi
+    if ! git merge-base --is-ancestor "origin/$TARGET_BRANCH" HEAD; then
+        say "FATAL: origin/$TARGET_BRANCH is NOT an ancestor of HEAD — pushing would"
+        say "       need a merge or a force. Reconcile the branches first."
+        exit 1
+    fi
+    say "fast-forward check: origin/$TARGET_BRANCH is an ancestor of HEAD ($(git rev-list --count "origin/$TARGET_BRANCH"..HEAD) commit(s) ahead)"
+fi
 
 # Self-test in minute one: the previous failure mode in this repo was a checkpointer
 # that protected nothing and said so to no one.
