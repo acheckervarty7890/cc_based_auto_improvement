@@ -98,8 +98,26 @@ surface duplication. It compares difflib on the first 600 chars of the first use
 
 The obvious objection to §5 is that these rows *were* red-team successes against
 `probe_iter2` — at median score 0.777 (false positives) and 0.037 (false negatives), i.e.
-confidently wrong, not marginal. `scripts/why_close_but_wrong.py` settles it: **cosine in
-this space barely encodes the label at all.**
+confidently wrong, not marginal. `scripts/why_close_but_wrong.py` settles it: **cosine
+proximity in this space does not imply the probe treats two conversations alike.**
+
+### How the cosine is computed
+
+For every conversation, take the cached `[T, 5376]` fp16 layer-32 activations, cast to
+fp32, zero the padded positions, and average over the unpadded ones (`_pool` in
+`why_iter3_null.py`) — one 5376-vector per conversation. Cosine is then the dot product of
+the L2-normalised vectors, **with no mean-centering** (`unit()` in
+`why_close_but_wrong.py`). Three properties of that choice matter:
+
+- It is **mean pooling, not the probe's pooling.** The deployed head pools with a softmax
+  over its own per-token logits, so its representation is a function of the weights being
+  fitted — useless as a fixed feature space, but it does mean this metric is not the one
+  the probe reads. That is the whole point of §5a.
+- It is **uncentered**, so the residual stream's large shared component dominates every
+  value and everything lands at 0.86–0.96. Absolute values are therefore not
+  interpretable; only comparisons on the same scale are.
+- Conversations over 1024 tokens were **truncated** by `get_activations`, so their tail is
+  absent from the mean. The new-in-v3 sources are the longer ones (median 1364 chars).
 
 | | gptoss | deepseek |
 |---|---|---|
@@ -108,13 +126,39 @@ this space barely encodes the label at all.**
 | a source vs **its own opposite-label counterpart** | **0.9364** | **0.9488** |
 | new-in-v3 → nearest v2 row | 0.9432 | 0.9599 |
 
-The entire label signal is worth ~0.013 of cosine. And `preprocessing` mints every
-contrastive counterpart by editing its source toward the *opposite* label, which puts two
-rows at cosine 0.94–0.95 on opposite sides of the boundary **by construction** — 45%
-(gptoss) / 39% (deepseek) of those deliberately opposite-label pairs are *closer* than the
-median new-row-to-v2 hop. A neighbour at 0.94 therefore carries no label information.
+`preprocessing` mints every contrastive counterpart by editing its source toward the
+*opposite* label, which puts two rows at cosine 0.94–0.95 on opposite sides of the
+boundary **by construction** — 45% (gptoss) / 39% (deepseek) of those deliberately
+opposite-label pairs are *closer* than the median new-row-to-v2 hop. So the hop to the
+nearest v2 row is the same size as the hop to a row built to carry the opposite label.
 
-Three consequences measured directly:
+### Does the uncentered metric drive this? (`why_close_but_wrong_centered.py`)
+
+Partly, for one number. Rerunning under three representations — raw, grand-mean-centered,
+and per-dimension z-scored — all L2-normalised:
+
+| arm · rep | same-label | opp-label | Δ | own opposite-label pair | new → v2 NN | k-NN k=1 / 5 / 15 |
+|---|---|---|---|---|---|---|
+| gptoss · raw | 0.8749 | 0.8616 | 0.013 | 0.9364 | 0.9346 | 56.0 / 51.7 / 48.3% |
+| gptoss · centered | 0.0720 | −0.0483 | **0.120** | 0.4937 | 0.4979 | 59.5 / 50.0 / 49.1% |
+| gptoss · whitened | 0.0449 | −0.0249 | 0.070 | 0.5620 | 0.3931 | 55.2 / 67.2 / 62.1% |
+| deepseek · raw | 0.8874 | 0.8766 | 0.011 | 0.9488 | 0.9528 | 77.9 / 66.3 / 58.1% |
+| deepseek · centered | 0.0508 | −0.0484 | **0.099** | 0.5429 | 0.5303 | 75.6 / 69.8 / 68.6% |
+| deepseek · whitened | 0.0269 | −0.0267 | 0.054 | 0.6099 | 0.4402 | 73.3 / 61.6 / 66.3% |
+
+**Corrected:** "the entire label signal is worth ~0.013 of cosine" was a raw-cosine
+artifact. Centered, same-label and opposite-label pairs separate cleanly around zero
+(+0.072 vs −0.048), so the label is more visible than that number suggested.
+
+**Unchanged, and cleaner centered:** the comparison the argument rests on. The new-row →
+nearest-v2 hop (0.4979) is indistinguishable from the hop to a *deliberately
+opposite-label* counterpart (0.4937); deepseek likewise, 0.5303 vs 0.5429. Whatever the
+metric, being that close to a v2 row says nothing about which side of the boundary a row
+belongs on. The k-NN columns move by a few points and keep their verdict: chance for
+gptoss, weakly better than chance for deepseek — never the near-certainty that would be
+needed for "close to v2" to imply "the v2 probe should have got it right".
+
+### Three consequences measured directly
 
 - **The nearest v2 neighbour of a new success has the same label only 56% (gptoss) /
   78% (deepseek) of the time.**
