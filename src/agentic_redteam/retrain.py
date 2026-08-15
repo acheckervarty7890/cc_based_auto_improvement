@@ -227,6 +227,30 @@ def _redteam_activation_cache_path(
 _REDTEAM_PROGRESS_EVERY = 10
 
 
+# How many parts `_concatenate_consuming` copies between `malloc_trim` calls. Freeing a
+# part returns it to glibc's arena, NOT to the kernel, so RSS keeps the high-water mark of
+# every part ever loaded even though the merge consumes them one at a time. Measured on a
+# 703-row red-team merge: ~3.5 GB of the 13.8 GB peak was arena the process was no longer
+# using. Trimming costs a syscall per 50 parts and is what keeps the n=30 jobs (which add
+# ~1.7 GB of dev samples on top) inside a 15 GB box.
+_TRIM_EVERY = 50
+
+
+def _release_free_heap() -> None:
+    """Hand glibc's free arena back to the kernel. Best-effort and silent.
+
+    ``malloc_trim`` is glibc-only and purely an optimisation — on musl, a non-Linux libc,
+    or a build where the symbol is absent this must degrade to doing nothing rather than
+    failing a retrain that would otherwise have completed.
+    """
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:  # noqa: BLE001 — an optimisation must never break the caller
+        pass
+
+
 # Fields tuberlens' LabelledDataset.concatenate zero-pads along dim 1 before joining.
 # These are the only large ones — everything else in `other_fields` is per-sample scalars.
 _PAD_FIELDS = ("activations", "attention_mask", "input_ids")
@@ -298,7 +322,7 @@ def _concatenate_consuming(datasets):
             (total, max_len, *ref.shape[2:]), dtype=ref.dtype, device=ref.device
         )
         start = 0
-        for d in datasets:
+        for i, d in enumerate(datasets, 1):
             arr = d.other_fields.pop(field)  # drop the part's reference ...
             n, seq = arr.shape[0], arr.shape[1]
             out[start : start + n, :seq] = arr
@@ -306,7 +330,10 @@ def _concatenate_consuming(datasets):
                 out[start : start + n, seq:] = 0
             start += n
             del arr  # ... and free it before the next part is touched
+            if i % _TRIM_EVERY == 0:
+                _release_free_heap()
         other_fields[field] = out
+        _release_free_heap()
 
     for key in cols:
         if key in pad_cols:
@@ -326,7 +353,7 @@ def _concatenate_consuming(datasets):
     )
 
 
-def _activate_redteam_cached(
+def _redteam_activation_parts(
     dataset,
     cache_dir: str | Path | None,
     model_name: str,
@@ -335,8 +362,14 @@ def _activate_redteam_cached(
     convert_tool_to_assistant: bool,
     get_model,
     verbose: bool,
-):
+) -> list:
     """Activate red-team samples with a per-conversation disk cache.
+
+    Returns the per-conversation parts **unmerged**. Merging them is the caller's job
+    because the caller usually has more parts to add, and merging twice costs a full
+    extra copy of the biggest tensor in the run — see
+    ``_train_with_cached_base_activations``. ``_activate_redteam_cached`` is the
+    merge-it-for-me wrapper for callers that only want the dataset.
 
     Mirrors ``_activate``'s load-or-compute-and-save logic but at per-conversation
     granularity (see ``_redteam_activation_cache_path`` for why a whole-set blob
@@ -454,7 +487,17 @@ def _activate_redteam_cached(
             f"Red-team activations: {len(cached_idx)} loaded from cache, "
             f"0 computed fresh"
         )
-    return _concatenate_consuming(parts)
+    return parts
+
+
+def _activate_redteam_cached(*args, **kwargs):
+    """``_redteam_activation_parts`` merged into one dataset.
+
+    Kept for callers that want the dataset and have nothing else to concatenate onto
+    it — notably ``scripts/dev_sample_retrain.py``'s ``extract`` stage, which only
+    wants the cache warmed and discards the result.
+    """
+    return _concatenate_consuming(_redteam_activation_parts(*args, **kwargs))
 
 
 def _train_with_cached_base_activations(
@@ -557,7 +600,7 @@ def _train_with_cached_base_activations(
         )
 
     def _activate_redteam(dataset):
-        return _activate_redteam_cached(
+        return _redteam_activation_parts(
             dataset,
             redteam_cache_dir,
             model_name,
@@ -570,13 +613,20 @@ def _train_with_cached_base_activations(
 
     base_train_a = _activate(base_train, base_train_cache)
     base_val_a = _activate(base_val, base_val_cache)
-    redteam_train_a = _activate_redteam(redteam_train)
-    redteam_val_a = _activate_redteam(redteam_val)
+    # Held as per-conversation PARTS, not merged sets. Merging the red-team side on its
+    # own and then merging that result with the base side copies the whole red-team
+    # tensor twice: at 703 train rows padded to the 1024-token cap (hidden 5376, fp16)
+    # that second copy is 7.7 GB, allocated purely to prepend 50 base rows in front of
+    # it. Peak measured 15.8 GB and the 15 GB box SIGKILLed the retrain within a minute
+    # of the job starting, before a single forward. One concatenate per side instead of
+    # two drops the peak to roughly parts + output.
+    redteam_train_parts = _activate_redteam(redteam_train)
+    redteam_val_parts = _activate_redteam(redteam_val)
     n_by_origin = (
         0 if base_train_a is None else len(base_train_a),
         0 if base_val_a is None else len(base_val_a),
-        0 if redteam_train_a is None else len(redteam_train_a),
-        0 if redteam_val_a is None else len(redteam_val_a),
+        sum(len(p) for p in redteam_train_parts),
+        sum(len(p) for p in redteam_val_parts),
     )
 
     # Every activation is extracted by this point, so release the LLM before the
@@ -592,8 +642,16 @@ def _train_with_cached_base_activations(
     def _combine(parts):
         return _concatenate_consuming([p for p in parts if p is not None])
 
-    train_dataset = _combine([base_train_a, redteam_train_a])
-    validation_dataset = _combine([base_val_a, redteam_val_a])
+    # One side at a time, dropping each side's references as it is consumed, so the val
+    # merge does not run with the train side's parts still reachable. Concatenation is
+    # associative and the pad width is the max over the same set either way, so the
+    # merged tensors are byte-identical to the two-step form this replaced.
+    train_dataset = _combine([base_train_a, *redteam_train_parts])
+    base_train_a = None
+    redteam_train_parts = []
+    validation_dataset = _combine([base_val_a, *redteam_val_parts])
+    base_val_a = None
+    redteam_val_parts = []
     if train_dataset is None:
         raise ValueError("No training data available to fit the probe.")
 
