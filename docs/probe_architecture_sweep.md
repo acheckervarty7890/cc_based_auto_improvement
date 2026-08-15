@@ -362,7 +362,41 @@ survive every red-team vintage.
 
 ## What this means for the retraining loop
 
-*Pending.*
+*The readout-axis conclusions below are complete and supported by §1. Anything about
+pooling waits on §§2-4.*
+
+1. **Stop looking for a higher-capacity probe head.** Two independent measurements agree
+   that a non-linear *readout* of layer 32 has nothing to add: zero in-domain ceiling
+   headroom on the split holding two thirds of the hard core (−0.0004), and +0.0004 mean
+   AUROC in actual transfer. `heldout_v3_vs_v2_overlap.md` offered two escapes from its
+   31-row residue — a different eval concept boundary or a different probe architecture —
+   and this closes the capacity half of the second. Whatever those rows need, more
+   expressive feature extraction is not it.
+
+2. **Fix the best-epoch restore before running any further probe comparison.**
+   `docs/attribution_findings.md` §1 recorded the shallow-copy defect; this run measured
+   what it costs. The single refit available so far puts the deployed architecture at
+   0.9112 mean AUROC against the committed iteration-3 value of 0.8880 — **an order of
+   magnitude larger than the `v3 − v2` vintage effect (−0.002) the vintage sweep spent 80
+   fits trying to resolve.** Until it is fixed everywhere, every probe in this repo is its
+   final epoch rather than its best, and cross-run comparisons inherit that noise. The fix
+   is in `probe_architectures.build_probe`; porting it into `retrain.py`'s path is a
+   separate, small change.
+
+3. **Group by prompt before measuring anything with a high-capacity model on these eval
+   splits.** Three of the four are prompt-paired with the label carried entirely by the
+   assistant turn, and ungrouped CV *inverts* a model that can memorise — by 0.65 AUROC on
+   the weakest split. The linear results published so far are unaffected, but the next
+   person to try a richer model on this data will get a nonsense number and no error.
+
+4. **The hard core is mis-ranked, not merely uncertain.** Under the balanced rule a random
+   ranking recovers ~15.5 of the 31 rows; the mean-pooled linear and RBF models recover 11
+   and 12. Being *worse than chance* on those rows means the models place them confidently
+   on the wrong side — the same property that let them survive every red-team vintage, and
+   a reason to suspect the label boundary on those rows rather than the model's capacity.
+   Two thirds of them sit in `eval_ant_hh`; reading those 21 conversations against the
+   probe's concept description is the cheapest next step, and it is an eval-side question,
+   not a probe-side one.
 
 ## Reproducing
 
