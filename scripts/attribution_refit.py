@@ -147,6 +147,15 @@ def refit(asm: Assembled, drop_rows: set[int] | None = None, seed: int = A.SEED,
     train = _concatenate_consuming([asm.base_train[:], asm.redteam[keep_train]])
     val = _concatenate_consuming([asm.base_val[:], asm.redteam[keep_val]])
 
+    # Transfer mechanics only — see scripts/fast_activations.py for why nothing that would
+    # perturb the arithmetic (per-batch trimming, in particular) is on the table.
+    import fast_activations as F
+
+    if F.enabled():
+        F.patch_getitems()
+        F.maybe_resident(train, f"train {len(train)}")
+        F.maybe_resident(val, f"val {len(val)}")
+
     seed_everything(seed)
     sink = io.StringIO()
     ctx = contextlib.redirect_stdout(sink) if quiet else contextlib.nullcontext()
