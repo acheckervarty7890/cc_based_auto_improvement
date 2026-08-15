@@ -1,0 +1,475 @@
+<title>High-Stakes Vintage Sweep</title>
+<style>
+  :root {
+    --paper:      #f5f7f5;
+    --raised:     #ffffff;
+    --sunken:     #ecefec;
+    --ink:        #111614;
+    --ink-muted:  #566360;
+    --ink-faint:  #8a9491;
+    --rule:       #dbe2dd;
+    --rule-soft:  #e8ecE8;
+    --teal:       #0e8f84;
+    --rust:       #a85018;
+    --critical:   #a32a28;
+    --grid:       #e2e7e3;
+
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+    --measure: 68ch;
+    --wide: 1080px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #121614;
+      --raised:     #191f1c;
+      --sunken:     #0d100f;
+      --ink:        #e7ece9;
+      --ink-muted:  #9aa5a1;
+      --ink-faint:  #6c7773;
+      --rule:       #29312e;
+      --rule-soft:  #202724;
+      --teal:       #2ba093;
+      --rust:       #ce7028;
+      --critical:   #e1706c;
+      --grid:       #232a27;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:      #121614;
+    --raised:     #191f1c;
+    --sunken:     #0d100f;
+    --ink:        #e7ece9;
+    --ink-muted:  #9aa5a1;
+    --ink-faint:  #6c7773;
+    --rule:       #29312e;
+    --rule-soft:  #202724;
+    --teal:       #2ba093;
+    --rust:       #ce7028;
+    --critical:   #e1706c;
+    --grid:       #232a27;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    padding: 0 24px 96px;
+  }
+
+  .col   { max-width: var(--measure); margin-inline: auto; }
+  .wide  { max-width: var(--wide);    margin-inline: auto; }
+
+  h1, h2, h3 { font-weight: 660; letter-spacing: -0.021em; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(2rem, 5vw, 2.9rem); line-height: 1.08; }
+  h2 { font-size: 1.35rem; line-height: 1.25; }
+  h3 { font-size: 1rem; letter-spacing: -0.01em; }
+  p  { margin: 0; }
+  a  { color: inherit; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.685rem;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 500;
+  }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---- masthead ---- */
+  header { padding: 72px 0 0; }
+  header .col { display: flex; flex-direction: column; gap: 18px; }
+  .standfirst { font-size: 1.075rem; color: var(--ink-muted); max-width: 60ch; }
+
+  .runstrip {
+    max-width: var(--wide); margin: 40px auto 0;
+    border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  }
+  .runstrip div {
+    padding: 14px 18px 15px;
+    border-left: 1px solid var(--rule-soft);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .runstrip div:first-child { border-left: 0; padding-left: 0; }
+  .runstrip .k { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em;
+                 text-transform: uppercase; color: var(--ink-faint); }
+  .runstrip .v { font-family: var(--mono); font-size: 1.12rem; font-variant-numeric: tabular-nums; }
+
+  /* ---- sections ---- */
+  section { margin-top: 68px; }
+  .sechead { display: flex; flex-direction: column; gap: 8px; margin-bottom: 22px; }
+  .stack   { display: flex; flex-direction: column; gap: 16px; }
+
+  /* ---- verdict cards ---- */
+  .verdicts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
+  .card {
+    background: var(--raised);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--edge, var(--rule));
+    padding: 20px 22px 22px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .card[data-arm="gptoss120b"]    { --edge: var(--teal); }
+  .card[data-arm="deepseekv4pro"] { --edge: var(--rust); }
+  .card h3 { font-family: var(--mono); font-size: 0.95rem; letter-spacing: 0; }
+
+  .curve { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+           font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 0.86rem; }
+  .curve .step { display: flex; align-items: baseline; gap: 5px; }
+  .curve .vlab { color: var(--ink-faint); font-size: 0.72rem; }
+  .curve .arrow { color: var(--ink-faint); }
+  .curve .best  { font-weight: 700; }
+  .curve .best .vlab { color: var(--ink); }
+  .curve .down  { color: var(--critical); }
+
+  .flag {
+    display: flex; gap: 9px; align-items: flex-start;
+    background: var(--sunken); border-left: 2px solid var(--critical);
+    padding: 10px 13px; font-size: 0.87rem; color: var(--ink-muted);
+  }
+  .flag strong { color: var(--ink); font-weight: 640; }
+  .flag .mark { color: var(--critical); font-family: var(--mono); font-weight: 700; line-height: 1.5; }
+  .ok-note { font-size: 0.87rem; color: var(--ink-muted); }
+
+  /* ---- chart ---- */
+  .legend { display: flex; gap: 20px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px;
+                 font-family: var(--mono); font-size: 0.78rem; color: var(--ink-muted); }
+  .swatch { width: 22px; height: 3px; border-radius: 2px; display: inline-block; }
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(196px, 1fr)); gap: 4px 12px; }
+  .panel { position: relative; }
+  .panel figcaption {
+    font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.04em;
+    color: var(--ink-muted); padding: 0 0 4px 2px;
+  }
+  .panel.is-mean figcaption { color: var(--ink); font-weight: 600; }
+  .panel svg { display: block; width: 100%; height: auto; overflow: visible; }
+
+  #tip {
+    position: fixed; pointer-events: none; opacity: 0; transition: opacity .09s;
+    background: var(--ink); color: var(--paper);
+    font-family: var(--mono); font-size: 0.72rem; line-height: 1.5;
+    padding: 7px 10px; white-space: nowrap; z-index: 20;
+  }
+  #tip b { font-weight: 700; }
+
+  /* ---- tables ---- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); background: var(--raised); }
+  table { border-collapse: collapse; width: 100%; font-family: var(--mono);
+          font-variant-numeric: tabular-nums; font-size: 0.815rem; }
+  caption { text-align: left; padding: 13px 16px; font-family: var(--mono);
+            font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase;
+            color: var(--ink-faint); border-bottom: 1px solid var(--rule); }
+  th, td { padding: 8px 14px; text-align: right; white-space: nowrap; }
+  th { font-weight: 600; color: var(--ink-faint); font-size: 0.7rem;
+       letter-spacing: 0.06em; text-transform: uppercase;
+       border-bottom: 1px solid var(--rule); }
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr + tr td { border-top: 1px solid var(--rule-soft); }
+  td .sd { color: var(--ink-faint); }
+  tr[data-best] td { background: var(--sunken); }
+  tr[data-best] td:first-child::after { content: " ◀ best"; color: var(--ink-faint); font-size: 0.68rem; }
+
+  ul { margin: 0; padding-left: 1.15em; display: flex; flex-direction: column; gap: 9px; }
+  li::marker { color: var(--ink-faint); }
+  code { font-family: var(--mono); font-size: 0.9em; background: var(--sunken); padding: 1px 5px; }
+
+  .footnote { color: var(--ink-muted); font-size: 0.9rem; }
+  hr { border: 0; border-top: 1px solid var(--rule); margin: 0; }
+
+  :focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header>
+  <div class="col">
+    <span class="eyebrow">experiment9 · gemma-3-27b-it L32 · high-stakes probe</span>
+    <h1>What each round of red-teaming actually bought</h1>
+    <p class="standfirst">
+      Eighty real probe refits — four data <em>vintages</em> × ten seeds × two attacker arms —
+      holding content, activations and every hyperparameter fixed at iteration 3 and varying
+      only <em>which</em> red-team conversations are in the training set.
+    </p>
+  </div>
+  <div class="runstrip">
+    <div><span class="k">fits</span><span class="v">80</span></div>
+    <div><span class="k">seeds / cell</span><span class="v">10</span></div>
+    <div><span class="k">vintages</span><span class="v">4</span></div>
+    <div><span class="k">arms</span><span class="v">2</span></div>
+    <div><span class="k">eval splits</span><span class="v">4</span></div>
+    <div><span class="k">forward passes</span><span class="v">0</span></div>
+  </div>
+</header>
+
+<section class="wide">
+  <div class="col sechead">
+    <span class="eyebrow">The read-out</span>
+    <h2>One arm keeps improving. The other peaks at iteration 2 and gets worse.</h2>
+  </div>
+  <div class="verdicts">
+
+    <div class="card" data-arm="gptoss120b">
+      <h3>gptoss120b</h3>
+      <div class="curve">
+        <span class="step"><span class="vlab">v0</span>0.8680</span><span class="arrow">→</span>
+        <span class="step"><span class="vlab">v1</span>0.9018</span><span class="arrow">→</span>
+        <span class="step"><span class="vlab">v2</span>0.9281</span><span class="arrow">→</span>
+        <span class="step best"><span class="vlab">v3</span>0.9326</span>
+      </div>
+      <p class="ok-note">
+        Monotone. Every vintage adds mean AUROC, and the seed spread tightens as it goes
+        (sd 0.0121 → 0.0032). The last increment is small — v2→v3 is +0.0045 against a
+        pooled sd of 0.0058, so it is not separable from noise — but nothing regresses.
+      </p>
+    </div>
+
+    <div class="card" data-arm="deepseekv4pro">
+      <h3>deepseekv4pro</h3>
+      <div class="curve">
+        <span class="step"><span class="vlab">v0</span>0.8680</span><span class="arrow">→</span>
+        <span class="step"><span class="vlab">v1</span>0.8816</span><span class="arrow">→</span>
+        <span class="step best"><span class="vlab">v2</span>0.9147</span><span class="arrow">→</span>
+        <span class="step down"><span class="vlab">v3</span>0.8912</span>
+      </div>
+      <div class="flag">
+        <span class="mark">!</span>
+        <span><strong>v3 is 0.0234 below v2 (2.8σ).</strong> The red-team pairs added between
+          iteration 2 and iteration 3 made this probe measurably <em>worse</em>, on all four
+          splits at once — <span class="num">toolace</span> most of all, 0.8190 → 0.7708.</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="wide">
+  <div class="col sechead">
+    <span class="eyebrow">Per split</span>
+    <h2>AUROC by vintage</h2>
+    <p class="footnote">
+      Shared y-axis across all five panels. Points are the mean over 10 seeds; whiskers are ±1 sd.
+      Hover any point for its exact value.
+    </p>
+  </div>
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--teal)"></i> gptoss120b</span>
+    <span><i class="swatch" style="background:var(--rust)"></i> deepseekv4pro</span>
+    <span style="color:var(--ink-faint)">v0 = base training data only</span>
+  </div>
+  <div class="panels" id="panels"></div>
+</section>
+
+<div id="tip" role="status" aria-live="off"></div>
+
+<section class="wide">
+  <div class="col sechead">
+    <span class="eyebrow">Full results</span>
+    <h2>Mean ± sd over 10 seeds</h2>
+    <p class="footnote">
+      Pipeline scale — bf16 <code>sigmoid</code> then sklearn, which is what the committed
+      comparison CSVs report. Rank-faithful AUROC on the fp32 logits is also recorded in
+      <code>vintage_auroc.csv</code>.
+    </p>
+  </div>
+  <div class="stack" id="tables"></div>
+</section>
+
+<section class="col">
+  <div class="sechead">
+    <span class="eyebrow">Filter applied</span>
+    <h2>Over-length pairs were dropped</h2>
+  </div>
+  <div class="stack">
+    <p>
+      Activation extraction truncates at 1024 tokens, so a conversation stored at that width
+      lost its tail. For an LLM-written contrastive counterpart the tail is disproportionately
+      the part carrying the opposite-class label — the probe trains on a conversation whose
+      ending it cannot see.
+    </p>
+    <p>
+      <strong>Every over-cap row in both arms is a generated row.</strong> Not one
+      attacker-written source overran the window:
+    </p>
+    <div class="tablewrap">
+      <table>
+        <caption>rows at the 1024-token cap</caption>
+        <thead><tr><th>arm</th><th>pairs</th><th>at cap</th><th>generated</th><th>attacker-written</th><th>rows removed</th></tr></thead>
+        <tbody>
+          <tr><td>gptoss120b</td><td>295</td><td>14</td><td>14</td><td>0</td><td>28</td></tr>
+          <tr><td>deepseekv4pro</td><td>364</td><td>6</td><td>6</td><td>0</td><td>12</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      The affected pair is removed <em>whole</em>. Dropping the generated half alone would
+      orphan its success and break the exact 50/50 label balance that makes the vintages
+      comparable to each other — the same reason the pair, not the row, is the unit of
+      selection throughout.
+    </p>
+    <p class="footnote">
+      Length is read off each cached blob's width, which is <code>min(true_tokens, 1024)</code>
+      under the tokenization the extraction actually performed. No tokenizer is involved, so
+      the measurement cannot disagree with the model.
+    </p>
+  </div>
+</section>
+
+<section class="col">
+  <div class="sechead">
+    <span class="eyebrow">Method</span>
+    <h2>Why these four points are comparable</h2>
+  </div>
+  <div class="stack">
+    <p>
+      The committed <code>*_comparison.csv</code> cannot answer this question, because
+      <code>probe_iter1</code> was trained by a different retrain than <code>probe_iter3</code> —
+      a different <code>filter_dataset</code> draw and different contrastive generations. A
+      vintage here instead means <em>every iteration-3 pair whose originating success was
+      already present at iteration N</em>, carrying iteration 3's content throughout. Only set
+      membership changes.
+    </p>
+    <ul>
+      <li><strong>v0</strong> — base training data only, no red-team rows.</li>
+      <li><strong>v1 / v2</strong> — iteration-3 pairs whose source success existed at iteration 1 / 2.</li>
+      <li><strong>v3</strong> — all iteration-3 pairs.</li>
+    </ul>
+    <p>
+      The vintages are <em>not</em> strictly nested — 10 pairs for gptoss120b and 7 for
+      deepseekv4pro sit in v1 but not v2, because the iteration-2 filter dropped them and
+      iteration 3 took them back. That is faithful to what the runs actually trained on rather
+      than an idealised add-only curve.
+    </p>
+    <hr>
+    <p class="footnote">
+      <strong>Validation.</strong> Scoring the shipped <code>probe_iter3.pkl</code> on the fetched
+      eval activations reproduces the committed comparison CSVs to ~1e-5. Vintage 0 at seed 42
+      reproduces the pipeline's own <code>iter0</code> probe (0.8593 against 0.8597), and comes out
+      bit-identical across the two arms, which share that vintage's data. No gemma-3-27b forward
+      pass was run for any of it — every activation came from cache.
+    </p>
+  </div>
+</section>
+
+<script>
+const SPLITS = ["anthropic", "mt", "mts", "toolace", "mean"];
+const ARMS = [
+  { key: "gptoss120b",    color: "var(--teal)", rows: {0:0, 1:228, 2:422, 3:562} },
+  { key: "deepseekv4pro", color: "var(--rust)", rows: {0:0, 1:294, 2:542, 3:716} },
+];
+// mean, sd over 10 seeds — pipeline scale. Straight from vintage_summary.csv.
+const D = {
+  gptoss120b: {
+    anthropic: [[0.9531,0.0044],[0.9552,0.0067],[0.9643,0.0040],[0.9682,0.0019]],
+    mt:        [[0.8673,0.0495],[0.9599,0.0117],[0.9701,0.0060],[0.9748,0.0058]],
+    mts:       [[0.9436,0.0094],[0.9402,0.0066],[0.9625,0.0037],[0.9653,0.0039]],
+    toolace:   [[0.7080,0.0252],[0.7520,0.0213],[0.8156,0.0103],[0.8220,0.0093]],
+    mean:      [[0.8680,0.0121],[0.9018,0.0084],[0.9281,0.0048],[0.9326,0.0032]],
+  },
+  deepseekv4pro: {
+    anthropic: [[0.9531,0.0044],[0.9282,0.0142],[0.9641,0.0025],[0.9539,0.0028]],
+    mt:        [[0.8673,0.0495],[0.9470,0.0079],[0.9331,0.0067],[0.9127,0.0097]],
+    mts:       [[0.9436,0.0094],[0.8857,0.0144],[0.9425,0.0160],[0.9275,0.0179]],
+    toolace:   [[0.7080,0.0252],[0.7655,0.0141],[0.8190,0.0075],[0.7708,0.0093]],
+    mean:      [[0.8680,0.0121],[0.8816,0.0063],[0.9147,0.0054],[0.8912,0.0064]],
+  },
+};
+
+const NS = "http://www.w3.org/2000/svg";
+const el = (n, a = {}) => { const e = document.createElementNS(NS, n);
+  for (const k in a) e.setAttribute(k, a[k]); return e; };
+
+const W = 240, H = 168, M = { t: 8, r: 10, b: 24, l: 40 };
+const Y0 = 0.68, Y1 = 1.0;
+const px = i => M.l + i * (W - M.l - M.r) / 3;
+const py = v => M.t + (Y1 - v) * (H - M.t - M.b) / (Y1 - Y0);
+
+const tip = document.getElementById("tip");
+function showTip(e, html) {
+  tip.innerHTML = html;
+  tip.style.opacity = 1;
+  const pad = 14, w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = e.clientX + pad, y = e.clientY - h - pad;
+  if (x + w > innerWidth - 8) x = e.clientX - w - pad;
+  if (y < 8) y = e.clientY + pad;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+const hideTip = () => { tip.style.opacity = 0; };
+
+const panels = document.getElementById("panels");
+for (const split of SPLITS) {
+  const fig = document.createElement("figure");
+  fig.className = "panel" + (split === "mean" ? " is-mean" : "");
+  fig.style.margin = "0";
+  const cap = document.createElement("figcaption");
+  cap.textContent = split === "mean" ? "MEAN of the four" : split;
+  fig.appendChild(cap);
+
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+                          "aria-label": `AUROC by vintage on ${split}` });
+
+  for (let v = 0.70; v <= 1.001; v += 0.10) {
+    svg.appendChild(el("line", { x1: M.l - 4, x2: W - M.r, y1: py(v), y2: py(v),
+                                 stroke: "var(--grid)", "stroke-width": 1 }));
+    const t = el("text", { x: M.l - 8, y: py(v) + 3.5, "text-anchor": "end",
+                           fill: "var(--ink-faint)", "font-size": 8.5,
+                           "font-family": "var(--mono)" });
+    t.textContent = v.toFixed(2);
+    svg.appendChild(t);
+  }
+  for (let i = 0; i < 4; i++) {
+    const t = el("text", { x: px(i), y: H - M.b + 15, "text-anchor": "middle",
+                           fill: "var(--ink-faint)", "font-size": 8.5,
+                           "font-family": "var(--mono)" });
+    t.textContent = "v" + i;
+    svg.appendChild(t);
+  }
+
+  for (const arm of ARMS) {
+    const series = D[arm.key][split];
+    const d = series.map((s, i) => `${i ? "L" : "M"}${px(i)},${py(s[0])}`).join(" ");
+    svg.appendChild(el("path", { d, fill: "none", stroke: arm.color, "stroke-width": 2,
+                                 "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    series.forEach((s, i) => {
+      const [m, sd] = s;
+      svg.appendChild(el("line", { x1: px(i), x2: px(i), y1: py(m - sd), y2: py(m + sd),
+                                   stroke: arm.color, "stroke-width": 1.25, opacity: 0.55 }));
+      // 2px surface ring so overlapping arm markers stay separable
+      svg.appendChild(el("circle", { cx: px(i), cy: py(m), r: 4, fill: arm.color,
+                                     stroke: "var(--paper)", "stroke-width": 2 }));
+      const hit = el("circle", { cx: px(i), cy: py(m), r: 11, fill: "transparent" });
+      const label = `<b>${arm.key}</b> · v${i}<br>${split} ${m.toFixed(4)} ± ${sd.toFixed(4)}<br>${arm.rows[i]} red-team rows`;
+      hit.addEventListener("mousemove", e => showTip(e, label));
+      hit.addEventListener("mouseleave", hideTip);
+      svg.appendChild(hit);
+    });
+  }
+  fig.appendChild(svg);
+  panels.appendChild(fig);
+}
+
+const tables = document.getElementById("tables");
+for (const arm of ARMS) {
+  const best = [0, 1, 2, 3].reduce((a, b) =>
+    D[arm.key].mean[b][0] > D[arm.key].mean[a][0] ? b : a, 0);
+  const wrap = document.createElement("div");
+  wrap.className = "tablewrap";
+  wrap.innerHTML = `<table>
+    <caption>${arm.key}</caption>
+    <thead><tr><th>vintage</th><th>rows</th>${SPLITS.map(s =>
+      `<th>${s}</th>`).join("")}</tr></thead>
+    <tbody>${[0,1,2,3].map(v => `<tr${v === best ? ' data-best="1"' : ""}>
+        <td>v${v}</td><td>${arm.rows[v]}</td>${SPLITS.map(s => {
+          const [m, sd] = D[arm.key][s][v];
+          return `<td>${m.toFixed(4)} <span class="sd">± ${sd.toFixed(4)}</span></td>`;
+        }).join("")}</tr>`).join("")}</tbody></table>`;
+  tables.appendChild(wrap);
+}
+</script>
