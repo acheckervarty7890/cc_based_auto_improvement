@@ -7,9 +7,21 @@
 `arch_sweep.json`, `nonlinear_ceiling.json`), logs `logs/arch_sweep.log`,
 `logs/nonlinear_ceiling.log`.*
 
-> **Status: results pending.** The methods below are final; every results section is
-> filled in from `arch_sweep.json` once the sweep completes. Do not cite this file until
-> this banner is gone.
+> **Status: ceiling complete, sweep in progress.** §1 (the non-linear ceiling) is
+> measured and its headline finding is settled. §§2-6 are filled in from
+> `arch_sweep.json` as fits land — the sweep is ~32 h of wall clock and runs past any one
+> session. Do not cite §§2-6 until this banner says they are complete.
+>
+> **To check on it or pick it up:**
+> ```bash
+> .venv_claude/bin/python scripts/arch_sweep.py --summarize-only   # read partial results
+> tail -f logs/arch_sweep.log                                      # watch fits land
+> nohup bash run_arch_sweep.sh 42 43 44 45 46 >> logs/arch_sweep.log 2>&1 &   # (re)start
+> nohup bash failsafe_commit_arch.sh > logs/failsafe_arch.out 2>&1 &          # 30-min pushes
+> ```
+> Everything resumes at `(arm, architecture, seed, variant, legacy)` granularity, so a
+> restart costs at most the fit that was in flight. Fits are ~20 min for the batch-16
+> heads and ~55 min for the two attention heads (batch 128).
 
 ## The question
 
