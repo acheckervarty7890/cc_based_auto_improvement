@@ -596,15 +596,63 @@ them.
 
 ### 3. Hard-core recovery
 
-### 4. Pooling vs. non-linearity
+### 4. Pooling vs. non-linearity — the effect survives the trade-off control
 
-*Pending five seeds. The analysis that decides it — `print_tradeoff_test` in
-`arch_sweep.py` — is implemented and runs automatically in `--summarize-only` once six or
-more fits exist, so it does not depend on anyone remembering to do it. It regresses
-`eval_ant_hh` AUROC on the mean of the other three splits across every fit and reports
-each architecture's residual: on the line means the gain is the generalisation trade-off
-described in §2, consistently above it means the architecture genuinely does better on the
-hard split than its overall performance predicts.*
+**Two of five seeds, both arms: 32 fits, n = 4 per architecture.** `print_tradeoff_test`
+regresses `eval_ant_hh` AUROC on the mean of the *other three* splits across every fit
+(so `ant_hh` is not on both axes) and reports each architecture's residual — how much
+better it does on the hard split than its overall performance predicts.
+
+| architecture | pooling | readout | residual | verdict |
+|---|---|---|---|---|
+| `pre_mean` | mean | linear | **+0.0487 ± 0.0072** | **above** |
+| `attention` | attn query | linear | **+0.0403 ± 0.0130** | **above** |
+| `mean_then_mlp` | mean | MLP | **+0.0395 ± 0.0178** | **above** |
+| `attention_then_mlp` | attn query | MLP | +0.0169 ± 0.0291 | on the line |
+| `mlp_then_softmax` | **softmax** | MLP | −0.0058 ± 0.0263 | on the line |
+| `lda_shrinkage` | mean | closed form | −0.0133 ± 0.0545 | on the line |
+| `linear_then_softmax` | **softmax** | linear | **−0.0449 ± 0.0202** | **below** |
+| `difference_of_means` | mean | closed form | −0.0815 ± 0.0193 | below |
+
+**The `ant_hh` effect is not the generalisation trade-off.** §2 raised that as the
+alternative explanation and this is the control for it: after regressing out overall
+performance, three architectures still sit above the line and the deployed head sits
+**below** it. Whatever `eval_ant_hh` needs, softmax-over-own-logits pooling is
+specifically bad at it — worse than its own accuracy on the other three splits predicts.
+
+**And the axis is pooling, not readout.** Ordering the six Adam-trained heads by residual
+groups them perfectly by pooling and not at all by readout:
+
+| pooling | residuals |
+|---|---|
+| mean | **+0.0487**, **+0.0395** |
+| decoupled attention query | **+0.0403**, +0.0169 |
+| softmax over own logits | −0.0058, **−0.0449** |
+
+Both mean-pooled heads are above, both softmax-pooled heads are at or below, and the two
+attention-pooled ones are in between — while the linear/MLP readout distinction cuts
+across the ordering with no pattern. That is the same conclusion §1 reached from the
+opposite direction (a non-linear readout has no headroom), now shown positively.
+
+**A mechanism this is consistent with.** `linear_then_softmax` weights each token by *its
+own* logit, so it concentrates on the tokens it already scores highly. That is a
+reasonable inductive bias in-distribution, and the split it hurts is `eval_ant_hh` — the
+short, blunt, most out-of-distribution split, where the tokens the probe has learned to
+find are least likely to be the informative ones. Mean pooling cannot do that by
+construction, and a decoupled query need not.
+
+**Strength of evidence.** Per architecture n = 4 (2 seeds × 2 arms) against 3 degrees of
+freedom, so individually only `pre_mean` is convincing (t ≈ 6.8); `attention` is t ≈ 3.1
+and `mean_then_mlp` t ≈ 2.2. What makes the result credible is not any single row but the
+**ordering across all six Adam heads grouping cleanly by pooling**, on two attacker arms
+whose training data shares no conversations. Three more seeds will tighten it; the sign
+and the grouping are unlikely to move.
+
+**This supersedes §2's tentative reading.** §2 concluded the `ant_hh` gain was "probably a
+trade-off, not a win", on one seed and before this control existed. The control has now
+run and says otherwise. §2's text is left as written, with this section as its resolution,
+because the sequence — single-seed impression, explicit alternative hypothesis, purpose-built
+control, reversal — is the part worth keeping.
 
 ### 5. What the best-epoch fix was worth
 
