@@ -2,7 +2,9 @@
 
 *Run: 2026-08-15. Code: `scripts/heldout_v3_vs_v2_eval_tags.py`. Raw output:
 `results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2/` (progress sidecar, per-arm
-tag dumps, `heldout_v3_vs_v2.json`), log `logs/heldout_v3_vs_v2.log`.*
+tag dumps, `heldout_v3_vs_v2.json`), log `logs/heldout_v3_vs_v2.log`. The base-data-free
+replication of the same two conditions (§5) lives in `…/heldout_v3_vs_v2_nobase/`, log
+`logs/heldout_v3_vs_v2_nobase.log`. 40 probe fits in total.*
 
 ## The question
 
@@ -171,6 +173,78 @@ of its 134 rows wrong under both conditions. It is also the only unpaired split 
 lowest-AUROC one (~0.71–0.75), so this is where the probe's ordering is genuinely weak
 rather than merely mis-thresholded.
 
+## Result 5 — the same two conditions with the base data removed
+
+Both conditions above carry the same 50 base rows (42 train / 8 val), so the base data
+cannot explain any *difference* between them — but it is shared credit neither
+condition's numbers can be separated from, and it is common to every row that fails under
+both. Re-running both conditions on the **red-team rows alone** (`--no-base`, results in
+`…/heldout_v3_vs_v2_nobase/`) asks what each vintage teaches by itself. Train sizes drop
+by exactly 42/8: `v2` 564/142 and `v3new` 141/31 on deepseek, 436/110 and 187/45 on
+gptoss.
+
+### The base data is holding up `v2`, not `v3new`
+
+AUROC (pipeline), mean ± sd over 5 seeds, all splits pooled:
+
+| arm | condition | with base | **no base** |
+|---|---|---|---|
+| gptoss120b | `v2` | 0.9136 ± 0.005 | 0.8955 ± **0.031** |
+| gptoss120b | `v3new` | 0.9117 ± 0.008 | 0.9025 ± 0.016 |
+| deepseekv4pro | `v2` | 0.8953 ± 0.009 | 0.8274 ± **0.081** |
+| deepseekv4pro | `v3new` | 0.8818 ± 0.008 | 0.8685 ± 0.009 |
+
+The asymmetry is the result. Removing 42 training rows costs `v3new` 0.009–0.013 AUROC
+and leaves its seed-to-seed spread essentially unchanged. It costs `v2` 0.018 (gptoss)
+to **0.068** (deepseek) and inflates its spread **6–9×** — deepseek `v2`'s per-split sd
+reaches 0.163 on `ai_dilemmas`, i.e. some seeds collapse outright (its within-condition
+error Jaccard is 0.378 ± 0.128 balanced, barely above the between-condition 0.306).
+
+So **without the base data, `v3new` outranks `v2` on both arms** (0.9025 vs 0.8955;
+0.8685 vs 0.8274) despite having 2.4–4.1× fewer rows. The older, larger red-team vintage
+is the one that needs the base data to stay stable; the newer, smaller one stands on its
+own. That is a stronger version of Result 1 — per row, the iteration-3 successes are the
+better training data, and the with-base comparison was partly masking it.
+
+### The overlap is broadly unchanged
+
+Balanced rule, majority tags:
+
+| | gptoss no-base | deepseek no-base | *(gptoss with base)* | *(deepseek with base)* |
+|---|---|---|---|---|
+| correct both | 723 | 652 | *734* | *700* |
+| `v2` only | 43 | 67 | *46* | *56* |
+| `v3new` only | 39 | 72 | *27* | *42* |
+| **wrong both** | **61** | **75** | *59* | *68* |
+| error Jaccard | 0.427 | 0.350 | *0.447* | *0.410* |
+| lift over independence | 5.08× | 3.11× | *5.66×* | *4.32×* |
+| within `v2` / within `v3new` | 0.426 / 0.454 | 0.378 / 0.732 | *0.547 / 0.692* | *0.499 / 0.684* |
+| **between** | **0.331** | **0.306** | *0.392* | *0.371* |
+
+Between-condition error Jaccard stays below both within-condition baselines in all eight
+comparisons here too, so the qualitative finding survives. But the *margin* narrows on
+three of the four within-condition baselines (e.g. gptoss balanced: gaps of 0.155/0.300
+with base become 0.095/0.123 without), because removing the base data raises the seed-noise
+floor more than it separates the conditions. Dropping the shared training data did **not**
+pull the two conditions' error sets apart — it mostly made every fit noisier.
+
+### The hard core is the same rows either way
+
+| rule | four-way core, with base | four-way core, no base | **in both variants** | expected if independent | lift |
+|---|---|---|---|---|---|
+| raw | 87 | 73 | **71** | 7.3 | 9.7× |
+| balanced | 37 | 38 | **31** | 1.6 | **19.1×** |
+
+**31 eval rows are misclassified by all eight probe families** — two attacker models ×
+two disjoint red-team vintages × with and without the base data — a 19× enrichment over
+chance, and the with-base and no-base cores overlap at Jaccard 0.705. Of those 31, **21
+are in `eval_ant_hh`** (16% of that split's 134 rows), 7 in `balanced_refusal`, 3 in
+`daily_dilemmas`, none in `ai_dilemmas`.
+
+This closes off the "it's the base data" explanation for the core found in Result 4. The
+core is not what the base data failed to teach, nor what any red-team vintage failed to
+teach — it survives every combination of the two.
+
 ## What this means for the retraining loop
 
 1. **The new red-team data is not redundant filler** — `v3new` reaches `v2`'s AUROC on a
@@ -180,16 +254,24 @@ rather than merely mis-thresholded.
    with `docs/why_last_iteration_adds_nothing.md`: successive red-team iterations keep
    finding real, durable holes in the *training* set while the *eval* surface barely
    moves.
-3. **The residue is addressable only off this axis.** 37 rows fail under every
-   combination of two attacker models × two disjoint red-team vintages × five seeds.
-   Whatever fixes those is not more of the same red-teaming — it is a different eval
-   concept boundary, different base data, or a different probe architecture.
+3. **The residue is addressable only off this axis.** 31 rows fail under every
+   combination of two attacker models × two disjoint red-team vintages × with and
+   without the base data × five seeds. Whatever fixes those is not more of the same
+   red-teaming, and — per Result 5 — it is not the base training data either. It is a
+   different eval concept boundary or a different probe architecture. Two thirds of the
+   core sits in `eval_ant_hh`, which is the concrete place to look first.
+4. **Per red-team row, the newer vintage is the better data**, and the base data was
+   partly masking that: strip it and `v3new` beats `v2` on both arms while `v2` becomes
+   seed-unstable. If red-team rows are being budgeted, recency is worth more than volume.
 
 ## Reproducing
 
 ```bash
 .venv_claude/bin/python scripts/heldout_v3_vs_v2_eval_tags.py                  # 20 fits, ~2 h
 .venv_claude/bin/python scripts/heldout_v3_vs_v2_eval_tags.py --summarize-only # re-derive from the sidecar
+.venv_claude/bin/python scripts/heldout_v3_vs_v2_eval_tags.py --no-base        # 20 more, red-team rows only
+.venv_claude/bin/python scripts/heldout_v3_vs_v2_eval_tags.py --no-base --summarize-only
+.venv_claude/bin/python scripts/heldout_v3_vs_v2_eval_tags.py --compare-variants
 ```
 
 The sweep resumes from `eval_tags_progress.jsonl` at `(arm, condition, seed)` granularity;

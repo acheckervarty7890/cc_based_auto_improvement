@@ -699,6 +699,57 @@ def cross_arm(res_by_arm: dict) -> dict:
     return out
 
 
+def _four_way_core(out_dir: Path, rule: str) -> tuple[set, int]:
+    """Rows both conditions of *both* arms get wrong, under one decision rule."""
+    cores, n = [], 0
+    for arm in sorted(A.ARMS):
+        rows = [json.loads(l) for l in (out_dir / f"{arm}_eval_tags.jsonl").open()]
+        n = len(rows)
+        cores.append({
+            (r["split"], r["idx_in_split"]) for r in rows
+            if r[f"{rule}_v2_tag"] == "incorrect" and r[f"{rule}_v3new_tag"] == "incorrect"
+        })
+    return cores[0] & cores[1], n
+
+
+def compare_variants() -> dict:
+    """Does dropping the base training data move the hard core?
+
+    Run after both variants have been summarized. The four-way core (both conditions ×
+    both arms) is computed inside each variant, then intersected across them: a row in
+    the result is misclassified by all **eight** probe families, which spans two attacker
+    models, two disjoint red-team vintages, and the presence or absence of the base data.
+    Whatever those rows need, none of the axes this experiment varies supplies it.
+    """
+    out = {}
+    for rule in ("raw", "balanced"):
+        cb, n = _four_way_core(OUT_DIR, rule)
+        cn, _ = _four_way_core(NOBASE_OUT_DIR, rule)
+        exp = len(cb) * len(cn) / n if n else 0.0
+        by_split: dict[str, int] = {}
+        for sp, _i in sorted(cb & cn):
+            by_split[sp] = by_split.get(sp, 0) + 1
+        out[rule] = {
+            "core_with_base": len(cb), "core_no_base": len(cn),
+            "core_both_variants": len(cb & cn),
+            "jaccard": len(cb & cn) / len(cb | cn) if (cb | cn) else 1.0,
+            "expected_if_independent": exp,
+            "lift_over_independence": (len(cb & cn) / exp) if exp else None,
+            "per_split": by_split,
+        }
+        d = out[rule]
+        print(f"{rule:9s} four-way core: with-base {len(cb)}, no-base {len(cn)}, "
+              f"in BOTH variants {len(cb & cn)} (Jaccard {d['jaccard']:.3f}; "
+              f"{exp:.1f} expected if independent, "
+              f"lift {d['lift_over_independence']:.1f}x)")
+        print(f"          -> misclassified by all EIGHT probe families "
+              f"(2 arms x 2 conditions x 2 base variants); per split: {by_split}")
+    p = OUT_DIR / "variant_comparison.json"
+    p.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    print(f"wrote {p}")
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", nargs="+", choices=sorted(A.ARMS), default=sorted(A.ARMS))
@@ -709,7 +760,14 @@ def main() -> None:
     ap.add_argument("--no-base", action="store_true",
                     help="train on the red-team rows alone, dropping the base training "
                          "data from both sides of the split; writes to a separate dir")
+    ap.add_argument("--compare-variants", action="store_true",
+                    help="contrast the with-base and --no-base hard cores; requires "
+                         "both variants to have been summarized already")
     args = ap.parse_args()
+
+    if args.compare_variants:
+        compare_variants()
+        return
 
     if args.no_base:
         global OUT_DIR, PROGRESS, INCLUDE_BASE

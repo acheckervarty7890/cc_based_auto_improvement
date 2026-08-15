@@ -125,8 +125,24 @@ def assemble(arm: str, iteration: int = 3, verbose: bool = True) -> Assembled:
 
 
 def refit(asm: Assembled, drop_rows: set[int] | None = None, seed: int = A.SEED,
-          quiet: bool = True):
-    """Train one probe with ``drop_rows`` (red-team row indices) removed."""
+          quiet: bool = True, include_base: bool = True):
+    """Train one probe with ``drop_rows`` (red-team row indices) removed.
+
+    ``include_base=False`` trains on the red-team rows **alone**, dropping the base
+    training data from both sides of the split. Every caller in this directory wants the
+    default: the base data is what the pipeline actually trains on, and holding it fixed
+    is what makes a red-team drop-set the only thing that varies. The exception is
+    ``heldout_v3_vs_v2_eval_tags.py --no-base``, which asks what a red-team vintage
+    teaches *by itself* — there the base data is the confound, since it is identical
+    across the conditions being contrasted and so is shared credit neither can be
+    separated from.
+
+    Note the val side loses the base rows too. Early stopping then selects against a
+    purely red-team validation set, which is a different (and much smaller) selection
+    signal — 142 rows rather than 150 on the largest condition here, 31 rather than 39 on
+    the smallest. Fits are correspondingly noisier, and that is a property of the
+    question, not a bug to tune away.
+    """
     import contextlib
     import io
 
@@ -143,9 +159,13 @@ def refit(asm: Assembled, drop_rows: set[int] | None = None, seed: int = A.SEED,
         i for i in range(len(asm.redteam)) if asm.rt_is_val[i] and i not in drop
     ]
     # _concatenate_consuming pops the pad fields out of its inputs, so every part must
-    # be a fresh view — asm.redteam is reused across hundreds of refits.
-    train = _concatenate_consuming([asm.base_train[:], asm.redteam[keep_train]])
-    val = _concatenate_consuming([asm.base_val[:], asm.redteam[keep_val]])
+    # be a fresh view — asm.redteam is reused across hundreds of refits. (With one part
+    # it returns that part unchanged, and an indexed view is already fresh, so the
+    # include_base=False path leaves asm.redteam intact too.)
+    train_parts = [asm.base_train[:]] if include_base else []
+    val_parts = [asm.base_val[:]] if include_base else []
+    train = _concatenate_consuming(train_parts + [asm.redteam[keep_train]])
+    val = _concatenate_consuming(val_parts + [asm.redteam[keep_val]])
 
     seed_everything(seed)
     sink = io.StringIO()
