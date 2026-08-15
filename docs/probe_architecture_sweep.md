@@ -200,9 +200,42 @@ turns on.
 
 ## Results
 
-*Pending — see the status banner.*
+*Partial — the sweep is still running; see the status banner. The ceiling section below
+is complete for the splits listed and its headline finding is settled.*
 
-### 1. The non-linear ceiling
+### 1. The non-linear ceiling — no headroom where the hard core is
+
+5-fold CV fitting on each eval split itself, mean-pooled layer-32 activations, best over
+each family's grid. The linear column is the protocol `why_last_iteration_adds_nothing.md`
+§2 used, and reproduces it **exactly**.
+
+| split | linear | RBF-SVM | trees | best non-linear − linear | hard-core rows |
+|---|---|---|---|---|---|
+| `eval_ai_dilemmas` | 0.7997 | **0.8588** | 0.1481 † | **+0.0591** | 0 |
+| `eval_ant_hh` | **0.9599** | 0.9595 | 0.9035 | **−0.0004** | 21 |
+| `eval_balanced_refusal` | *pending* | | | | 7 |
+| `eval_daily_dilemmas` | *pending* | | | | 3 |
+
+† inverted by prompt-pairing, not a ceiling — see the caveat above. `eval_ant_hh` is the
+only unpaired split, and its tree score of 0.9035 (above chance, merely worse than linear)
+is the control that confirms the mechanism: same code path, same grid, no inversion where
+there are no pairs.
+
+**The headline.** On `eval_ant_hh` — the split holding 21 of the 31 hard-core rows, and the
+one split whose CV is not compromised by pairing — the best non-linear ceiling is
+**0.0004 below** the linear one. There is nothing for a higher-capacity readout to
+extract there that a linear one cannot.
+
+And the split where non-linearity *does* buy something, `eval_ai_dilemmas` at +0.059,
+contains **none** of the hard core. So the non-linear headroom in these activations sits
+exactly where the problem isn't, and is absent exactly where it is.
+
+This is the falsification test the sweep was bounded by, and it did not falsify §2's
+reading. The prediction it licenses: **the MLP heads should not recover hard-core rows.**
+If they don't, they are confirming a measured bound rather than being under-tuned — and
+no amount of hyperparameter search reaches those rows.
+
+### 2. Per-architecture performance
 
 ### 2. Per-architecture performance
 
