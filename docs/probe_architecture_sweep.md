@@ -7,14 +7,17 @@
 `arch_sweep.json`, `nonlinear_ceiling.json`), logs `logs/arch_sweep.log`,
 `logs/nonlinear_ceiling.log`.*
 
-> **Status: §1 complete; §2 complete at one seed on both arms; §§3-6 pending more seeds.**
-> §1 (ceiling and transfer, both arms) is finished and settled. §2 and §2b hold a full
-> 8-architecture comparison on **both** attacker arms at seed 42 — enough for the ranking
-> and the pooling result, which already replicate across arms, but **not** enough to
-> separate the `eval_ant_hh` gain from a generalisation trade-off. That needs the residual
-> test in §4, which requires at least two seeds. Everything is single-seed until this
-> banner says otherwise: per-split seed noise in the comparable heldout run was sd
-> 0.014-0.059.
+> **Status: §1 and §4 complete; §2 complete at 2 of 5 seeds; §§3, 5, 6 pending.**
+> §1 (ceiling and transfer, both arms) is finished. §4 — the residual control that decides
+> whether the `eval_ant_hh` effect is real or a generalisation trade-off — has run on 32
+> fits (2 seeds × 8 architectures × 2 arms) and **resolves in favour of a real pooling
+> effect**; three more seeds will tighten it but are unlikely to move the sign or the
+> grouping. §2 and §2b hold the per-architecture tables; read them together with §4, which
+> supersedes §2's tentative single-seed reading.
+>
+> One caution that applies throughout: **`eval_ant_hh` is by far the noisiest split** —
+> the same architecture moves 0.045 on it between two seeds while its mean AUROC moves
+> 0.0007 — so no single-seed `ant_hh` number should be quoted, in either direction.
 >
 > **To check on it or pick it up:**
 > ```bash
@@ -671,7 +674,25 @@ pooling waits on §§2-4.*
    and this closes the capacity half of the second. Whatever those rows need, more
    expressive feature extraction is not it.
 
-2. **Fix the best-epoch restore before running any further probe comparison.**
+2. **But the deployed head's *pooling* is specifically weak on the split that matters, and
+   that is worth acting on.** §4's control shows `linear_then_softmax` sitting **below**
+   the performance-adjusted line on `eval_ant_hh` (−0.045) while every mean-pooled head
+   sits above it (+0.04 to +0.05), with the six Adam-trained heads ordering cleanly by
+   pooling and not at all by readout. The plausible mechanism is that weighting each token
+   by its own logit concentrates the probe on tokens it already scores highly, which is a
+   good bias in-distribution and a bad one on the shortest, bluntest, most
+   out-of-distribution split.
+
+   The actionable form is **not** "switch to mean pooling" — that costs 0.136 of mean
+   AUROC and is a clearly worse probe overall. It is that a pooling which keeps the
+   deployed head's in-distribution strength without its concentration bias is a *specific,
+   cheap, testable* change, unlike anything the red-teaming axis still has to offer. The
+   two obvious candidates: `attention` under matched hyperparameters
+   (`--normalize-hyperparams`, since its current numbers carry a batch-size confound), and
+   an ensemble or interpolation of softmax and mean pooling. Both are refits off cached
+   activations, i.e. minutes each.
+
+3. **Fix the best-epoch restore before running any further probe comparison.**
    `docs/attribution_findings.md` §1 recorded the shallow-copy defect; this run measured
    what it costs. The single refit available so far puts the deployed architecture at
    0.9112 mean AUROC against the committed iteration-3 value of 0.8880 — **an order of
@@ -681,13 +702,13 @@ pooling waits on §§2-4.*
    is in `probe_architectures.build_probe`; porting it into `retrain.py`'s path is a
    separate, small change.
 
-3. **Group by prompt before measuring anything with a high-capacity model on these eval
+4. **Group by prompt before measuring anything with a high-capacity model on these eval
    splits.** Three of the four are prompt-paired with the label carried entirely by the
    assistant turn, and ungrouped CV *inverts* a model that can memorise — by 0.65 AUROC on
    the weakest split. The linear results published so far are unaffected, but the next
    person to try a richer model on this data will get a nonsense number and no error.
 
-4. **Nothing reaches the hard core, but 31 rows cannot prove much either way.** Under the
+5. **Nothing reaches the hard core, but 31 rows cannot prove much either way.** Under the
    balanced rule a ranking uncorrelated with those rows recovers 15.5 ± 2.8 of them; the
    three transfer families land at 11, 12 and 17, i.e. within ±1.6 sd of chance. No family
    beats chance on the core, the two smooth ones trend slightly worse, and the set is far
