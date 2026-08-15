@@ -62,6 +62,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import attribution_lib as A
 import why_iter3_null as W
 
+#: Rows pooled per chunk. ``why_iter3_null._pool`` casts a whole blob to fp32 at once,
+#: which for the 400-row eval_balanced_refusal split is 400 x 1024 x 5376 x 4 B = 8.8 GB
+#: — enough, on this box, to OOM-kill a concurrently running sweep (it did). Pooling is a
+#: per-row reduction, so chunking is exact and caps the spike at ~0.7 GB.
+POOL_CHUNK = 32
+
 OUT_DIR = A.REPO / "results_hu_harm_gemma27b_batch_ablation/arch_sweep"
 HELDOUT_DIR = A.REPO / "results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2"
 NOBASE_DIR = A.REPO / "results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2_nobase"
@@ -83,6 +89,87 @@ GB_GRID = [
 ]
 QUICK_SVM_GRID = SVM_GRID[:3]
 QUICK_GB_GRID = GB_GRID[:1]
+
+
+# --- features -----------------------------------------------------------------------
+
+
+def pool_chunked(acts: torch.Tensor, mask: torch.Tensor) -> np.ndarray:
+    """Mean over unpadded tokens, in fp32, ``POOL_CHUNK`` rows at a time.
+
+    Numerically identical to ``why_iter3_null._pool`` (a mean over the token axis is a
+    per-row reduction, so the chunking cannot change a value) but with a bounded peak —
+    see :data:`POOL_CHUNK`.
+    """
+    out = np.empty((acts.shape[0], acts.shape[-1]), dtype=np.float32)
+    for i in range(0, acts.shape[0], POOL_CHUNK):
+        m = mask[i : i + POOL_CHUNK].bool()
+        h = acts[i : i + POOL_CHUNK].float() * m[..., None]
+        out[i : i + POOL_CHUNK] = (
+            h.sum(-2) / m.sum(-1, keepdim=True).clamp(min=1)
+        ).numpy()
+        del h, m
+    return out
+
+
+def eval_features(split: str) -> tuple[np.ndarray, np.ndarray]:
+    """``(X, y)`` for one eval split — ``why_iter3_null.eval_features``, chunked."""
+    from tuberlens.interfaces.dataset import LabelledDataset
+
+    ds = LabelledDataset.load_from(
+        A.EVAL_DATASET_DIR / f"{split}.jsonl",
+        pos_class_label="harmful_to_human",
+        neg_class_label="not_harmful_to_human",
+        combine_consecutive_messages=A.COMBINE_CONSECUTIVE_MESSAGES,
+        convert_tool_to_assistant=A.CONVERT_TOOL_TO_ASSISTANT,
+    )
+    y = ds.labels_torch().float().cpu().numpy()
+    blob = torch.load(
+        A.EVAL_ACTIVATIONS_DIR / f"{split}-acts_full.pt", weights_only=False, mmap=True
+    )
+    x = pool_chunked(blob["activations"], blob["attention_mask"])
+    del blob
+    gc.collect()
+    return x, y
+
+
+def redteam_features(arm: str, iteration: int = 3):
+    """``(X, y, dataset)`` for one arm's postprocessed dump, one blob at a time."""
+    ds = A.load_redteam_dataset(arm, iteration)
+    xs = []
+    for msgs in ds.inputs:
+        blob = torch.load(A.redteam_blob_path(msgs), weights_only=False)
+        xs.append(pool_chunked(blob["activations"], blob["attention_mask"])[0])
+        del blob
+    y = np.array(
+        [1.0 if v == "positive" else 0.0 for v in ds.other_fields["labels"]],
+        dtype=np.float32,
+    )
+    return np.stack(xs), y, ds
+
+
+def base_features():
+    """``((X_train, y_train), (X_val, y_val))`` for the base training data."""
+    from tuberlens.interfaces.dataset import LabelledDataset
+
+    ds = LabelledDataset.load_from(
+        A.BASE_TRAINING_DATA,
+        pos_class_label="harmful_to_human",
+        neg_class_label="not_harmful_to_human",
+        combine_consecutive_messages=A.COMBINE_CONSECUTIVE_MESSAGES,
+        convert_tool_to_assistant=A.CONVERT_TOOL_TO_ASSISTANT,
+    )
+    train, val = A.split_sides(ds)
+    out = []
+    for part, path in zip((train, val), A.base_blob_paths()):
+        blob = torch.load(path, weights_only=False, mmap=True)
+        out.append((
+            pool_chunked(blob["activations"], blob["attention_mask"]),
+            part.labels_torch().float().cpu().numpy(),
+        ))
+        del blob
+        gc.collect()
+    return out[0], out[1]
 
 
 # --- model families -----------------------------------------------------------------
@@ -210,9 +297,9 @@ def transfer(arm: str, eval_x: dict, eval_y: dict, quick: bool) -> dict:
 
     print(f"\n--- transfer: {arm} ---", flush=True)
     t0 = time.time()
-    rt_x, rt_y, _keys, _is_gen, rt_ds = W.redteam_features(arm, 3)
+    rt_x, rt_y, rt_ds = redteam_features(arm, 3)
     is_val = np.array([A.is_val(m) for m in rt_ds.inputs], dtype=bool)
-    (base_tr_x, base_tr_y), (base_val_x, base_val_y) = W.base_features()
+    (base_tr_x, base_tr_y), (base_val_x, base_val_y) = base_features()
     x_tr = np.concatenate([base_tr_x, rt_x[~is_val]])
     y_tr = np.concatenate([base_tr_y, rt_y[~is_val]])
     x_val = np.concatenate([base_val_x, rt_x[is_val]])
@@ -334,7 +421,7 @@ def main() -> None:
     print("loading eval features (mean-pooled layer 32) ...", flush=True)
     eval_x, eval_y = {}, {}
     for split in A.EVAL_SPLITS:
-        eval_x[split], eval_y[split] = W.eval_features(split)
+        eval_x[split], eval_y[split] = eval_features(split)
         print(f"  {split:24s} {eval_x[split].shape}", flush=True)
 
     print("\n--- in-domain ceiling ---", flush=True)
