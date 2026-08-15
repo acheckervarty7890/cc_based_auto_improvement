@@ -220,7 +220,19 @@ def read_progress(path: Path) -> list[dict]:
 
 
 def _variant_key(row: dict) -> tuple:
-    return (row["arm"], row["architecture"], row["seed"], row.get("variant", ""))
+    """Resume key. ``legacy_best_epoch`` is part of it, not just a recorded field.
+
+    Without it a ``--legacy-best-epoch`` control run would collide with the main sweep's
+    rows, find every fit "already done" and silently do nothing — the failure mode where
+    a control arm reports the numbers it was meant to be contrasted against.
+    """
+    return (
+        row["arm"],
+        row["architecture"],
+        row["seed"],
+        row.get("variant", ""),
+        bool(row.get("legacy_best_epoch", False)),
+    )
 
 
 # --- the sweep ----------------------------------------------------------------------
@@ -239,7 +251,7 @@ def run_arm(arm: str, seeds: list[int], architectures: list[str], eval_dir: Path
         for s in seeds
         for arch in architectures
         for vname, vhp in variants
-        if (arm, arch, s, vname) not in done
+        if (arm, arch, s, vname, legacy_best_epoch) not in done
     ]
     if not todo:
         print("  every (architecture, seed) already recorded — nothing to do", flush=True)
@@ -424,9 +436,11 @@ def analyse(rows: list[dict], truth: dict) -> dict:
 
     core_masks = {rule: core_mask_for(rule) for rule in ("raw", "balanced")}
 
+    # The main table is the default variant with the best-epoch fix on. Sensitivity
+    # variants and the legacy-best-epoch control are reported separately, not pooled in.
     by: dict = defaultdict(lambda: defaultdict(dict))
     for r in rows:
-        if "error" in r or r.get("variant"):
+        if "error" in r or r.get("variant") or r.get("legacy_best_epoch"):
             continue
         by[r["arm"]][r["architecture"]][r["seed"]] = r
 
@@ -618,6 +632,36 @@ def print_sensitivity(rows: list[dict], truth: dict) -> None:
                   f"+/-{a.std(ddof=1) if len(a) > 1 else 0.0:.4f}  ({len(a)} seed(s))")
 
 
+def print_legacy_control(rows: list[dict]) -> None:
+    """What the best-epoch fix itself is worth, where both variants were run.
+
+    Reported separately from the architecture table because it is a different question:
+    every arm of the main comparison carries the fix, so it cannot explain any difference
+    *between* architectures — but it does mean none of those numbers are comparable to
+    the committed comparison CSVs, and this is how large that gap is.
+    """
+    fixed: dict = defaultdict(list)
+    legacy: dict = defaultdict(list)
+    for r in rows:
+        if "error" in r or r.get("variant"):
+            continue
+        auc = np.mean([r["auroc"][sp]["pipeline"] for sp in A.EVAL_SPLITS])
+        (legacy if r.get("legacy_best_epoch") else fixed)[
+            (r["arm"], r["architecture"])
+        ].append(auc)
+    shared = sorted(set(legacy) & set(fixed))
+    if not shared:
+        return
+    print("\n\n########## control: what the best-epoch restore is worth ##########")
+    print(f"{'arm / architecture':40s} {'legacy':>16s} {'fixed':>16s} {'delta':>9s}")
+    for key in shared:
+        lo, fi = np.array(legacy[key]), np.array(fixed[key])
+        print(f"{key[0] + ' / ' + key[1]:40s} "
+              f"{lo.mean():.4f}+/-{lo.std(ddof=1) if len(lo) > 1 else 0.0:.4f} "
+              f"{fi.mean():.4f}+/-{fi.std(ddof=1) if len(fi) > 1 else 0.0:.4f} "
+              f"{fi.mean() - lo.mean():>+9.4f}")
+
+
 def summarize() -> None:
     rows = read_progress(PROGRESS)
     if not rows:
@@ -637,6 +681,7 @@ def summarize() -> None:
     res = analyse(rows, truth)
     print_report(res)
     print_sensitivity(rows, truth)
+    print_legacy_control(rows)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     res.pop("_correctness_keys", None)
