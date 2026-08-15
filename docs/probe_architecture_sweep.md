@@ -344,6 +344,21 @@ something.
 An earlier revision of this section read 11/31 as showing the core rows are
 "systematically mis-ranked". That over-read a 1.6-sd deviation; it is corrected here.
 
+**And there is a selection effect that makes below-chance recovery the expected result,
+not a discovery.** The 31 rows were *defined* as the ones every probe family in
+`heldout_v3_vs_v2_overlap.md` got wrong — and those probes were mean-of-logits linear
+heads trained on this same base + red-team data. A fresh linear model trained on that
+same data is drawn from very nearly the same family, so of course it fails the rows
+selected for being unreachable by it. gptoss120b's linear transfer recovers 9/31 (−2.3 sd)
+and deepseekv4pro's 11/31 (−1.6 sd); both are what the selection predicts on its own.
+
+The consequence for how this metric should be used: **core recovery is informative only
+for a model far enough from the family that defined the core.** Trees are the only such
+family here, and they land at chance. So the metric's one meaningful reading in this run
+is "a genuinely different inductive bias does not clear the core either" — and even that
+rests on a single family at +0.5 sd, which is why it is stated as a screen rather than a
+result.
+
 The other number on this table is solid and worth keeping: **val 0.9942 against an eval
 mean of 0.769**. Both smooth families fit the red-team-heavy training distribution almost
 perfectly and lose ~0.22 crossing to eval — the distribution gap in one line, and the same
