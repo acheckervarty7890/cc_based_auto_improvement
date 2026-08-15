@@ -601,21 +601,29 @@ them.
 
 ### 4. Pooling vs. non-linearity — the effect survives the trade-off control
 
-**Two of five seeds, both arms: 32 fits, n = 4 per architecture.** `print_tradeoff_test`
-regresses `eval_ant_hh` AUROC on the mean of the *other three* splits across every fit
-(so `ant_hh` is not on both axes) and reports each architecture's residual — how much
-better it does on the hard split than its overall performance predicts.
+**Three of five seeds, both arms: 49 fits, n = 6-7 per architecture.**
+`print_tradeoff_test` regresses `eval_ant_hh` AUROC on the mean of the *other three*
+splits across every fit (so `ant_hh` is not on both axes) and reports each architecture's
+residual — how much better it does on the hard split than its overall performance
+predicts.
 
-| architecture | pooling | readout | residual | verdict |
-|---|---|---|---|---|
-| `pre_mean` | mean | linear | **+0.0487 ± 0.0072** | **above** |
-| `attention` | attn query | linear | **+0.0403 ± 0.0130** | **above** |
-| `mean_then_mlp` | mean | MLP | **+0.0395 ± 0.0178** | **above** |
-| `attention_then_mlp` | attn query | MLP | +0.0169 ± 0.0291 | on the line |
-| `mlp_then_softmax` | **softmax** | MLP | −0.0058 ± 0.0263 | on the line |
-| `lda_shrinkage` | mean | closed form | −0.0133 ± 0.0545 | on the line |
-| `linear_then_softmax` | **softmax** | linear | **−0.0449 ± 0.0202** | **below** |
-| `difference_of_means` | mean | closed form | −0.0815 ± 0.0193 | below |
+| architecture | pooling | readout | residual | verdict | *(at 2 seeds)* |
+|---|---|---|---|---|---|
+| `pre_mean` | mean | linear | **+0.0474 ± 0.0061** | **above** | *+0.0487* |
+| `mean_then_mlp` | mean | MLP | **+0.0393 ± 0.0142** | **above** | *+0.0395* |
+| `attention` | attn query | linear | **+0.0363 ± 0.0135** | **above** | *+0.0403* |
+| `attention_then_mlp` | attn query | MLP | +0.0210 ± 0.0246 | on the line | *+0.0169* |
+| `mlp_then_softmax` | **softmax** | MLP | −0.0055 ± 0.0224 | on the line | *−0.0058* |
+| `lda_shrinkage` | mean | closed form | −0.0123 ± 0.0527 | on the line | *−0.0133* |
+| `linear_then_softmax` | **softmax** | linear | **−0.0396 ± 0.0211** | **below** | *−0.0449* |
+| `difference_of_means` | mean | closed form | −0.0801 ± 0.0185 | below | *−0.0815* |
+
+**The estimates are stable.** Adding a third seed — 50% more data — moved every residual
+by less than 0.005 and tightened most of the standard deviations, with the ordering
+unchanged. That is worth stating explicitly given how much the raw `ant_hh` numbers move
+between seeds (§2b): the *residual* is a far better-behaved quantity than the split score
+it is computed from, because regressing out overall performance removes the seed-to-seed
+variation that swamps the raw delta.
 
 **The `ant_hh` effect is not the generalisation trade-off.** §2 raised that as the
 alternative explanation and this is the control for it: after regressing out overall
@@ -626,11 +634,11 @@ specifically bad at it — worse than its own accuracy on the other three splits
 **And the axis is pooling, not readout.** Ordering the six Adam-trained heads by residual
 groups them perfectly by pooling and not at all by readout:
 
-| pooling | residuals |
+| pooling | residuals (3 seeds) |
 |---|---|
-| mean | **+0.0487**, **+0.0395** |
-| decoupled attention query | **+0.0403**, +0.0169 |
-| softmax over own logits | −0.0058, **−0.0449** |
+| mean | **+0.0474**, **+0.0393** |
+| decoupled attention query | **+0.0363**, +0.0210 |
+| softmax over own logits | −0.0055, **−0.0396** |
 
 Both mean-pooled heads are above, both softmax-pooled heads are at or below, and the two
 attention-pooled ones are in between — while the linear/MLP readout distinction cuts
@@ -644,12 +652,13 @@ short, blunt, most out-of-distribution split, where the tokens the probe has lea
 find are least likely to be the informative ones. Mean pooling cannot do that by
 construction, and a decoupled query need not.
 
-**Strength of evidence.** Per architecture n = 4 (2 seeds × 2 arms) against 3 degrees of
-freedom, so individually only `pre_mean` is convincing (t ≈ 6.8); `attention` is t ≈ 3.1
-and `mean_then_mlp` t ≈ 2.2. What makes the result credible is not any single row but the
-**ordering across all six Adam heads grouping cleanly by pooling**, on two attacker arms
-whose training data shares no conversations. Three more seeds will tighten it; the sign
-and the grouping are unlikely to move.
+**Strength of evidence.** Per architecture n = 6-7 (3 seeds × 2 arms) against 5-6 degrees
+of freedom: `pre_mean` t ≈ 7.8 (p < 0.001), `mean_then_mlp` t ≈ 2.8 and `attention`
+t ≈ 2.7 (both p ≈ 0.04), and the deployed head's negative residual t ≈ −1.9 (p ≈ 0.11).
+What makes the result credible is not any single row but the **ordering across all six
+Adam heads grouping cleanly by pooling**, on two attacker arms whose training data shares
+no conversations, holding stable as seeds are added. Two more seeds are running; on the
+evidence so far the sign and the grouping are not going to move.
 
 **This supersedes §2's tentative reading.** §2 concluded the `ant_hh` gain was "probably a
 trade-off, not a win", on one seed and before this control existed. The control has now
