@@ -52,6 +52,44 @@ def _drop_line() -> str:
     return "".join(out)
 
 
+def _readout(by: dict) -> str:
+    """Per-arm read-out, computed from the sidecar rather than written by hand.
+
+    Two things are worth stating for every arm and are easy to get wrong by eye: which
+    vintage actually scored best, and whether the curve is monotone. A later vintage
+    scoring *below* an earlier one means the red-team data added in between made the
+    probe worse on the eval splits — the sweep's most actionable outcome — but only if
+    the gap clears the seed noise, so it is tested against the pooled sd rather than
+    reported on the point estimates.
+    """
+    out = []
+    for arm in sorted({a for a, _ in by}):
+        stats = {}
+        for (a, v), rs in by.items():
+            if a != arm:
+                continue
+            x = np.array([r["auroc"]["mean"]["pipeline"] for r in rs])
+            stats[v] = (x.mean(), x.std(ddof=1) if len(x) > 1 else 0.0, len(x))
+        if not stats:
+            continue
+        best = max(stats, key=lambda v: stats[v][0])
+        vs = sorted(stats)
+        curve = " → ".join(f"v{v} {stats[v][0]:.4f}" for v in vs)
+        line = f"- **{arm}**: {curve}; best is **v{best}**."
+
+        regressions = []
+        for i, v in enumerate(vs):
+            for w in vs[i + 1:]:
+                d = stats[v][0] - stats[w][0]
+                pooled = float(np.hypot(stats[v][1], stats[w][1])) or 1e-12
+                if d > 0 and d / pooled >= 2.0:
+                    regressions.append(f"v{w} is {d:.4f} below v{v} ({d / pooled:.1f}σ)")
+        if regressions:
+            line += " **Non-monotone**: " + "; ".join(regressions) + "."
+        out.append(line + "\n")
+    return "".join(out)
+
+
 def main() -> None:
     prog = OUT_DIR / "vintage_progress.jsonl"
     rows = []
@@ -131,6 +169,16 @@ def main() -> None:
                 )
             L.append(f"| v{v} | {rs[0]['n_redteam_rows']} | {len(rs)} | "
                      + " | ".join(cells) + " |\n")
+
+    readout = _readout(by)
+    if readout:
+        L.append("\n## Read-out\n\n")
+        L.append(readout)
+        L.append(
+            "\nThe σ figures are against the pooled seed sd of the two vintages "
+            "compared, so a flagged regression is one the seed noise cannot explain. "
+            "Only gaps of ≥2σ are flagged.\n"
+        )
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / "SUMMARY.md").write_text("".join(L), encoding="utf-8")
