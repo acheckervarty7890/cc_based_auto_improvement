@@ -5,9 +5,11 @@ and −0.002 (deepseek) on the mean eval AUROC, 10 seeds each, against a seed sd
 0.011–0.027. This note is the *why*, and what to change.
 
 Everything below runs off activations already on disk
-(`scripts/why_iter3_null.py`, `scripts/why_iter3_addendum.py`; raw numbers in
-`results_hu_harm_gemma27b_batch_ablation/vintage/why_iter3*.json`). No gemma-3-27b
-forward was run.
+(`scripts/why_iter3_null.py`, `scripts/why_iter3_addendum.py`,
+`scripts/why_close_but_wrong{,_centered}.py`, `scripts/v2_probe_on_new_v3.py`; raw numbers
+in `results_hu_harm_gemma27b_batch_ablation/vintage/{why_iter3*,why_close_but_wrong*,v2probe_on_new_v3}.json`).
+No gemma-3-27b forward was run — §5b retrains 20 probe heads, but on cached layer-32
+activations, so no extraction model is ever loaded.
 
 ## The instrument, and why it is not the pipeline trainer
 
@@ -186,6 +188,61 @@ Two structural reasons this is expected rather than surprising:
 The redundancy in §6 is about **value per row**, not geometric duplication: a new pair is
 a genuinely new error, and is worth exactly as much as re-drawing an old one.
 
+## 5b. Are these successes a durable hole, or one seed's hyperplane?
+
+§5a establishes that the v2 probe *was* confidently wrong on rows sitting close to its own
+training set, and attributes that to the fit being underdetermined — 546 rows in 5376
+dimensions at train accuracy 1.0000. But that argument cuts both ways: if the hyperplane
+is that unconstrained, a "success" might be an accident of one seed rather than anything
+the training data failed to teach. A single probe cannot separate those.
+
+`scripts/v2_probe_on_new_v3.py` does, by refitting **vintage 2 on 10 seeds** and scoring
+the held-out new-in-v3 rows with each. Every new row is dropped from both the train and
+the val side of every refit, so all scores are out-of-sample for all seeds. Judge labels
+are exact here: every source row joins to its attempt row (116/116, 86/86) and its dump
+label equals the judge's label with zero mismatches. The generated counterparts carry no
+judge label — theirs is assigned by construction — so the two halves are never pooled.
+
+| mislabelled vs the judge | gptoss | deepseek |
+|---|---|---|
+| red-team successes, mean of 10 seeds | **71.0%** (sd 6.2, range 62–80) | **65.8%** (sd 6.9, range 56–74) |
+| generated counterparts | 0.7% | 0.6% |
+| *deployed `probe_iter2`, for reference* | *91.4%* | *80.2%* |
+
+Reseeding recovers only about a fifth of the failures (91→71%, 80→66%). The generated half
+is near-trivially classified, so the pooled figure (35.9% / 33.2%) is mostly dilution — a
+single blended number would understate the failure by half **and** mix judge-labelled rows
+with construction-labelled ones. Gptoss shows an asymmetry deepseek does not: its
+false-positive successes survive at 84.4% against 65.5% for its false negatives, despite
+FNs outnumbering them 82 to 34.
+
+**About 40% of the successes are missed by every seed.** 44 of 116 (gptoss, 37.9%) and 36
+of 86 (deepseek, 41.9%); no generated counterpart is. The distribution is bimodal, not
+smeared — gptoss puts 44 rows at 10/10 and 126 at 0/10 with only 41 anywhere between — and
+pairwise Jaccard between seeds' error sets is 0.76 / 0.78 against a union roughly twice the
+intersection. So seeds disagree substantially at the margin while sharing a large fixed
+core. Those durable rows are not the judge's marginal calls (mean confidence 9.27 / 9.25,
+min 8 / 7); they split 26 FN / 18 FP for gptoss and 29 FN / 7 FP for deepseek.
+
+**This refines §6 rather than contradicting it.** "Interchangeable value per row" was
+measured over the whole vintage; these are two different populations averaged together.
+Roughly 40% are structural holes in what the vintage-2 training set can express, and the
+other ~60% flip with the seed and are, in the pipeline's own terms, noise. That is the
+concrete target loop-fix 4 (select what enters training) needs: the always-wrong rows are
+enumerated per row in `v2probe_on_new_v3.json` under `always_wrong_source_rows`, with judge
+label, confidence, mean logit across seeds and a content hash.
+
+Two negative results worth recording so they are not re-derived. The seed spread does
+**not** track `best_epoch` — across all 20 fits, Pearson r = −0.03 (p = 0.94) for gptoss and
+−0.06 (p = 0.87) for deepseek, with Spearman flipping sign between arms, and deepseek's
+`best_epoch` ranging 4–63 with no relationship to outcome. And the spread is *narrower*
+than the pipeline's true run-to-run variance: only `seed_everything` differs between these
+fits (weight init, batch shuffling), since the data, the split and the membership are
+byte-identical. Note also that these refits inherit the `best_epoch` no-op described in
+`attribution_findings.md` §1 — validation drives early stopping but cannot restore the best
+weights, so each probe is its final epoch. That is deliberate: it is what the pipeline
+actually produces.
+
 ## 6. The new pairs are interchangeable, not defective
 
 Trained *alone* (plus base), against size-matched random draws from the earlier vintage:
@@ -197,6 +254,10 @@ Trained *alone* (plus base), against size-matched random draws from the earlier 
 
 Equal value per row. Nothing is wrong with iteration 3's data; there is simply nothing
 left for another draw from the same distribution to add.
+
+**Refined by §5b.** This average hides two populations: ~40% of the successes are missed
+by *every* reseeded vintage-2 probe (structural holes), and ~60% flip with the seed. The
+aggregate value per row is equal; the composition is not.
 
 ## What the data actually is
 
@@ -292,7 +353,11 @@ free shortcut sitting in the training data.
 4. **Select what enters training, not just what is a probe error.** `filter_dataset` drops
    the most bag-of-words-confident rows; nothing selects for coverage. An acquisition step
    preferring successes far from the existing training set in activation space is what
-   turns "116 interchangeable pairs" into 116 that are not.
+   turns "116 interchangeable pairs" into 116 that are not. §5b makes this concrete and
+   gives it a ready-made label: ~40% of successes are missed by every reseeded vintage-2
+   probe and ~60% are seed noise, enumerated per row in `v2probe_on_new_v3.json`. A
+   cheap version of this rule is *keep a success only if k reseeded probes all miss it* —
+   no new activations needed, since the refits run off the cache in minutes.
 5. **Break the provenance shortcut** — have both halves of a pair share an authorship
    distribution (e.g. rewrite the source with the same model that writes the counterpart),
    so "who wrote it" stops correlating with the label.
