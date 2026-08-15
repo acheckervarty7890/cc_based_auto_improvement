@@ -81,6 +81,34 @@ optimizer settings unchanged** from their linear counterpart, so the head-to-hea
 the architecture and nothing else. `--sensitivity` then varies `hidden_dim` and
 `weight_decay` separately, to check that any MLP result is not an artefact of that choice.
 
+#### Which comparisons are clean, and which are confounded
+
+tuberlens ships **different default optimizer settings per architecture**, so "same
+trainer, different head" is not automatic. The actual defaults:
+
+| architecture | batch_size | grad_accum | final_lr |
+|---|---|---|---|
+| `linear_then_softmax`, `mlp_then_softmax`, `pre_mean`, `mean_then_mlp` | 16 | 4 | 1e-4 |
+| `attention`, `attention_then_mlp` | **128** | **1** | **5e-4** |
+
+Two consequences, stated plainly because they bound what the table below can support:
+
+- **Clean.** Any comparison *within* the batch-16 group is a pure architecture contrast —
+  which covers both readout contrasts (`linear_then_softmax` ↔ `mlp_then_softmax`,
+  `pre_mean` ↔ `mean_then_mlp`) **and**, importantly, the main pooling contrast
+  (`linear_then_softmax` ↔ `pre_mean`: logit-weighted softmax vs. mean, identical
+  settings). `attention` ↔ `attention_then_mlp` is likewise clean against each other.
+- **Confounded.** Any comparison *across* the two groups — i.e. anything involving
+  `attention` or `attention_then_mlp` against the other four — varies the optimizer
+  settings as well as the architecture, and a difference cannot be attributed to pooling
+  alone.
+
+The confound is therefore contained: it touches 2 of the 8 architectures, and the
+pooling question is still answerable cleanly through `linear_then_softmax` ↔ `pre_mean`.
+`--normalize-hyperparams` re-runs the two attention heads under the batch-16 settings so
+the decoupled-query pooling can also be compared cleanly; those fits are recorded as a
+separate variant and reported in their own section rather than pooled into the main table.
+
 ### `lda_shrinkage` exists because tuberlens' `lda` is not LDA
 
 `PytorchDifferenceOfMeansClassifier` declares a `use_lda` field and **never reads it**.
@@ -187,12 +215,24 @@ the user prompt dominates a *mean-pooled* activation, a model with enough capaci
 on the prompt predicts the partner's label — which is the opposite one — and is wrong
 systematically rather than randomly. Hence far below 0.5.
 
+Measured directly, keeping pairs in the same fold moves the tree score on
+`eval_ai_dilemmas` from **0.1481 to 0.7777** — a +0.63 AUROC swing from nothing but the
+fold assignment. Orientation was ruled out separately: the identical call path scores
+1.0000 on synthetic separable data, so this is the data, not a sign error.
+
 This does **not** invalidate the linear column: L2-regularised logistic regression cannot
 memorise a prompt sharply enough for the effect to bite, and the linear numbers here
-reproduce `why_last_iteration_adds_nothing.md` §2 to four decimals on the splits measured
-so far. It does mean the tree column has to be read as a diagnostic of pair-memorisation
-rather than as a ceiling, and that any future ceiling measurement over these splits should
-group by prompt (`GroupKFold` on the user-turn hash) before trusting a high-capacity model.
+reproduce `why_last_iteration_adds_nothing.md` §2 **exactly** on every split measured
+(0.7997, 0.9599, 0.9977). It does mean the tree column has to be read as a diagnostic of
+pair-memorisation rather than as a ceiling, and that any future ceiling measurement over
+these splits should group by prompt (`GroupKFold` on the user-turn hash) before trusting a
+high-capacity model — `--group-by-prompt` does this.
+
+Note also what the pairing implies about the concept itself, independently of any CV: on
+those three splits the user prompt carries **no** label information by construction, so a
+probe reading the prompt rather than the assistant's reply scores exactly chance there.
+That is a property worth keeping in mind when reading any per-split number for an
+assistant-centric concept.
 
 `eval_ant_hh` — the one **unpaired** split, and the one holding 21 of the 31 hard-core
 rows — is unaffected by this, which is convenient: it is the split the whole question

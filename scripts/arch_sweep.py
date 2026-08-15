@@ -129,6 +129,16 @@ SENSITIVITY_GRID = [
 ]
 SENSITIVITY_ARCH = "mlp_then_softmax"
 
+#: --normalize-hyperparams: tuberlens ships DIFFERENT default optimizer settings per
+#: architecture — `attention` and `attention_then_mlp` use batch_size 128 /
+#: gradient_accumulation_steps 1 / final_lr 5e-4, while the other four use 16 / 4 / 1e-4.
+#: So a comparison across those two groups varies the trainer as well as the head, and a
+#: difference cannot be attributed to pooling alone. Re-running the attention heads under
+#: the batch-16 settings closes that gap. Recorded as a variant so it never pools into the
+#: main table, where each architecture stands on the defaults it ships with.
+NORMALIZE_ARCHES = ["attention", "attention_then_mlp"]
+NORMALIZE_REFERENCE = "linear_then_softmax"
+
 
 # --- eval side ----------------------------------------------------------------------
 
@@ -658,24 +668,59 @@ def print_report(res: dict) -> None:
 
 
 def print_sensitivity(rows: list[dict], truth: dict) -> None:
-    """Is an MLP result an artefact of capacity / regularisation?"""
+    """Variant arms: capacity/regularisation sensitivity, and hyperparameter normalisation.
+
+    Both are reported here rather than in the main table because both answer "is that
+    difference really the architecture?" — the first by varying capacity at fixed
+    architecture, the second by removing the optimizer-setting difference tuberlens' own
+    defaults introduce between the attention heads and the rest.
+    """
     var_rows = [r for r in rows if r.get("variant") and "error" not in r]
     if not var_rows:
         return
-    y, split_all, _keys, _off = _flat_truth(truth)
-    print("\n\n########## sensitivity: capacity and regularisation ##########")
-    print("  (same architecture, varying hidden_dim / weight_decay — if the spread here")
-    print("   covers the architecture differences above, the sweep measured tuning)")
-    by = defaultdict(lambda: defaultdict(list))
+
+    def mean_auc(r: dict) -> float:
+        return float(np.mean([r["auroc"][sp]["pipeline"] for sp in A.EVAL_SPLITS]))
+
+    # baseline: the same architecture on its shipped defaults, for a delta
+    default_auc: dict = defaultdict(list)
+    for r in rows:
+        if "error" not in r and not r.get("variant") and not r.get("legacy_best_epoch"):
+            default_auc[(r["arm"], r["architecture"])].append(mean_auc(r))
+
+    groups = {"bs16": [], "other": []}
     for r in var_rows:
-        auc = np.mean([r["auroc"][sp]["pipeline"] for sp in A.EVAL_SPLITS])
-        by[(r["arm"], r["architecture"])][r["variant"]].append(auc)
-    for (arm, arch), variants in by.items():
-        print(f"\n  {arm} / {arch}")
+        groups["bs16" if r["variant"] == "bs16" else "other"].append(r)
+
+    if groups["other"]:
+        print("\n\n########## sensitivity: capacity and regularisation ##########")
+        print("  (same architecture, varying hidden_dim / weight_decay — if the spread")
+        print("   here covers the architecture differences above, the sweep measured tuning)")
+        _print_variant_group(groups["other"], default_auc, mean_auc)
+
+    if groups["bs16"]:
+        print("\n\n########## hyperparameter normalisation (--normalize-hyperparams) ##########")
+        print(f"  {NORMALIZE_ARCHES} re-run under {NORMALIZE_REFERENCE}'s batch_size /")
+        print("  gradient_accumulation_steps / final_lr. The main table lets each")
+        print("  architecture stand on its shipped defaults, which differ; this removes")
+        print("  that difference so the pooling contrast is architecture alone.")
+        _print_variant_group(groups["bs16"], default_auc, mean_auc)
+
+
+def _print_variant_group(var_rows: list[dict], default_auc: dict, mean_auc) -> None:
+    by: dict = defaultdict(lambda: defaultdict(list))
+    for r in var_rows:
+        by[(r["arm"], r["architecture"])][r["variant"]].append(mean_auc(r))
+    for (arm, arch), variants in sorted(by.items()):
+        base = default_auc.get((arm, arch))
+        base_str = (f"  [shipped defaults: {np.mean(base):.4f}]" if base else "")
+        print(f"\n  {arm} / {arch}{base_str}")
         for vname, aucs in sorted(variants.items()):
             a = np.array(aucs)
+            delta = f"  ({np.mean(a) - np.mean(base):+.4f})" if base else ""
             print(f"    {vname:28s} AUROC {a.mean():.4f}"
-                  f"+/-{a.std(ddof=1) if len(a) > 1 else 0.0:.4f}  ({len(a)} seed(s))")
+                  f"+/-{a.std(ddof=1) if len(a) > 1 else 0.0:.4f}  "
+                  f"({len(a)} seed(s)){delta}")
 
 
 def print_legacy_control(rows: list[dict]) -> None:
@@ -750,6 +795,11 @@ def main() -> None:
     ap.add_argument("--legacy-best-epoch", action="store_true",
                     help="reproduce tuberlens' non-restoring early stopping, to measure "
                          "what the fix itself is worth")
+    ap.add_argument("--normalize-hyperparams", action="store_true",
+                    help=f"re-run {NORMALIZE_ARCHES} under {NORMALIZE_REFERENCE}'s "
+                         "optimizer settings, so the decoupled-query pooling can be "
+                         "compared without also varying batch size / accumulation / "
+                         "final_lr (tuberlens' defaults differ per architecture)")
     args = ap.parse_args()
 
     if args.legacy_best_epoch:
@@ -760,7 +810,20 @@ def main() -> None:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     if not args.summarize_only:
-        if args.sensitivity:
+        if args.normalize_hyperparams:
+            from agentic_redteam.probe_architectures import default_hyperparams
+
+            ref = default_hyperparams(NORMALIZE_REFERENCE)
+            shared = {k: ref[k] for k in
+                      ("batch_size", "gradient_accumulation_steps", "final_lr")}
+            print(f"--normalize-hyperparams: {NORMALIZE_ARCHES} will use "
+                  f"{NORMALIZE_REFERENCE}'s {shared}")
+            for arm in args.arm:
+                run_arm(arm, args.seeds, NORMALIZE_ARCHES, args.eval_dir,
+                        resume=not args.no_resume,
+                        variants=[("bs16", dict(shared))],
+                        legacy_best_epoch=args.legacy_best_epoch)
+        elif args.sensitivity:
             variants = [
                 (f"h{g['hidden_dim']}_wd{g['weight_decay']:g}", g)
                 for g in SENSITIVITY_GRID
