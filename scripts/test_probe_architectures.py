@@ -187,11 +187,54 @@ def test_tuberlens_lda_is_difference_of_means() -> list[str]:
     return []
 
 
+def test_hyperparam_override_reaches_the_trainer() -> list[str]:
+    """The ``--normalize-hyperparams`` path must actually change the training args.
+
+    tuberlens ships different optimizer defaults per architecture (``attention`` uses
+    batch_size 128 / grad_accum 1 / final_lr 5e-4; the batch-16 group uses 16 / 4 / 1e-4),
+    so a comparison across those groups varies the trainer as well as the head. The sweep
+    offers a normalised arm to remove that. If the override silently failed to reach
+    ``training_args``, the normalised arm would be byte-identical to the un-normalised one
+    — a control that looks fine and measures nothing.
+    """
+    from agentic_redteam.probe_architectures import build_probe, default_hyperparams
+
+    print("\n--- 4. hyperparameter override reaches training_args ---")
+    keys = ("batch_size", "gradient_accumulation_steps", "final_lr")
+    reference = default_hyperparams("linear_then_softmax")
+    shipped = default_hyperparams("attention")
+    target = {k: reference[k] for k in keys}
+    if all(shipped[k] == v for k, v in target.items()):
+        return ["`attention` and `linear_then_softmax` now ship identical optimizer "
+                "settings — the normalisation arm is pointless; re-check the defaults"]
+
+    train, val = make_dataset(128, 0, 4.0), make_dataset(64, 1, 4.0)
+    failures = []
+    for label, override in (("shipped", {}), ("normalised", dict(target))):
+        with contextlib.redirect_stdout(io.StringIO()):
+            probe = build_probe(
+                "attention", train, val,
+                model_name="synthetic", layer=1,
+                pos_class_label="positive", neg_class_label="negative",
+                hyperparams={**override, "epochs": 3, "patience": 2},
+            )
+        got = probe._classifier.training_args
+        print(f"  {label:11s} batch={got['batch_size']:>4} "
+              f"accum={got['gradient_accumulation_steps']} final_lr={got['final_lr']}")
+        want = target if override else {k: shipped[k] for k in keys}
+        failures += [f"{label}: {k} is {got[k]}, expected {v}"
+                     for k, v in want.items() if got[k] != v]
+    if not failures:
+        print("  ok: the override lands, and the two arms genuinely differ")
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
     failures += test_every_architecture_trains()
     failures += test_best_epoch_is_restored()
     failures += test_tuberlens_lda_is_difference_of_means()
+    failures += test_hyperparam_override_reaches_the_trainer()
 
     print()
     if failures:
