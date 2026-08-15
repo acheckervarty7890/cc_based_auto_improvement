@@ -311,6 +311,31 @@ reading. The prediction it licenses: **the MLP heads should not recover hard-cor
 If they don't, they are confirming a measured bound rather than being under-tuned — and
 no amount of hyperparameter search reaches those rows.
 
+#### And transfer agrees: a non-linear readout buys nothing in practice
+
+The ceiling is an upper bound measured in-domain. The transfer half asks the question a
+deployed probe actually faces — fit on the real base + red-team training set, score the
+eval splits — with model selection on the pipeline's own validation side, never on eval.
+deepseekv4pro:
+
+| family | val AUROC | eval mean AUROC | hard-core rows recovered |
+|---|---|---|---|
+| linear | 0.9942 | 0.7694 | 11 / 31 |
+| RBF-SVM | 0.9942 | **0.7698** | 12 / 31 |
+| trees | *pending* | | |
+
+**+0.0004 mean AUROC and one extra core row out of 31.** So the in-domain bound is not
+merely an upper bound that transfer fails to reach — there is nothing there to reach.
+
+Two things worth reading off this table beyond the headline. The val AUROC of 0.9942
+against an eval mean of 0.769 is the distribution gap in one line: both families fit the
+red-team-heavy training distribution nearly perfectly and lose ~0.22 crossing to eval,
+which is the same story `why_last_iteration_adds_nothing.md` tells about the loop. And
+11/31 is *below* the ~15.5 a random ranking would score under the balanced rule (which
+predicts exactly half of each split positive), so the core rows are **systematically
+mis-ranked** by these models too, not merely uncertain — the same property that made them
+survive every red-team vintage.
+
 > **Scope — this bounds the readout axis only, not pooling.** Every family here is fitted
 > on **mean-pooled** activations, so what is held fixed is the pooling and what varies is
 > the readout. The result therefore says a non-linear *readout* has nothing extra to
