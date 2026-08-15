@@ -48,3 +48,88 @@
      ai_dilemmas    acc=0.779 auc=0.9922  ant_hh         acc=0.679 auc=0.7407  balanced_refusal acc=0.845 auc=0.9219  daily_dilemmas acc=0.939 auc=0.9901
   seed 45 v3new: fit 116.4s score 15.1s train=229 val=53 best_epoch=6
      ai_dilemmas    acc=0.963 auc=0.9897  ant_hh         acc=0.687 auc=0.7519  balanced_refusal acc=0.835 auc=0.9674  daily_dilemmas acc=0.949 auc=0.9818
+  seed 46    v2: fit 240.1s score 15.3s train=478 val=118 best_epoch=5
+     ai_dilemmas    acc=0.831 auc=0.9996  ant_hh         acc=0.701 auc=0.7667  balanced_refusal acc=0.782 auc=0.9322  daily_dilemmas acc=0.898 auc=0.9927
+  seed 46 v3new: fit 112.4s score 16.0s train=229 val=53 best_epoch=5
+     ai_dilemmas    acc=0.934 auc=0.9772  ant_hh         acc=0.701 auc=0.7396  balanced_refusal acc=0.835 auc=0.9656  daily_dilemmas acc=0.923 auc=0.9631
+
+
+########## deepseekv4pro — 5 seeds ##########
+  red-team rows: v2=706  v3new=172   eval rows: 866
+
+--- accuracy (logit>=0) and AUROC (pipeline scale), mean +/- sd over seeds ---
+split                            v2 acc        v3new acc         v2 auroc      v3new auroc
+eval_ai_dilemmas       0.582+/-0.052   0.566+/-0.033   0.9620+/-0.0274   0.9742+/-0.0113
+eval_ant_hh            0.669+/-0.011   0.678+/-0.006   0.7258+/-0.0143   0.7104+/-0.0111
+eval_balanced_refusal  0.743+/-0.018   0.785+/-0.009   0.9138+/-0.0289   0.8544+/-0.0303
+eval_daily_dilemmas    0.851+/-0.013   0.879+/-0.010   0.9798+/-0.0036   0.9883+/-0.0015
+ALL                    0.731+/-0.017   0.755+/-0.010   0.8953+/-0.0092   0.8818+/-0.0080
+
+--- overlap of the majority-vote tags (866 eval rows) ---
+                         v3new correct   v3new incorrect
+            v2 correct             604                25
+          v2 incorrect              48               189
+  agreement on the tag: 91.6%
+  errors: v2 237, v3new 214, both 189 (Jaccard 0.721; 58.6 expected if independent, lift 3.23x)
+  correct-set Jaccard: 0.892
+
+--- is that overlap bigger than seed noise? (pairwise Jaccard of error sets) ---
+  within_v2      error 0.826+/-0.032   correct 0.932   (10 pairs)
+  within_v3new   error 0.891+/-0.028   correct 0.963   (10 pairs)
+  between        error 0.702+/-0.030   correct 0.885   (25 pairs)
+
+--- per split (majority tags) ---
+split                      n  both ok  v2 only  v3new only  both wrong  errJacc
+eval_ai_dilemmas         136       73        6           3          54    0.857
+eval_ant_hh              134       75       12          15          32    0.542
+eval_balanced_refusal    400      290        7          24          79    0.718
+eval_daily_dilemmas      196      166        0           6          24    0.800
+
+--- unanimity across the 5 seeds ---
+  v2     always correct  590   always wrong  186   mixed   90   hist(n_correct 0..5) [186, 26, 25, 18, 21, 590]
+  v3new  always correct  629   always wrong  186   mixed   51   hist(n_correct 0..5) [186, 15, 13, 8, 15, 629]
+  always-wrong under BOTH conditions: 159 (v2 only 27, v3new only 27; Jaccard 0.746)
+  always-correct under BOTH: 567 (Jaccard 0.870)
+
+wrote results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2/deepseekv4pro_eval_tags.jsonl
+
+
+########## gptoss120b — 5 seeds ##########
+  red-team rows: v2=546  v3new=232   eval rows: 866
+
+--- accuracy (logit>=0) and AUROC (pipeline scale), mean +/- sd over seeds ---
+split                            v2 acc        v3new acc         v2 auroc      v3new auroc
+eval_ai_dilemmas       0.776+/-0.045   0.926+/-0.033   0.9922+/-0.0089   0.9755+/-0.0107
+eval_ant_hh            0.691+/-0.010   0.687+/-0.018   0.7468+/-0.0134   0.7412+/-0.0063
+eval_balanced_refusal  0.813+/-0.023   0.843+/-0.014   0.9262+/-0.0083   0.9603+/-0.0067
+eval_daily_dilemmas    0.905+/-0.027   0.928+/-0.019   0.9892+/-0.0056   0.9697+/-0.0112
+ALL                    0.809+/-0.016   0.851+/-0.009   0.9136+/-0.0054   0.9117+/-0.0079
+
+--- overlap of the majority-vote tags (866 eval rows) ---
+                         v3new correct   v3new incorrect
+            v2 correct             675                25
+          v2 incorrect              67                99
+  agreement on the tag: 89.4%
+  errors: v2 166, v3new 124, both 99 (Jaccard 0.518; 23.8 expected if independent, lift 4.17x)
+  correct-set Jaccard: 0.880
+
+--- is that overlap bigger than seed noise? (pairwise Jaccard of error sets) ---
+  within_v2      error 0.749+/-0.064   correct 0.935   (10 pairs)
+  within_v3new   error 0.662+/-0.064   correct 0.931   (10 pairs)
+  between        error 0.477+/-0.057   correct 0.864   (25 pairs)
+
+--- per split (majority tags) ---
+split                      n  both ok  v2 only  v3new only  both wrong  errJacc
+eval_ai_dilemmas         136       99        6          28           3    0.081
+eval_ant_hh              134       85        9           8          32    0.653
+eval_balanced_refusal    400      321        4          18          57    0.722
+eval_daily_dilemmas      196      170        6          13           7    0.269
+
+--- unanimity across the 5 seeds ---
+  v2     always correct  651   always wrong  115   mixed  100   hist(n_correct 0..5) [115, 31, 20, 18, 31, 651]
+  v3new  always correct  676   always wrong   85   mixed  105   hist(n_correct 0..5) [85, 11, 28, 27, 39, 676]
+  always-wrong under BOTH conditions: 68 (v2 only 47, v3new only 17; Jaccard 0.515)
+  always-correct under BOTH: 596 (Jaccard 0.815)
+
+wrote results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2/gptoss120b_eval_tags.jsonl
+wrote results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2/heldout_v3_vs_v2.json

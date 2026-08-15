@@ -618,12 +618,62 @@ def summarize(arms: list[str]) -> None:
             for t in tags:
                 fh.write(json.dumps(t) + "\n")
         print(f"\nwrote {path}")
+        # Kept only to feed cross_arm(); stripped before the JSON is written, since the
+        # per-row tags are already on disk as their own file.
+        res["_tags_cache"] = tags
         out[arm] = res
+
+    if len(out) > 1:
+        out["cross_arm"] = cross_arm(out)
+    for arm in list(out):
+        if isinstance(out[arm], dict):
+            out[arm].pop("_tags_cache", None)
 
     if out:
         p = OUT_DIR / "heldout_v3_vs_v2.json"
         p.write_text(json.dumps(out, indent=1), encoding="utf-8")
         print(f"wrote {p}")
+
+
+def cross_arm(res_by_arm: dict) -> dict:
+    """Do the two attacker arms fail on the same eval rows?
+
+    Each arm's "shared-error core" is the rows its v2 *and* its v3new probes both get
+    wrong. Those cores are derived from disjoint red-team data written by different
+    attacker models, so an overlap between them is evidence the failures belong to the
+    eval rows and the base data rather than to any red-team vintage — the strongest
+    version of the question this script asks.
+    """
+    arms = [a for a in res_by_arm if a in A.ARMS]
+    out = {}
+    for rule in ("raw", "balanced"):
+        cores = {}
+        for arm in arms:
+            tags = res_by_arm[arm]["_tags_cache"]
+            cores[arm] = {
+                (t["split"], t["idx_in_split"])
+                for t in tags
+                if t[f"{rule}_v2_tag"] == "incorrect"
+                and t[f"{rule}_v3new_tag"] == "incorrect"
+            }
+        n = len(res_by_arm[arms[0]]["_tags_cache"])
+        a, b = cores[arms[0]], cores[arms[1]]
+        exp = len(a) * len(b) / n if n else 0.0
+        out[rule] = {
+            "n_eval_rows": n,
+            **{f"core_{arm}": len(cores[arm]) for arm in arms},
+            "core_both_arms": len(a & b),
+            "jaccard": len(a & b) / len(a | b) if (a | b) else 1.0,
+            "expected_if_independent": exp,
+            "lift_over_independence": (len(a & b) / exp) if exp else None,
+        }
+        d = out[rule]
+        print(f"\n=== cross-arm ({rule}) === rows wrong under BOTH conditions of "
+              f"{arms[0]}: {len(a)}, of {arms[1]}: {len(b)}; "
+              f"of all four probes' conditions: {d['core_both_arms']} "
+              f"(Jaccard {d['jaccard']:.3f}; {exp:.1f} expected if independent, "
+              f"lift {d['lift_over_independence']:.2f}x)")
+    return out
 
 
 def main() -> None:
