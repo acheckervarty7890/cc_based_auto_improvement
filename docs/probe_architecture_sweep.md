@@ -567,6 +567,33 @@ seeds land.
 > called for five seeds, and why nothing in §2b should be quoted as a settled effect size
 > until they are in.
 
+#### Seed 43 relocates the noise — and it is in the baseline, not the alternatives
+
+The second seed's `attention` fit on deepseekv4pro sharpens this considerably:
+
+| architecture | `ant_hh` seed 42 | `ant_hh` seed 43 | spread |
+|---|---|---|---|
+| `linear_then_softmax` (deployed) | 0.7149 | 0.7601 | **0.045** |
+| `attention` | 0.7740 | 0.7765 | **0.003** |
+
+The delta against the baseline collapses from +0.059 to +0.016 — but **not because
+`attention` got worse.** Its `ant_hh` is essentially unchanged across the two seeds
+(0.7740 → 0.7765); the deployed head's moved by 0.045. The apparent "gain" is being driven
+by an unstable baseline, not a stable improvement.
+
+That is a different and more interesting claim than the one §2b makes, and it cuts both
+ways. Against the pooling story: a delta whose size is set by where the baseline happens to
+land on a given seed is not a reliable effect. In favour of something real: the deployed
+head is **seed-unstable on precisely the split holding the hard core**, while a
+decoupled-query head is not — which, if it holds up over five seeds, is a robustness
+statement about softmax-over-own-logits pooling rather than an accuracy one, and arguably
+matters more.
+
+**This story has now moved with every seed added, which is itself the finding to take
+away**: single-seed readings of `eval_ant_hh` are not trustworthy, in either direction. No
+further re-framing here until all five seeds are in and `print_tradeoff_test` can run on
+them.
+
 ### 3. Hard-core recovery
 
 ### 4. Pooling vs. non-linearity
