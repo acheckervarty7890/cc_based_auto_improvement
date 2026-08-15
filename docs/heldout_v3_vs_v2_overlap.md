@@ -6,6 +6,51 @@ tag dumps, `heldout_v3_vs_v2.json`), log `logs/heldout_v3_vs_v2.log`. The base-d
 replication of the same two conditions (§5) lives in `…/heldout_v3_vs_v2_nobase/`, log
 `logs/heldout_v3_vs_v2_nobase.log`. 40 probe fits in total.*
 
+## Summary
+
+**What was run.** 40 probe refits off cached activations — no gemma-3-27b forward pass.
+Two training conditions whose red-team sets **partition** the iteration-3 dump, so each
+is held out of the other: `v2` (rows whose source success existed at iteration 2) and
+`v3new` (exactly the rows iteration 3 added). Five seeds each, both attacker arms, run
+twice: once with the 50-row base training set included in both conditions, once with it
+removed from both (`--no-base`). Every one of the 866 `eval_dataset_hu_ha` rows was then
+tagged correct/incorrect per probe, under the deployed `logit >= 0` rule and under a
+bias-free top-half rule (the probes are badly off-centre — one fit ranked `ai_dilemmas`
+at AUROC 0.987 while scoring 0.581 accuracy — so the raw rule alone would have measured
+a shared offset rather than shared understanding).
+
+**Five findings.**
+
+1. **The two conditions perform about the same** with base data — AUROC 0.914 vs 0.912
+   (gptoss), 0.895 vs 0.882 (deepseek) — even though `v3new` uses 2.4–4.1× fewer
+   red-team rows.
+2. **Their errors overlap heavily but partially.** The conditions agree on ~90% of eval
+   rows; 41–52% of their combined errors are shared, 3.2–5.7× more than if the two
+   training sets produced independent probes.
+3. **That shared core is smaller than reseeding alone produces.** Between-condition error
+   Jaccard sits below *both* within-condition reseeding baselines in all eight
+   comparisons — swapping the vintage does move the error set, but by 0.13–0.31 Jaccard
+   against a reseed floor that already churns 31–50% of it. The vintages differ in the
+   same register seed noise does, not in kind.
+4. **A hard core survives everything.** 37 rows fail under both conditions of both arms
+   (8× over chance) — and after the base-data ablation, **31 fail under all eight probe
+   families** (2 arms × 2 vintages × with/without base), a 19× enrichment. Two thirds of
+   them are in `eval_ant_hh`.
+5. **The base data was propping up `v2`, not `v3new`.** Removing it costs `v3new`
+   0.009–0.013 AUROC at unchanged seed spread but costs `v2` up to 0.068 and inflates its
+   spread 6–9×, so **without base data `v3new` outranks `v2` on both arms**.
+
+**What it means.** Per red-team row the newer vintage is the better training data, and
+the base data was masking that. But neither vintage buys a different eval surface: they
+rearrange the error set about as much as a reseed does and leave the same rows standing.
+Those rows are not what the base data failed to teach either — so the residue is
+addressable only off this axis (eval concept boundary, or probe architecture), and
+`eval_ant_hh` is where to look first.
+
+**Caveat.** The conditions differ in size as well as content (`v2` carries 2.4–4.1× the
+rows), so error *rates* are confounded; the overlap structure — which rows, not how many
+— is not. A size-matched `v2` subsample would close that gap at ~10 more fits.
+
 ## The question
 
 `v2_probe_on_new_v3.py` established that iteration 3's red-team successes are a
