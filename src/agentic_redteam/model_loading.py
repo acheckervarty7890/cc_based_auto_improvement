@@ -39,10 +39,16 @@ future architecture mis-handles the rebuilt config).
 under which accelerate infers the budget from whatever is *free at load time* and
 will silently fall back to **disk** offload when the box is tight — the state the
 gemma-3-27b runs were in, and worth ~40 s/sample.
+
+Truncating the config makes the model's module tree a strict subset of the
+checkpoint's, and transformers' **disk**-offload bookkeeping does not tolerate that —
+see ``_install_truncated_load_shims``, which is why a box tight enough to need
+truncation is exactly the box on which it used to crash.
 """
 
 from __future__ import annotations
 
+import collections
 import os
 from typing import Any
 
@@ -127,6 +133,99 @@ def _truncated_config(model_name: str, layer: int):
     return config
 
 
+_SHIMS_INSTALLED = False
+
+
+def _install_truncated_load_shims() -> None:
+    """Teach transformers' disk-offload bookkeeping about the layers we dropped.
+
+    ``from_pretrained`` builds its offload index from the **checkpoint's** key list,
+    not the model's: ``_get_key_renaming_mapping`` maps *every* serialized key, so
+    layers our truncated config never instantiates are still in the ``weight_map``.
+    Two helpers then look those names up in the ``device_map``, which only knows about
+    modules that exist:
+
+    * ``get_disk_only_shard_files`` walks a name's prefixes until one is a key of the
+      map. For a dropped layer nothing ever matches, the walk bottoms out at ``""``,
+      and it indexes with that — ``KeyError: ''``.
+    * ``expand_device_map`` silently omits those names, so the ``disk_offload_index``
+      comprehension built immediately after raises ``KeyError`` on them in turn.
+
+    Neither is reached unless ``"disk" in device_map.values()``. That is the whole
+    shape of the bug: truncation is free on a box roomy enough to hold layers
+    ``0..layer`` across GPU+CPU, and crashes the load on the tight box it exists to
+    help. Observed on the dev-sample extraction — ``google/gemma-3-27b-it`` at layer
+    32 (30 GB of executed weights) against an 8 GB GPU and 15 GB of RAM.
+
+    Both replacements are behaviour-preserving when there is no mismatch, so the
+    (idempotent, process-wide) patch is safe to leave installed.
+    """
+    global _SHIMS_INSTALLED
+    if _SHIMS_INSTALLED:
+        return
+
+    try:
+        from transformers import modeling_utils
+    except Exception as exc:  # noqa: BLE001 — never block a load on the shim
+        print(f"[model_loading] could not patch transformers for truncation: {exc}")
+        return
+
+    inner_expand = getattr(modeling_utils, "expand_device_map", None)
+    if inner_expand is None or not hasattr(modeling_utils, "get_disk_only_shard_files"):
+        # A transformers that has restructured these away has also restructured the
+        # bug away; the load either works or fails loudly on its own terms.
+        print(
+            "[model_loading] transformers exposes no expand_device_map / "
+            "get_disk_only_shard_files — skipping the truncated-checkpoint shims."
+        )
+        _SHIMS_INSTALLED = True
+        return
+
+    def _device_of(device_map, weight_name):
+        """The device holding ``weight_name``, or ``None`` if the model has no such
+        module — i.e. it belongs to a layer the truncated config dropped."""
+        while weight_name and weight_name not in device_map:
+            weight_name = weight_name.rpartition(".")[0]
+        return device_map.get(weight_name)
+
+    class _DroppedAreMeta(dict):
+        """``device_map`` expanded to parameters, tolerant of dropped ones.
+
+        A miss means a checkpoint weight with no module in the truncated model.
+        Reporting it as ``"meta"`` (never ``"disk"``) keeps it out of the caller's
+        disk-offload index — which is right: there is nothing to offload it *to*, and
+        nothing will ever ask for it. Iteration is unaffected, so the second caller
+        (``caching_allocator_warmup``, which passes the model's own key list and
+        therefore never misses) behaves exactly as before.
+        """
+
+        def __missing__(self, key: str) -> str:
+            return "meta"
+
+    def expand_device_map(device_map, param_names):
+        return _DroppedAreMeta(inner_expand(device_map, param_names))
+
+    def get_disk_only_shard_files(device_map, weight_map):
+        """Shards from which nothing needs loading — now including shards that hold
+        only dropped layers, which upstream would open and then discard key by key."""
+        files_content = collections.defaultdict(list)
+        for weight_name, filename in weight_map.items():
+            files_content[filename].append(_device_of(device_map, weight_name))
+        return [
+            filename
+            for filename, devices in files_content.items()
+            # {"disk"} as upstream, plus None for dropped layers: a shard whose kept
+            # weights are all disk-offloaded is read straight from the safetensors
+            # file at forward time either way, and one with no kept weights at all
+            # has nothing to contribute.
+            if devices and set(devices) <= {"disk", None}
+        ]
+
+    modeling_utils.expand_device_map = expand_device_map
+    modeling_utils.get_disk_only_shard_files = get_disk_only_shard_files
+    _SHIMS_INSTALLED = True
+
+
 def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False):
     """Load the tuberlens ``LLMModel`` used to extract layer-``layer`` activations.
 
@@ -150,6 +249,9 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
         model_kwargs["config"] = config
         text_config = getattr(config, "text_config", config)
         placed = f"truncated to {text_config.num_hidden_layers} layers"
+        # Only truncation can put checkpoint keys outside the model's module tree,
+        # so the shims go in only when it actually fired.
+        _install_truncated_load_shims()
     else:
         placed = "ALL layers (not truncated)"
 

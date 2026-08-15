@@ -207,6 +207,17 @@ if [[ -z "$BRANCH" || "$BRANCH" == "HEAD" ]]; then
     log "ERROR: detached HEAD — check out a branch first"; exit 1
 fi
 
+# A committer that cannot commit is worse than no committer: `git commit` fails with no
+# identity configured, and the snapshot path only WARNs, so the run looks protected while
+# every snapshot is silently discarded. That is what a fresh container gives you — the
+# checkout survives a re-image, ~/.gitconfig does not. Refuse to start instead.
+if ! git -C "$REPO_ROOT" config user.email >/dev/null || ! git -C "$REPO_ROOT" config user.name >/dev/null; then
+    log "ERROR: no git identity in $REPO_ROOT — every commit would fail. Set one:"
+    log "  git -C $REPO_ROOT config user.name  'you'"
+    log "  git -C $REPO_ROOT config user.email 'you@example.com'"
+    exit 1
+fi
+
 ADD_EXCLUDES=(
     ':(exclude).venv'
     ':(exclude).venv_claude'
@@ -228,6 +239,11 @@ ADD_EXCLUDES=(
     # backstop for blobs written somewhere unanticipated, which is all it can be.
     ':(exclude)results_hu_harm_gemma27b_batch_ablation/base_activations'
     ':(exclude)results_hu_harm_gemma27b_batch_ablation/eval_activations'
+    # Credentials dropped in the checkout by hand. `git add -f` ignores .gitignore, so
+    # for a SECRET the exclusion has to be here — and on the ADD side, not only in the
+    # reset pass, so the token never becomes a loose object in .git either.
+    ':(exclude)kaggle'
+    ':(exclude)HFtokn.txt'
 )
 RESET_EXCLUDES=(
     # Pooled activation blobs, if any tooling on this branch writes them: ~19 MB each,
@@ -238,6 +254,8 @@ RESET_EXCLUDES=(
     ':(glob)**/*.pth'
     ':(glob)**/kaggle.json'
     ':(glob)**/.env'
+    ':(glob)**/HFtokn.txt'
+    ':(glob)**/*hf_token*'
     ':(glob)**/*.pyc'
     ':(glob)**/__pycache__/**'
 )
@@ -359,7 +377,7 @@ log "work dir:  $WORK_DIR"
 log "finish on: $([[ -n "$DONE_FILE" ]] && echo "$DONE_FILE" || echo "(no done-file)")$([[ "$EXPECT" -gt 0 ]] && echo " or $EXPECT jobs")$([[ -z "$DONE_FILE" && "$EXPECT" -eq 0 ]] && echo "kill only")"
 log "close:     $([[ -n "$CLOSE_SCRIPT" ]] && echo "$CLOSE_SCRIPT (normal finish + nothing unpushed)" || echo "none — box stays up")"
 log "cadence:   poll ${POLL_INTERVAL}s, snapshot ${PERIODIC_INTERVAL}s"
-log "excluded:  *.pt, *.pth, kaggle.json, .env, .venv*/, archive/, __pycache__/, *.pyc"
+log "excluded:  *.pt, *.pth, kaggle/, HFtokn.txt, .env, .venv*/, archive/, __pycache__/, *.pyc"
 log "size cap:  $([[ "$MAX_SIZE_MB" -eq 0 ]] && echo "none" || echo "${MAX_SIZE_MB} MB per file")"
 [[ -d "$RESULTS_DIR" ]] || log "note: $RESULTS_DIR does not exist yet — the run has not written anything"
 

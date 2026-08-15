@@ -68,6 +68,17 @@ if [[ "$NO_FETCH" != "1" && -z "${KAGGLE_API_TOKEN:-}" ]]; then
     fi
 fi
 
+# gemma-3-27b-it is gated, and the extraction is the only stage that loads it. Checked
+# here as well as in run_devsamples_kfold.sh because THIS is the entry point a cloud box
+# uses, and everything it starts is nohup'd — an error raised down there lands in a log
+# nobody is watching yet.
+if [[ " $PARTS " == *" dev "* && -z "${HF_TOKEN:-}${HUGGINGFACE_TOKEN:-}" ]]; then
+    echo "ERROR: no HuggingFace token. Export HF_TOKEN (or HUGGINGFACE_TOKEN) from an" >&2
+    echo "       account that has accepted the Gemma licence, or run PARTS=\"cv\"," >&2
+    echo "       which scores cached activations and loads no model." >&2
+    exit 2
+fi
+
 mkdir -p logs
 
 FS_ARGS=(--work-dir "$WORK_DIR")

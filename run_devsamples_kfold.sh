@@ -76,6 +76,18 @@ if [[ "$NO_FETCH" != "1" ]]; then
     }
 fi
 
+# Same reasoning for the HuggingFace token, one stage later. Only `extract` loads a
+# model, and gemma-3-27b-it is gated, so tuberlens' hf_login() raises "No HuggingFace
+# token found" — AFTER the ~15 GB of Kaggle downloads and the CV have run. Check it
+# here so a box with no token says so in the first second.
+if [[ " $PARTS " == *" dev "* && -z "${HF_TOKEN:-}${HUGGINGFACE_TOKEN:-}" ]]; then
+    echo "ERROR: no HuggingFace token. The dev-sample extraction loads the gated" >&2
+    echo "       google/gemma-3-27b-it, so export HF_TOKEN (or HUGGINGFACE_TOKEN)" >&2
+    echo "       with an account that has accepted the Gemma licence." >&2
+    echo "       PARTS=\"cv\" needs no token — it runs off cached activations." >&2
+    exit 2
+fi
+
 echo "=== dev-sample + k-fold experiments ==="
 echo "  work dir  : $WORK_DIR"
 echo "  cache     : $CACHE_DIR"
