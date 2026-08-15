@@ -34,6 +34,15 @@ and why blobs computed either way stay interchangeable.
 Set ``AGENTIC_REDTEAM_TRUNCATE_LAYERS=0`` to disable (e.g. to A/B the timing, or if a
 future architecture mis-handles the rebuilt config).
 
+``AGENTIC_REDTEAM_TRIM_VISION=1`` additionally replaces a multimodal checkpoint's vision
+tower with a one-layer stub. Text-only conversations never execute it, so the activations
+are unchanged; the point is purely the 0.83 GB it stops placing. It is **opt-in** because
+that is a rounding error on a box with room to spare, and decisive only on one that is
+within a GB or two of holding the whole truncated model resident. Below that line every
+forward faults a slice of the weights back in from disk: measured on the WSL2 dev box
+(31 GB RAM, 8 GB VRAM), gemma-3-27b-it at layer 32 read ~560 MB per forward at ~16 MB/s of
+random page faults — which *is* the per-sample cost there, with the CPU 95% idle.
+
 ``AGENTIC_REDTEAM_MAX_MEMORY`` optionally pins accelerate's per-device budget, e.g.
 ``"0=21GiB,cpu=45GiB"``. Unset (the default) keeps tuberlens' ``max_memory=None``,
 under which accelerate infers the budget from whatever is *free at load time* and
@@ -48,6 +57,7 @@ from typing import Any
 
 _TRUNCATE_ENV = "AGENTIC_REDTEAM_TRUNCATE_LAYERS"
 _MAX_MEMORY_ENV = "AGENTIC_REDTEAM_MAX_MEMORY"
+_TRIM_VISION_ENV = "AGENTIC_REDTEAM_TRIM_VISION"
 
 
 def _truncation_enabled() -> bool:
@@ -56,6 +66,17 @@ def _truncation_enabled() -> bool:
         "false",
         "no",
     }
+
+
+def _trim_vision_enabled() -> bool:
+    """Whether to instantiate a stub vision tower instead of the checkpoint's.
+
+    Opt-in, unlike layer truncation: the saving is small in absolute terms (0.83 GB of
+    gemma-3-27b's 30.9 GB truncated placement) and only pays off on a box that is within a
+    GB or two of holding the whole model resident. Where it does pay off it pays off
+    sharply — see the module docstring.
+    """
+    return os.environ.get(_TRIM_VISION_ENV, "0").strip().lower() in {"1", "true", "yes"}
 
 
 def _parse_max_memory(raw: str) -> dict[int | str, str]:
@@ -119,12 +140,25 @@ def _truncated_config(model_name: str, layer: int):
             f"num_hidden_layers (got {n_layers!r}) — loading all layers."
         )
         return None
-    if n_layers <= layer + 1:
-        # Benign: the probe reads at or past the last layer, so there is nothing to
-        # drop. Not worth a line in the log.
-        return None
-    text_config.num_hidden_layers = layer + 1
-    return config
+    changed = False
+    if n_layers > layer + 1:
+        text_config.num_hidden_layers = layer + 1
+        changed = True
+    # else benign: the probe reads at or past the last layer, so there is nothing to
+    # drop. Not worth a line in the log.
+
+    # The vision tower of a multimodal checkpoint is never executed for the text-only
+    # conversations this repo extracts activations from, but it is still placed — 0.83 GB
+    # for gemma-3-27b-it. Instantiating a one-layer stub leaves the text stack, and
+    # therefore the activations, untouched; transformers logs the unused vision weights
+    # alongside the layers truncation already drops.
+    vision_config = getattr(config, "vision_config", None)
+    n_vision = getattr(vision_config, "num_hidden_layers", None) if vision_config else None
+    if _trim_vision_enabled() and isinstance(n_vision, int) and n_vision > 1:
+        vision_config.num_hidden_layers = 1
+        changed = True
+
+    return config if changed else None
 
 
 def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False):
@@ -150,6 +184,9 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
         model_kwargs["config"] = config
         text_config = getattr(config, "text_config", config)
         placed = f"truncated to {text_config.num_hidden_layers} layers"
+        vision_config = getattr(config, "vision_config", None)
+        if _trim_vision_enabled() and vision_config is not None:
+            placed += f" + a {vision_config.num_hidden_layers}-layer stub vision tower"
     else:
         placed = "ALL layers (not truncated)"
 

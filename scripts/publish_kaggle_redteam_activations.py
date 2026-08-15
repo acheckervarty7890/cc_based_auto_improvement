@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-"""Extract the activations both experiment11 gemma-3-27b arms retrained on, and publish
-them to Kaggle — base training split included, uploaded incrementally so an unstable box
-never loses completed work.
+"""Extract the activations a gemma-3-27b experiment's arms retrained on, and publish them to
+Kaggle — base training split included, uploaded incrementally so an unstable box never loses
+completed work.
 
 This is the red-team counterpart of ``scripts/publish_kaggle_eval_activations.py``. That
 script publishes *eval-split* blobs; this one publishes the two caches a **retrain** reads:
@@ -10,12 +10,34 @@ the per-conversation red-team blobs (``retrain._redteam_activation_cache_path``)
 
 Why it exists
 -------------
-The two arms of ``run_gemma27b_hu_harm_attacker_ablation_batch.sh`` ran on a cloud box and
-wrote their activation cache into ``results_hu_harm_gemma27b_batch_ablation/``. That
-directory was never synced back — only the probes, the postprocessed red-team snapshots and
-the results JSONLs survived. So neither the base blobs (key ``658ab1b5f1c6c827``, named
-verbatim in both run logs) nor the ~1.8k red-team activations exist anywhere, and any
-re-derivation has to push them through gemma-3-27b again.
+Each of these runs happened on a cloud box that wrote its activation cache into a
+``results_*`` directory which was never synced back — only the probes, the postprocessed
+red-team snapshots and the results JSONLs survived. So neither the base blobs nor the
+red-team activations exist anywhere, and any re-derivation has to push every conversation
+through gemma-3-27b again.
+
+Which runs, and where their inputs live
+---------------------------------------
+Three experiments are registered in ``EXPERIMENTS``, each a pair of arms on one concept and
+one probe (google/gemma-3-27b-it, layer 32):
+
+    --experiment hu_harm        harmful_to_human      branch experiment11_cloud
+    --experiment hs             high-stakes           branch experiment9_cloud
+    --experiment instructions   instruction-following branch experiment_instruction_cloud_1
+
+An experiment's probes, configs, dumps and base data live **on its branch**, so a stage that
+is not run from that branch's checkout needs ``--experiment-root <path to a checkout>``
+(``git worktree add`` is enough — nothing is written there). Everything else — the activation
+cache, the staged archives — stays under this repo, and the cache dir defaults per experiment
+so two concepts' base blobs never share a directory by accident.
+
+Kaggle slugs are one flat namespace per account, and ``dataset_create_version`` on the wrong
+slug replaces another run's blobs with these. So every experiment owns a slug prefix
+(``hu-harm-gemma27b-`` / ``hs-gemma27b-`` / ``instructions-gemma27b-``) and
+``_check_slug_namespace`` refuses to publish a unit whose slug leaves its own namespace or
+enters a sibling's — which is the only way a ``--dataset-slug`` typo could destroy data.
+Blob *file* names need no such separation: base blobs are keyed on the base data file's bytes
+and red-team blobs on their own conversation, so two concepts in one cache dir cannot collide.
 
 What is reconstructed, and why it is exact
 ------------------------------------------
@@ -71,11 +93,12 @@ cache dir is safe: a key shared by two iterations is the same bytes from either 
 
 Cost
 ----
-The red-team union is 1804 forwards through ``google/gemma-3-27b-it`` truncated to layers
-0..32; the base split adds 50. On a box that can hold the truncated model this is hours; on
-one that disk-offloads it is days. Every blob is written through as soon as it is computed,
-so any stage is interruptible and picks up where it stopped — and ``--dry-run`` reports the
-miss count per unit before you commit.
+Every blob is one forward through ``google/gemma-3-27b-it`` truncated to layers 0..32 — 1804
+for hu_harm's red-team union, 1470 for hs, 1992 for instructions, plus 50-200 per base split.
+On a box that can hold the truncated model this is hours; on one that disk-offloads it is
+days. Every blob is written through as soon as it is computed, so any stage is interruptible
+and picks up where it stopped — and ``--dry-run`` reports the miss count per unit before you
+commit.
 
 Typical use::
 
@@ -85,6 +108,11 @@ Typical use::
     # the unstable-box path: extract + upload each unit as it completes, resumable
     nohup .venv_claude/bin/python scripts/publish_kaggle_redteam_activations.py sync \
         > logs/sync_redteam_acts.log 2>&1 &
+
+    # another experiment, whose probes and dumps live on another branch
+    git worktree add --detach /tmp/exp9 origin/experiment9_cloud
+    .venv_claude/bin/python scripts/publish_kaggle_redteam_activations.py sync \
+        --experiment hs --experiment-root /tmp/exp9
 
     # on another box, prime a retrain's cache with the base split + probe_iter3's data
     .venv_claude/bin/python scripts/publish_kaggle_redteam_activations.py restore \
@@ -138,60 +166,139 @@ PROGRESS_EVERY = 10
 
 @dataclass(frozen=True)
 class Arm:
-    """One arm of the experiment11 gemma-3-27b batch ablation."""
+    """One arm of a gemma-3-27b batch ablation.
+
+    Paths are relative to the experiment's **root** — the checkout of the branch that arm ran
+    on — not to this repo, since an experiment's probes and dumps only exist on its own branch.
+    """
 
     name: str
-    config: str  # relative to REPO_ROOT
-    probe_dir: str  # relative to REPO_ROOT
-    base_training_data: str  # relative to REPO_ROOT — what run_arm passed as --base-training-data
+    config: str  # relative to the experiment root
+    probe_dir: str  # relative to the experiment root
+    base_training_data: str  # relative to the root — what run_arm passed as --base-training-data
+
+    def config_path(self, root: Path) -> Path:
+        return root / self.config
+
+    def probe_path(self, root: Path) -> Path:
+        return root / self.probe_dir
+
+    def base_data_path(self, root: Path) -> Path:
+        return root / self.base_training_data
+
+
+@dataclass(frozen=True)
+class Experiment:
+    """One two-arm run: which branch holds its inputs, and which Kaggle slugs it owns."""
+
+    name: str
+    branch: str  # where the probes / configs / dumps live (--experiment-root points at it)
+    concept: str  # human-readable, for log lines and dataset titles
+    slug_namespace: str  # every dataset this experiment owns starts with this
+    cache_dir: str  # activation cache, relative to REPO_ROOT (NOT to the experiment root)
+    arms: dict[str, Arm]
 
     @property
-    def config_path(self) -> Path:
-        return REPO_ROOT / self.config
+    def slug_template(self) -> str:
+        """{arm} is the slugified arm name, {iteration} the 1-based retrain index.
+
+        Kaggle slugs cap at 50 characters; the longest any of these renders to is 36.
+        """
+        return self.slug_namespace + "{arm}-iter{iteration}"
 
     @property
-    def probe_path(self) -> Path:
-        return REPO_ROOT / self.probe_dir
+    def base_slug_template(self) -> str:
+        """The base split is one unit shared by both arms, so it takes no {arm}.
 
-    @property
-    def base_data_path(self) -> Path:
-        return REPO_ROOT / self.base_training_data
+        {key} — the base cache key — is available for a run whose arms disagree on the base
+        data, which would give them different keys and therefore separate units.
+        """
+        return self.slug_namespace + "base"
 
 
-# Both arms of run_gemma27b_hu_harm_attacker_ablation_batch.sh, in the order it ran them.
-ARMS: dict[str, Arm] = {
-    "gptoss120b": Arm(
-        name="gptoss120b",
-        config="configs/gptoss120b_hu_harm_gemma27b_batch.md",
-        probe_dir="probes/hu_harm_gemma27b_gptoss120b_batch",
-        base_training_data="data/hu_harm_llama70b_50.jsonl",
+# The registry. Each experiment's cache dir is the one its configs named as
+# output.base_activation_cache_dir on the cloud box; both arms of a run share it, because the
+# base key folds in only the base data + probe + split knobs (none of which differ between
+# arms) and the per-conversation red-team keys are content-addressed against a frozen LLM.
+EXPERIMENTS: dict[str, Experiment] = {
+    # run_gemma27b_hu_harm_attacker_ablation_batch.sh, arms in the order it ran them.
+    "hu_harm": Experiment(
+        name="hu_harm",
+        branch="experiment11_cloud",
+        concept="harmful_to_human",
+        slug_namespace="hu-harm-gemma27b-",
+        cache_dir="results_hu_harm_gemma27b_batch_ablation/base_activations",
+        arms={
+            "gptoss120b": Arm(
+                name="gptoss120b",
+                config="configs/gptoss120b_hu_harm_gemma27b_batch.md",
+                probe_dir="probes/hu_harm_gemma27b_gptoss120b_batch",
+                base_training_data="data/hu_harm_llama70b_50.jsonl",
+            ),
+            "deepseekv4pro": Arm(
+                name="deepseekv4pro",
+                config="configs/deepseekv4pro_hu_harm_gemma27b_batch.md",
+                probe_dir="probes/hu_harm_gemma27b_deepseekv4pro_batch",
+                base_training_data="data/hu_harm_llama70b_50.jsonl",
+            ),
+        },
     ),
-    "deepseekv4pro": Arm(
-        name="deepseekv4pro",
-        config="configs/deepseekv4pro_hu_harm_gemma27b_batch.md",
-        probe_dir="probes/hu_harm_gemma27b_deepseekv4pro_batch",
-        base_training_data="data/hu_harm_llama70b_50.jsonl",
+    # run_gemma27b_hs_attacker_ablation_batch.sh.
+    "hs": Experiment(
+        name="hs",
+        branch="experiment9_cloud",
+        concept="high-stakes",
+        slug_namespace="hs-gemma27b-",
+        cache_dir="results_hs_gemma27b_batch_ablation/base_activations",
+        arms={
+            "gptoss120b": Arm(
+                name="gptoss120b",
+                config="configs/gptoss120b_hs_gemma27b_batch.md",
+                probe_dir="probes/hs_gemma27b_gptoss120b_batch",
+                base_training_data="data/hs_ls_200.jsonl",
+            ),
+            "deepseekv4pro": Arm(
+                name="deepseekv4pro",
+                config="configs/deepseekv4pro_hs_gemma27b_batch.md",
+                probe_dir="probes/hs_gemma27b_deepseekv4pro_batch",
+                base_training_data="data/hs_ls_200.jsonl",
+            ),
+        },
+    ),
+    # run_gemma27b_instructions_attackers.sh.
+    "instructions": Experiment(
+        name="instructions",
+        branch="experiment_instruction_cloud_1",
+        concept="instruction-following",
+        slug_namespace="instructions-gemma27b-",
+        cache_dir="results_instructions_gemma27b_shared/base_activations",
+        arms={
+            "gptoss120b": Arm(
+                name="gptoss120b",
+                config="configs/gptoss120b_instructions_gemma27b_batch_target60.md",
+                probe_dir="probes/instructions_gemma27b_gptoss",
+                base_training_data="data/instructions_llama70b_50.jsonl",
+            ),
+            "nemotron": Arm(
+                name="nemotron",
+                config="configs/nemotron_instructions_gemma27b_batch_target60.md",
+                probe_dir="probes/instructions_gemma27b_nemotron",
+                base_training_data="data/instructions_llama70b_50.jsonl",
+            ),
+        },
     ),
 }
 
-# The shared cache dir the two arms wrote to on the cloud box (configs'
-# output.base_activation_cache_dir). Both arms share it: the base key folds in only the base
-# data + probe + split knobs (none of which differ between arms), and the per-conversation
-# red-team keys are content-addressed against a frozen LLM.
-DEFAULT_CACHE_DIR = REPO_ROOT / "results_hu_harm_gemma27b_batch_ablation" / "base_activations"
+# The experiment this script published first, kept as the default so the invocations recorded
+# elsewhere (and in this docstring's history) keep meaning what they meant.
+DEFAULT_EXPERIMENT = "hu_harm"
 
 DEFAULT_OWNER = "anku7890"
-# {arm} is the slugified arm name, {iteration} the 1-based retrain index. Kaggle slugs cap at
-# 50 characters; the longest these render to is 36.
-DEFAULT_SLUG = "hu-harm-gemma27b-{arm}-iter{iteration}"
 DEFAULT_ARCHIVE = "{arm}-iter{iteration}-redteam-acts.zip"
-# The base split is one unit shared by both arms, so its templates take no {arm}. {key} is
-# the base cache key, available for runs whose arms disagree on the base data.
-DEFAULT_BASE_SLUG = "hu-harm-gemma27b-base"
 DEFAULT_BASE_ARCHIVE = "base-acts.zip"
 
-# Defaults iterative_retrain.py applies when the run script passes no override — which is
-# what run_gemma27b_hu_harm_attacker_ablation_batch.sh did. All four are in the base key.
+# Defaults iterative_retrain.py applies when the run script passes no override — which is what
+# every registered experiment's run script did. All four are in the base key.
 DEFAULT_SEED = 42
 DEFAULT_TEST_SIZE = 0.2
 DEFAULT_BASE_FRACTION = 1.0
@@ -219,6 +326,8 @@ class ArmPlan:
     """One arm resolved against the cache dir: its probe, its transforms, its conversations."""
 
     arm: Arm
+    experiment: Experiment
+    root: Path  # the checkout the arm's probes / configs / dumps were read from
     model_name: str
     layer: int
     combine_consecutive_messages: bool
@@ -251,7 +360,7 @@ class ArmPlan:
         return [c for c in self.conversations if iteration in c.iterations]
 
 
-def _probe_metadata(arm: Arm) -> tuple[str, int, str, str]:
+def _probe_metadata(arm: Arm, root: Path) -> tuple[str, int, str, str]:
     """Read ``(model_name, layer, pos_class_label, neg_class_label)`` off the arm's probe.
 
     The probe pickle, not the config, is the source of truth for these (see the conventions
@@ -260,10 +369,11 @@ def _probe_metadata(arm: Arm) -> tuple[str, int, str, str]:
     """
     from agentic_redteam.probe_judge import _cpu_unpickle
 
-    candidates = sorted(arm.probe_path.glob("probe_iter*.pkl"))
+    probe_dir = arm.probe_path(root)
+    candidates = sorted(probe_dir.glob("probe_iter*.pkl"))
     if not candidates:
         raise FileNotFoundError(
-            f"{arm.name}: no probe_iter*.pkl in {arm.probe_path} — cannot read model/layer."
+            f"{arm.name}: no probe_iter*.pkl in {probe_dir} — cannot read model/layer."
         )
     with candidates[0].open("rb") as fh:
         probe = _cpu_unpickle(fh)
@@ -306,6 +416,8 @@ def _check_transforms_are_noop(arm: Arm, dialogues, combine: bool, convert: bool
 
 def build_plan(
     arm: Arm,
+    experiment: Experiment,
+    root: Path,
     cache_dir: Path,
     *,
     combine_override: bool | None = None,
@@ -317,9 +429,9 @@ def build_plan(
 
     from agentic_redteam.config import load_config
 
-    model_name, layer, pos_label, neg_label = _probe_metadata(arm)
+    model_name, layer, pos_label, neg_label = _probe_metadata(arm, root)
 
-    config = load_config(arm.config_path)
+    config = load_config(arm.config_path(root))
     combine = (
         combine_override
         if combine_override is not None
@@ -332,12 +444,12 @@ def build_plan(
     )
 
     dumps = sorted(
-        arm.probe_path.glob("redteam_postprocessed_iter*.jsonl"),
+        arm.probe_path(root).glob("redteam_postprocessed_iter*.jsonl"),
         key=lambda p: int("".join(ch for ch in p.stem if ch.isdigit()) or 0),
     )
     if not dumps:
         raise FileNotFoundError(
-            f"{arm.name}: no redteam_postprocessed_iter*.jsonl in {arm.probe_path} — "
+            f"{arm.name}: no redteam_postprocessed_iter*.jsonl in {arm.probe_path(root)} — "
             "there is no record of what this run retrained on."
         )
 
@@ -382,6 +494,8 @@ def build_plan(
 
     return ArmPlan(
         arm=arm,
+        experiment=experiment,
+        root=root,
         model_name=model_name,
         layer=layer,
         combine_consecutive_messages=combine,
@@ -392,13 +506,54 @@ def build_plan(
     )
 
 
-def _selected_arms(names: list[str] | None) -> list[Arm]:
+def _selected_arms(experiment: Experiment, names: list[str] | None) -> list[Arm]:
     if not names or "all" in names:
-        return list(ARMS.values())
-    unknown = [n for n in names if n not in ARMS]
+        return list(experiment.arms.values())
+    unknown = [n for n in names if n not in experiment.arms]
     if unknown:
-        raise SystemExit(f"unknown arm(s) {unknown}; known: {sorted(ARMS)}")
-    return [ARMS[n] for n in names]
+        raise SystemExit(
+            f"unknown arm(s) {unknown} for experiment {experiment.name}; "
+            f"known: {sorted(experiment.arms)}"
+        )
+    return [experiment.arms[n] for n in names]
+
+
+def _experiment(args: argparse.Namespace) -> Experiment:
+    name = getattr(args, "experiment", None) or DEFAULT_EXPERIMENT
+    if name not in EXPERIMENTS:
+        raise SystemExit(f"unknown experiment {name!r}; known: {sorted(EXPERIMENTS)}")
+    return EXPERIMENTS[name]
+
+
+def _experiment_root(experiment: Experiment, args: argparse.Namespace) -> Path:
+    """Where this experiment's probes / configs / dumps are checked out.
+
+    Defaults to this repo, which is right whenever the stage is run from the experiment's own
+    branch. Otherwise the arms' inputs simply do not exist here, and the failure is much
+    clearer said now — naming the branch to check out — than as a missing-probe traceback.
+    """
+    override = getattr(args, "experiment_root", None)
+    root = Path(override).resolve() if override else REPO_ROOT
+    for arm in experiment.arms.values():
+        if not arm.probe_path(root).is_dir():
+            raise SystemExit(
+                f"{experiment.name}: {arm.probe_path(root)} does not exist. This "
+                f"experiment's probes and dumps live on branch {experiment.branch!r}; check "
+                "it out (`git worktree add --detach <dir> "
+                f"origin/{experiment.branch}`) and pass --experiment-root <dir>."
+            )
+    return root
+
+
+def _cache_dir(experiment: Experiment, args: argparse.Namespace) -> Path:
+    """The activation cache, which lives under THIS repo, not the experiment's checkout.
+
+    Per experiment by default: the blobs of two concepts can safely share a directory (every
+    name is content- or input-keyed), but keeping them apart keeps "how big is this run's
+    cache" answerable with `du`, and matches the dir each run's config actually named.
+    """
+    override = getattr(args, "cache_dir", None)
+    return Path(override).resolve() if override else (REPO_ROOT / experiment.cache_dir)
 
 
 # --------------------------------------------------------------------------------------
@@ -428,6 +583,7 @@ class Unit:
     conversations: list[Conversation] = field(default_factory=list)
     # base units only
     base_spec: dict | None = None
+    root: Path = REPO_ROOT  # the checkout base_spec["base_training_data"] is relative to
 
     def missing(self) -> list[Path]:
         return [p for _, p in self.files if not p.exists()]
@@ -456,7 +612,7 @@ def _base_unit(
     for plan in plans:
         train_path, val_path = _base_activation_cache_paths(
             cache_dir,
-            plan.arm.base_data_path,
+            plan.arm.base_data_path(plan.root),
             plan.model_name,
             plan.layer,
             args.seed,
@@ -474,7 +630,7 @@ def _base_unit(
         spec = {
             "base_training_data": plan.arm.base_training_data,
             "base_data_sha256": hashlib.sha256(
-                plan.arm.base_data_path.read_bytes()
+                plan.arm.base_data_path(plan.root).read_bytes()
             ).hexdigest(),
             "model_name": plan.model_name,
             "layer": plan.layer,
@@ -490,17 +646,23 @@ def _base_unit(
         units[key] = Unit(
             kind="base",
             label="base split",
-            slug=_template(args, "base_slug", DEFAULT_BASE_SLUG).format(key=key),
+            slug=_template(args, "base_slug", plan.experiment.base_slug_template).format(
+                key=key
+            ),
             archive_name=_template(args, "base_archive", DEFAULT_BASE_ARCHIVE).format(
                 key=key
             ),
-            title=_title_clip("gemma27b L32 base training activations"),
+            title=_title_clip(
+                f"{plan.experiment.name} gemma27b L32 base training acts"
+            ),
             # Archive names are the bare cache filenames, so restore drops them straight
             # into the cache dir root — where retrain._base_activation_cache_paths looks.
             files=[(train_path.name, train_path), (val_path.name, val_path)],
             manifest={
                 "manifest_version": MANIFEST_VERSION,
                 "kind": "base",
+                "experiment": plan.experiment.name,
+                "concept": plan.experiment.concept,
                 "cache_key": key,
                 "arms": [plan.arm.name],
                 "files": [train_path.name, val_path.name],
@@ -512,6 +674,7 @@ def _base_unit(
                 **spec,
             },
             base_spec=spec,
+            root=plan.root,
         )
     return list(units.values())
 
@@ -524,7 +687,7 @@ def _iteration_units(
     for plan in plans:
         for it in _resolve_iterations(plan, args.iterations):
             convs = plan.conversations_for(it)
-            slug = _template(args, "dataset_slug", DEFAULT_SLUG).format(
+            slug = _template(args, "dataset_slug", plan.experiment.slug_template).format(
                 arm=_slugify(plan.arm.name), iteration=it
             )
             units.append(
@@ -536,13 +699,14 @@ def _iteration_units(
                         args, "archive_name", DEFAULT_ARCHIVE
                     ).format(arm=_slugify(plan.arm.name), iteration=it),
                     title=_title_clip(
-                        f"{plan.arm.name} gemma27b L32 redteam acts iter{it}"
+                        f"{plan.experiment.name} {plan.arm.name} L32 redteam iter{it}"
                     ),
                     files=[(f"{plan.blob_subdir}/{c.key}.pt", c.path) for c in convs],
                     manifest=_iteration_manifest(plan, it, convs),
                     plan=plan,
                     iteration=it,
                     conversations=convs,
+                    root=plan.root,
                 )
             )
     return units
@@ -552,6 +716,9 @@ def _iteration_manifest(plan: ArmPlan, iteration: int, convs: list[Conversation]
     return {
         "manifest_version": MANIFEST_VERSION,
         "kind": "iteration",
+        "experiment": plan.experiment.name,
+        "concept": plan.experiment.concept,
+        "branch": plan.experiment.branch,
         "arm": plan.arm.name,
         "iteration": iteration,
         "config": plan.arm.config,
@@ -609,21 +776,64 @@ def _resolve_iterations(plan: ArmPlan, requested: list[int] | None) -> list[int]
     return sorted(requested)
 
 
-def build_units(args: argparse.Namespace, cache_dir: Path) -> list[Unit]:
+def _check_slug_namespace(units: list[Unit], experiment: Experiment, args) -> None:
+    """Refuse to touch a Kaggle dataset outside this experiment's slug namespace.
+
+    An owner's dataset slugs are one flat namespace, and ``dataset_create_version`` on the
+    wrong slug replaces another experiment's blobs with these. The templates make that
+    impossible by default; this makes it impossible after a ``--dataset-slug`` / ``--base-slug``
+    override too, which is the only way it could realistically happen.
+    """
+    if getattr(args, "allow_foreign_slug", False):
+        return
+    foreign = {
+        e.slug_namespace: e
+        for e in EXPERIMENTS.values()
+        if e.slug_namespace != experiment.slug_namespace
+    }
+    problems: list[str] = []
+    for unit in units:
+        owner = next((e for p, e in foreign.items() if unit.slug.startswith(p)), None)
+        if owner is not None:
+            problems.append(
+                f"{unit.label}: slug {unit.slug!r} belongs to the {owner.name} experiment "
+                f"({owner.concept}, branch {owner.branch})."
+            )
+        elif not unit.slug.startswith(experiment.slug_namespace):
+            problems.append(
+                f"{unit.label}: slug {unit.slug!r} is outside this experiment's namespace "
+                f"{experiment.slug_namespace!r}."
+            )
+    if problems:
+        raise SystemExit(
+            f"refusing to publish outside the {experiment.name} slug namespace:\n  "
+            + "\n  ".join(problems)
+            + "\npass --allow-foreign-slug if that is really what you want."
+        )
+
+
+def build_units(
+    args: argparse.Namespace, cache_dir: Path, experiment: Experiment | None = None
+) -> list[Unit]:
     """Every unit this invocation covers, in the order ``sync`` should process them.
 
-    Base first: it is 50 forwards against the red-team set's 1804, and no retrain is a full
-    cache hit without it — so it is the cheapest thing to get safely uploaded first.
+    Base first: it is a couple of hundred forwards against the red-team set's thousands, and
+    no retrain is a full cache hit without it — so it is the cheapest thing to get safely
+    uploaded first.
     """
+    experiment = experiment or _experiment(args)
+    root = _experiment_root(experiment, args)
     plans = [
         build_plan(
             arm,
+            experiment,
+            root,
             cache_dir,
             combine_override=args.combine_consecutive_messages,
             convert_override=args.convert_tool_to_assistant,
             limit=getattr(args, "limit", None),
         )
-        for arm in _selected_arms(args.arm)
+        for arm in _selected_arms(experiment, args.arm)
     ]
     units: list[Unit] = []
     if getattr(args, "base", True):
@@ -720,7 +930,7 @@ def _extract_base(unit: Unit, host: ModelHost, verbose: bool = True) -> int:
         return 0
 
     dataset = LabelledDataset.load_from(
-        REPO_ROOT / spec["base_training_data"],
+        unit.root / spec["base_training_data"],
         pos_class_label=spec["pos_class_label"],
         neg_class_label=spec["neg_class_label"],
         combine_consecutive_messages=spec["combine_consecutive_messages"],
@@ -758,13 +968,29 @@ def _extract_conversations(
     host: ModelHost,
     verbose: bool = True,
 ) -> int:
-    """Compute whatever of ``convs`` is not already on disk, writing each blob through."""
+    """Compute whatever of ``convs`` is not already on disk, writing each blob through.
+
+    Chunks are filled in **length order**, which matters at ``BATCH_SIZE`` > 1 for two
+    independent reasons. ``get_activations`` pads every row of a call to that call's longest
+    row (capped at 1024), so mixing a 200-token conversation into a chunk with a 1000-token one
+    stores — and later uploads — five times the bytes that row needs. And the padding is real
+    compute, not just storage. Sorting first makes each chunk nearly uniform, so a batched run
+    keeps most of the per-blob compactness a chunk size of 1 would give.
+
+    The proxy is the conversation's character count: the point is only to group like with like,
+    and a tokenizer pass over thousands of conversations to order them better is not worth it.
+    Order of computation is the ONLY thing this changes — each blob is still sliced out and
+    saved per conversation, and ``_concatenate_consuming`` re-pads at merge time, so blobs
+    written at any chunk size remain interchangeable.
+    """
     from agentic_redteam.model_loading import extraction_batch_size
 
     todo = [c for c in convs if not c.path.exists()]
     if not todo:
         return 0
     chunk_size = extraction_batch_size()
+    if chunk_size > 1:
+        todo.sort(key=lambda c: sum(len(m.content or "") for m in c.messages))
     model = host.get(plan.model_name, plan.layer)
     started = time.monotonic()
     done = 0
@@ -796,9 +1022,11 @@ def _extract_unit(unit: Unit, host: ModelHost, verbose: bool = True) -> int:
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
-    cache_dir = Path(args.cache_dir).resolve()
-    units = build_units(args, cache_dir)
+    experiment = _experiment(args)
+    cache_dir = _cache_dir(experiment, args)
+    units = build_units(args, cache_dir, experiment)
 
+    print(f"experiment: {experiment.name} ({experiment.concept})")
     print(f"cache dir: {cache_dir}\n")
     for unit in units:
         print(
@@ -1230,8 +1458,10 @@ def _print_plan(units: list[Unit], args: argparse.Namespace) -> None:
 
 
 def cmd_publish(args: argparse.Namespace) -> int:
-    cache_dir = Path(args.cache_dir).resolve()
-    units = build_units(args, cache_dir)
+    experiment = _experiment(args)
+    cache_dir = _cache_dir(experiment, args)
+    units = build_units(args, cache_dir, experiment)
+    _check_slug_namespace(units, experiment, args)
 
     # Validate everything BEFORE uploading anything. Blobs are checked once per unique path,
     # not once per unit: iterations share conversations, and re-reading a header buys nothing.
@@ -1271,9 +1501,10 @@ def cmd_publish(args: argparse.Namespace) -> int:
 
 
 def cmd_restore(args: argparse.Namespace) -> int:
-    cache_dir = Path(args.cache_dir).resolve()
+    experiment = _experiment(args)
+    cache_dir = _cache_dir(experiment, args)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    units = build_units(args, cache_dir)
+    units = build_units(args, cache_dir, experiment)
 
     api = _authenticate()
     failures = 0
@@ -1312,14 +1543,17 @@ def cmd_sync(args: argparse.Namespace) -> int:
     cache hits — iteration 2 shares ~374 conversations with iteration 1, which is hours of
     forwards on a 27B that a download makes free.
     """
-    cache_dir = Path(args.cache_dir).resolve()
+    experiment = _experiment(args)
+    cache_dir = _cache_dir(experiment, args)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    units = build_units(args, cache_dir)
+    units = build_units(args, cache_dir, experiment)
+    _check_slug_namespace(units, experiment, args)
 
+    print(f"experiment: {experiment.name} ({experiment.concept}, branch {experiment.branch})")
     print(f"cache dir: {cache_dir}")
     _print_plan(units, args)
-    print("Order: base first (50 forwards, and no retrain is a full cache hit without it),")
-    print("then each (arm, iteration). Each unit is uploaded before the next one starts.\n")
+    print("Order: base first (a couple hundred forwards, and no retrain is a full cache hit")
+    print("without it), then each (arm, iteration). Each unit is uploaded before the next.\n")
     if args.dry_run:
         print("--dry-run: nothing computed or uploaded.")
         return 0
@@ -1392,10 +1626,27 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
 def _add_common(ap: argparse.ArgumentParser) -> None:
     ap.add_argument(
+        "--experiment",
+        choices=sorted(EXPERIMENTS),
+        default=DEFAULT_EXPERIMENT,
+        help="Which run's activations to act on (default: "
+        + DEFAULT_EXPERIMENT
+        + "). "
+        + "; ".join(f"{e.name}={e.concept} on {e.branch}" for e in EXPERIMENTS.values()),
+    )
+    ap.add_argument(
+        "--experiment-root",
+        default=None,
+        help="Checkout holding the experiment's probes/configs/dumps (default: this repo). "
+        "Needed whenever the stage is not run from the experiment's own branch — "
+        "`git worktree add --detach <dir> origin/<branch>` is enough.",
+    )
+    ap.add_argument(
         "--arm",
         nargs="*",
         default=None,
-        help=f"Arms to act on (default: all). Known: {', '.join(sorted(ARMS))}",
+        help="Arms to act on (default: all of the selected experiment's). Known: "
+        + "; ".join(f"{e.name}: {', '.join(sorted(e.arms))}" for e in EXPERIMENTS.values()),
     )
     ap.add_argument(
         "--iterations",
@@ -1420,9 +1671,10 @@ def _add_common(ap: argparse.ArgumentParser) -> None:
     )
     ap.add_argument(
         "--cache-dir",
-        default=str(DEFAULT_CACHE_DIR),
-        help="Activation cache dir (a retrain's --base-activation-cache-dir). "
-        f"Default: {DEFAULT_CACHE_DIR}",
+        default=None,
+        help="Activation cache dir (a retrain's --base-activation-cache-dir). Default: the "
+        "selected experiment's own, under this repo — "
+        + "; ".join(f"{e.name}={e.cache_dir}" for e in EXPERIMENTS.values()),
     )
     ap.add_argument(
         "--combine-consecutive-messages",
@@ -1437,8 +1689,8 @@ def _add_common(ap: argparse.ArgumentParser) -> None:
         default=None,
         help="Override the config's eval.convert_tool_to_assistant (in both cache keys).",
     )
-    # These four are in the BASE cache key only. The defaults are what
-    # run_gemma27b_hu_harm_attacker_ablation_batch.sh left iterative_retrain.py at.
+    # These four are in the BASE cache key only. The defaults are what every registered
+    # experiment's run script left iterative_retrain.py at.
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED, help="Split seed (base key)")
     ap.add_argument(
         "--test-size", type=float, default=DEFAULT_TEST_SIZE, help="Val fraction (base key)"
@@ -1459,8 +1711,9 @@ def _add_kaggle(ap: argparse.ArgumentParser) -> None:
     ap.add_argument("--owner", default=DEFAULT_OWNER, help="Kaggle username owning the datasets")
     ap.add_argument(
         "--dataset-slug",
-        default=DEFAULT_SLUG,
-        help="Iteration slug template; {arm} and {iteration}. Default: " + DEFAULT_SLUG,
+        default=None,
+        help="Iteration slug template; {arm} and {iteration}. Default: the experiment's "
+        "namespace + '{arm}-iter{iteration}'.",
     )
     ap.add_argument(
         "--archive-name",
@@ -1469,9 +1722,9 @@ def _add_kaggle(ap: argparse.ArgumentParser) -> None:
     )
     ap.add_argument(
         "--base-slug",
-        default=DEFAULT_BASE_SLUG,
-        help="Base-unit slug template; {key} is the base cache key. Default: "
-        + DEFAULT_BASE_SLUG,
+        default=None,
+        help="Base-unit slug template; {key} is the base cache key. Default: the "
+        "experiment's namespace + 'base'.",
     )
     ap.add_argument(
         "--base-archive",
@@ -1483,6 +1736,12 @@ def _add_kaggle(ap: argparse.ArgumentParser) -> None:
         "--new-version",
         action="store_true",
         help="Push a new version of an existing dataset instead of creating one",
+    )
+    ap.add_argument(
+        "--allow-foreign-slug",
+        action="store_true",
+        help="Skip the guard that keeps this experiment's uploads inside its own slug "
+        "namespace. Only meaningful together with --dataset-slug / --base-slug.",
     )
 
 

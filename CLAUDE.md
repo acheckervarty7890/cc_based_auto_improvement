@@ -1170,6 +1170,37 @@ because `KaggleApi.authenticate()` ends in `exit(1)` when no credential resolves
 a `BaseException` an ordinary `except Exception` would let kill the run. A split that
 cannot be fetched **raises rather than falling back** to computing it.
 
+### `scripts/publish_kaggle_redteam_activations.py`
+The **red-team** counterpart of `publish_kaggle_eval_activations.py`: it publishes the two
+caches a *retrain* reads — the base training split's whole-split blobs
+(`retrain._base_activation_cache_paths`) and the per-conversation red-team blobs
+(`retrain._redteam_activation_cache_path`) — for runs whose `results_*` cache never came
+back off its cloud box. Work is divided into **units** (the base split, then one per
+`(arm, iteration)`), and `sync` extracts and uploads each unit *before* starting the next,
+resuming from what already exists on Kaggle. Each iteration dataset is **self-contained**,
+not a delta: `filter_dataset` refits per cycle, so the iterations do not nest and only an
+exact per-iteration membership reproduces what probe k trained on.
+
+`EXPERIMENTS` registers the runs it covers — `hu_harm` (experiment11_cloud), `hs`
+(experiment9_cloud), `instructions` (experiment_instruction_cloud_1) — each with its arms,
+its activation cache dir under **this** repo, and the Kaggle **slug namespace** it owns
+(`hu-harm-gemma27b-` / `hs-gemma27b-` / `instructions-gemma27b-`). An experiment's probes,
+configs, dumps and base data live on **its own branch**, so any stage run from elsewhere
+needs `--experiment-root <checkout>` (`git worktree add --detach` is enough; nothing is
+written there). `_check_slug_namespace` refuses to publish a unit whose slug leaves its
+namespace or enters a sibling's — one owner's slugs are a flat namespace and
+`dataset_create_version` on the wrong one would replace another run's blobs.
+
+`_extract_conversations` sorts its work by conversation length before chunking, which only
+matters at `BATCH_SIZE` > 1: `get_activations` pads every row of a call to that call's
+longest row, so like-with-like chunks keep most of the per-blob compactness a chunk size of
+1 gives. Batching is worth it wherever the model does not fit in VRAM and accelerate streams
+CPU-resident layers to the GPU per forward — a forward then costs nearly the same for one
+conversation as for four (measured on the WSL2 dev box: 18 s/sample at `BATCH_SIZE=1`,
+4.8 at 4, 15.7 at 8, the last because bigger intermediates evict the weight pages the next
+forward needs). `run_publish_redteam_acts.sh` drives the two non-default experiments with
+those knobs pinned.
+
 ### Eval dataset splits on disk
 Three eval-split directories ship in the repo, one per probe concept. `--eval-dataset-dir`
 picks which one a run scores against; with `splits=None` (the default) `evaluate_probe`
