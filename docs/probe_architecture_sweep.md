@@ -454,6 +454,24 @@ as parameters go 5k → 344k → 350k): the bigger heads peak earlier and then o
 is what they should do on 747 training rows, and what §1 said there was no signal to
 justify. **Nothing beats the deployed head on mean AUROC.**
 
+#### An arm-level asymmetry that affects how early stopping behaves
+
+The two arms select their epochs very differently. On deepseekv4pro the best epochs are
+36 and 38 for the two linear-readout heads; on gptoss120b the same architectures pick
+**3 and 5**. §1's transfer measurement explains why: gptoss's validation split scores
+**val AUROC = 1.0000** for every model family, against deepseek's 0.9942. Its validation
+set is perfectly separable, so `best_val_auroc` cannot improve after the first few epochs,
+early stopping latches onto whichever epoch first reaches 1.0, and everything after that
+is unselected.
+
+This is `why_last_iteration_adds_nothing.md`'s diagnosis item 4 — "validation is ~166 rows
+on a model saturated by epoch 4" — now measured directly rather than inferred. Two
+consequences for reading this sweep: the best-epoch *fix* matters **more** on gptoss, not
+less (restoring epoch 3 rather than epoch 53 is a much larger intervention than restoring
+36 rather than 86), and any per-architecture difference on that arm is selected by a
+signal that ran out almost immediately. Cross-arm agreement is therefore the thing to
+trust; a gptoss-only result is weakly selected by construction.
+
 #### The `ant_hh` gain is probably a trade-off, not a win
 
 Five of the seven alternatives score higher than the deployed head on `eval_ant_hh` — the
