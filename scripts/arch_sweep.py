@@ -5,9 +5,20 @@ probe families it built — 2 attacker arms x 2 disjoint red-team vintages x wit
 the base training data x 5 seeds — and concludes that what fixes them "is not more of the
 same red-teaming, and it is not the base training data either. It is a different eval
 concept boundary or a different probe architecture." This script is the architecture half
-of that, and the 31-row core is its primary readout: an architecture that only moves the
-mean AUROC has done what a reseed does, whereas one that recovers core rows has reached
-something no red-team vintage did.
+of that.
+
+**How to read the core column.** It reports how many of those 31 rows an architecture gets
+right, and the intent is that an architecture only moving the mean AUROC has done what a
+reseed does, whereas one clearing core rows has reached something no red-team vintage did.
+Two limits, both measured in ``nonlinear_ceiling.py``, make it a screen rather than the
+headline. It is **noisy**: 31 rows, so a chance-level ranking scores 15.5 +/- 2.8 under the
+balanced rule and only an architecture clearing most of them stands out. And it is
+**selection-biased**: the core was defined by linear heads trained on this same data, so
+any architecture from that family is expected to fail those rows on selection alone
+(measured — plain logistic transfer recovers 9/31 and 11/31 on the two arms). It is close
+to uninformative for ``linear_then_softmax`` / ``mlp_then_softmax`` / ``pre_mean`` /
+``mean_then_mlp``, and carries what signal exists for the closed-form and attention-pooled
+heads. Mean AUROC and the per-split table carry the rest.
 
 Every fit runs off activations already on disk, so no gemma-3-27b forward is ever
 executed and the whole sweep is minutes-per-fit rather than the days extraction cost.

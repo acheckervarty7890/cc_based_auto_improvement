@@ -173,10 +173,20 @@ Two consequences to keep in view:
   `eval_ai_dilemmas` at AUROC 0.987 while scoring 0.581 accuracy — and architectures
   differ in how well-centred they leave the logits, so the raw rule alone would rank them
   partly by calibration.
-- **The primary readout is hard-core recovery, not mean AUROC.** Result 3 of the heldout
-  write-up showed that swapping a whole red-team vintage moves the error set about as much
-  as a reseed does. An architecture that only moves the mean has done the same thing; one
-  that clears rows from the 31-row core has reached something no red-team vintage did.
+- **Hard-core recovery is reported alongside mean AUROC, but it is a screen, not the
+  primary readout** — a qualification the transfer results forced, and worth stating
+  before §3 is read. The intent was sound: Result 3 of the heldout write-up showed that
+  swapping a whole red-team vintage moves the error set about as much as a reseed does, so
+  an architecture that only moves the mean has done what a reseed does, while one clearing
+  core rows has reached something no vintage did. But the metric has two limits measured
+  in §1. It is **noisy** — 31 rows, so a chance-level ranking scores 15.5 ± 2.8 and only a
+  family clearing most of them is distinguishable. And it is **selection-biased**: the core
+  was defined by linear heads trained on this same data, so any architecture in that family
+  is expected to fail those rows regardless of merit. Concretely, in the table below the
+  core column is close to uninformative for `linear_then_softmax`, `mlp_then_softmax`,
+  `pre_mean` and `mean_then_mlp`, and carries what signal there is for
+  `difference_of_means`, `lda_shrinkage` and the two attention-pooled heads. Read mean
+  AUROC and the per-split table for everything else.
 
 The core is joined by `(split, idx_in_split)`, not by content hash. The four hu_ha eval
 splits hold 866 rows but only **825 distinct conversations** — 41 rows repeat, nearly all
