@@ -74,7 +74,9 @@ so every table is re-derivable with ``--summarize-only`` and no refitting.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gc
+import io
 import json
 import os
 import sys
@@ -238,6 +240,33 @@ def _variant_key(row: dict) -> tuple:
 # --- the sweep ----------------------------------------------------------------------
 
 
+def build_train_val(asm):
+    """Concatenate base + red-team **once per arm**, then release the unsplit copy.
+
+    ``attribution_refit.refit`` rebuilds this per fit because its callers drop a
+    different row set each time. Nothing is ever dropped here — every architecture trains
+    on the same rows — so rebuilding is both wasted work and, more importantly, wasted
+    memory: it holds the 9.7 GB unsplit red-team set resident *alongside* its ~9.9 GB of
+    train/val copies, measured at 19.9 GB RSS on a box whose cgroup already OOM-killed
+    this sweep once.
+
+    Building once costs that same peak exactly once and leaves ~10 GB resident for the
+    remaining 39 fits. ``asm.redteam`` is dropped rather than kept, which is what makes
+    the difference — the copies are what the fits actually read.
+    """
+    from agentic_redteam.retrain import _concatenate_consuming
+
+    keep_train = [i for i in range(len(asm.redteam)) if not asm.rt_is_val[i]]
+    keep_val = [i for i in range(len(asm.redteam)) if asm.rt_is_val[i]]
+    # _concatenate_consuming pops the pad fields out of its inputs, so each part must be
+    # a fresh view; `[:]` and an indexed selection both are.
+    train = _concatenate_consuming([asm.base_train[:], asm.redteam[keep_train]])
+    val = _concatenate_consuming([asm.base_val[:], asm.redteam[keep_val]])
+    asm.redteam = None
+    gc.collect()
+    return train, val
+
+
 def run_arm(arm: str, seeds: list[int], architectures: list[str], eval_dir: Path,
             resume: bool = True, variants: list[tuple[str, dict]] | None = None,
             legacy_best_epoch: bool = False) -> None:
@@ -258,8 +287,14 @@ def run_arm(arm: str, seeds: list[int], architectures: list[str], eval_dir: Path
         return
     print(f"  {len(todo)} fit(s) to run", flush=True)
 
+    from agentic_redteam.evaluation import seed_everything
+
+    from agentic_redteam.probe_architectures import build_probe
+
     asm = V.assemble_train_only(arm, ITERATION)
     truth = load_eval_truth(asm.probe)
+    train, val = build_train_val(asm)
+    print(f"  training set: {len(train)} rows, val {len(val)}", flush=True)
 
     # Seeds outer, architectures inner: after seed s lands, the sweep holds a COMPLETE
     # comparison across every architecture at s seeds. The other order would leave whole
@@ -275,9 +310,18 @@ def run_arm(arm: str, seeds: list[int], architectures: list[str], eval_dir: Path
             }
         t0 = time.time()
         try:
-            probe, n_tr, n_val = R.refit(
-                asm, seed=seed, arch=arch, hyperparams=hp or None
-            )
+            seed_everything(seed)
+            with contextlib.redirect_stdout(io.StringIO()):
+                probe = build_probe(
+                    arch, train, val,
+                    model_name=asm.probe.model_name,
+                    layer=asm.probe.layer,
+                    pos_class_label=asm.probe.pos_class_label,
+                    neg_class_label=asm.probe.neg_class_label,
+                    probe_description=asm.probe.description,
+                    hyperparams=hp or None,
+                )
+            n_tr, n_val = len(train), len(val)
         except Exception as exc:  # noqa: BLE001 — one arm failing must not kill the sweep
             print(f"  seed {seed} {arch:22s} FAILED: {exc!r}", flush=True)
             append_progress(PROGRESS, {
