@@ -39,7 +39,16 @@
 # USAGE:
 #   nohup bash failsafe_commit_heldout.sh > logs/failsafe_heldout.out 2>&1 &
 #
+#   # the --no-base variant of the same sweep:
+#   ODIR=results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2_nobase \
+#   LOG=logs/heldout_v3_vs_v2_nobase.log TAG=heldout-nobase \
+#     nohup bash failsafe_commit_heldout.sh > logs/failsafe_heldout-nobase.out 2>&1 &
+#
 #   INTERVAL=1800       seconds between polls (default 1800 = 30 min)
+#   ODIR=...            results dir to watch (default the with-base sweep's)
+#   LOG=...             run log to commit alongside it
+#   TAG=...             commit-subject tag AND the logs/failsafe_<TAG>.out it commits;
+#                       set it whenever ODIR is set, or checkpoints are mislabelled
 #   TARGET_BRANCH=...   remote branch to push to (default experiment11_cloud)
 #   NO_PUSH=1           commit locally only
 
@@ -47,8 +56,13 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 INTERVAL="${INTERVAL:-1800}"
-ODIR=results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2
-LOG=logs/heldout_v3_vs_v2.log
+# ODIR/LOG/TAG are overridable so the same poller covers both variants of the sweep
+# (with base data, and --no-base). They must be set together — a poller watching one
+# variant's directory while committing under the other's tag would mislabel every
+# checkpoint, which is the whole value of the commit subject.
+ODIR="${ODIR:-results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2}"
+LOG="${LOG:-logs/heldout_v3_vs_v2.log}"
+TAG="${TAG:-heldout}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 TARGET_BRANCH="${TARGET_BRANCH:-experiment11_cloud}"
 
@@ -82,14 +96,14 @@ n_fits() {
 snapshot() {  # $1 = commit subject suffix
     local f n
     for f in "$ODIR"/* scripts/heldout_v3_vs_v2_eval_tags.py \
-             "$LOG" failsafe_commit_heldout.sh logs/failsafe_heldout.out; do
+             "$LOG" failsafe_commit_heldout.sh "logs/failsafe_${TAG}.out"; do
         stage "$f"
     done
     if git diff --cached --quiet; then
         return 1
     fi
     n=$(n_fits)
-    git commit -q -m "failsafe(heldout): $1 — ${n}/20 fits done @ $(date -Is)"
+    git commit -q -m "failsafe(${TAG}): $1 — ${n}/20 fits done @ $(date -Is)"
     if [ -z "${NO_PUSH:-}" ]; then
         git push -q origin "HEAD:$TARGET_BRANCH" \
             || say "push to $TARGET_BRANCH failed (committed locally; retry next poll)"

@@ -44,9 +44,21 @@ pipeline scale as well, for comparability with the committed CSVs.
 Every eval row is out-of-sample for both conditions — the eval splits are not in any
 training set — so no held-out bookkeeping is needed beyond the red-team partition.
 
+**``--no-base`` runs the same two conditions on the red-team rows alone**, dropping
+``data/hu_harm_llama70b_50.jsonl`` (42 train / 8 val rows) from both sides of the split.
+The default run carries it in both conditions, so it cannot explain any *difference*
+between them — but it is shared credit that neither condition's numbers can be separated
+from, and it is common to the rows that fail under every condition. Removing it asks what
+each red-team vintage teaches on its own. Two things change as a result and both are
+properties of the question rather than defects: the training sets shrink by 42 rows, and
+early stopping selects against a purely red-team validation set (31-142 rows depending on
+the condition) instead of one containing the base val rows. Results land in a separate
+directory, so the two variants never share a sidecar.
+
 Usage:
     .venv_claude/bin/python scripts/heldout_v3_vs_v2_eval_tags.py
     .venv_claude/bin/python scripts/heldout_v3_vs_v2_eval_tags.py --summarize-only
+    .venv_claude/bin/python scripts/heldout_v3_vs_v2_eval_tags.py --no-base
 """
 
 from __future__ import annotations
@@ -78,6 +90,14 @@ SEEDS = [42, 43, 44, 45, 46]
 CONDITIONS = ["v2", "v3new"]
 OUT_DIR = Path("results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2")
 PROGRESS = OUT_DIR / "eval_tags_progress.jsonl"
+
+# --no-base trains on the red-team rows ALONE (see the module docstring). It writes to a
+# separate directory rather than adding a third and fourth condition name, so the two
+# variants can be run and summarized independently and neither can clobber the other's
+# sidecar. The condition names stay "v2"/"v3new" inside each, which is what lets the
+# whole analysis path be shared verbatim.
+NOBASE_OUT_DIR = Path("results_hu_harm_gemma27b_batch_ablation/heldout_v3_vs_v2_nobase")
+INCLUDE_BASE = True
 
 
 # --- eval side --------------------------------------------------------------------
@@ -202,7 +222,9 @@ def run_arm(arm: str, seeds: list[int], eval_dir: Path, resume: bool = True) -> 
     for seed, cond in todo:
         drop = all_rows - row_sets[cond]
         t0 = time.time()
-        probe, n_tr, n_val = R.refit(asm, drop_rows=drop, seed=seed)
+        probe, n_tr, n_val = R.refit(
+            asm, drop_rows=drop, seed=seed, include_base=INCLUDE_BASE
+        )
         fit_s = time.time() - t0
         t1 = time.time()
         logits = eval_logits(probe, eval_dir)
@@ -233,6 +255,7 @@ def run_arm(arm: str, seeds: list[int], eval_dir: Path, resume: bool = True) -> 
                 "arm": arm,
                 "condition": cond,
                 "seed": seed,
+                "include_base": INCLUDE_BASE,
                 "n_redteam_rows": len(row_sets[cond]),
                 "n_train": n_tr,
                 "n_val": n_val,
@@ -683,7 +706,17 @@ def main() -> None:
     ap.add_argument("--eval-dir", type=Path, default=A.EVAL_ACTIVATIONS_DIR)
     ap.add_argument("--no-resume", action="store_true")
     ap.add_argument("--summarize-only", action="store_true")
+    ap.add_argument("--no-base", action="store_true",
+                    help="train on the red-team rows alone, dropping the base training "
+                         "data from both sides of the split; writes to a separate dir")
     args = ap.parse_args()
+
+    if args.no_base:
+        global OUT_DIR, PROGRESS, INCLUDE_BASE
+        INCLUDE_BASE = False
+        OUT_DIR = NOBASE_OUT_DIR
+        PROGRESS = OUT_DIR / "eval_tags_progress.jsonl"
+        print("--no-base: red-team rows only, no base training data on either side")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     if not args.summarize_only:
