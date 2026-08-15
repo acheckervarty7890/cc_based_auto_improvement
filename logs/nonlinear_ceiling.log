@@ -13,3 +13,55 @@ loading eval features (mean-pooled layer 32) ...
   eval_ant_hh              trees     0.9035  ({'max_iter': 200, 'learning_rate': 0.1, 'max_depth': 3}, 1003s)
   eval_balanced_refusal    linear    0.9977  ({'C': 1.0}, 397s)
   eval_balanced_refusal    rbf_svm   0.9969  ({'C': 100.0, 'gamma': 1e-05}, 36s)
+  eval_balanced_refusal    trees     0.9919  ({'max_iter': 200, 'learning_rate': 0.1, 'max_depth': None}, 1352s)
+  eval_daily_dilemmas      linear    0.9050  ({'C': 0.3}, 289s)
+  eval_daily_dilemmas      rbf_svm   0.9237  ({'C': 100.0, 'gamma': 1e-05}, 7s)
+  eval_daily_dilemmas      trees     0.7188  ({'max_iter': 400, 'learning_rate': 0.05, 'max_depth': 3}, 597s)
+
+--- transfer: deepseekv4pro ---
+  train 747 rows, val 181 rows (33s to load)
+  linear    val=0.9942 eval mean=0.7694 core(bal) 11/31  ({'C': 1.0}, 62s)
+  rbf_svm   val=0.9942 eval mean=0.7698 core(bal) 12/31  ({'C': 100.0, 'gamma': 1e-05}, 29s)
+  trees     val=0.9896 eval mean=0.6993 core(bal) 17/31  ({'max_iter': 400, 'learning_rate': 0.05, 'max_depth': 3}, 789s)
+
+--- transfer: gptoss120b ---
+  train 665 rows, val 163 rows (29s to load)
+  linear    val=1.0000 eval mean=0.7744 core(bal) 9/31  ({'C': 0.003}, 86s)
+  rbf_svm   val=1.0000 eval mean=0.7762 core(bal) 9/31  ({'C': 10.0, 'gamma': 1e-05}, 26s)
+  trees     val=0.9995 eval mean=0.7012 core(bal) 9/31  ({'max_iter': 200, 'learning_rate': 0.1, 'max_depth': 3}, 629s)
+
+
+########## 1. in-domain ceiling (5-fold CV on each split itself) ##########
+  what ANY readout of mean-pooled layer 32 can extract, per split
+
+split                        linear    rbf_svm      trees   best - linear
+eval_ai_dilemmas             0.7997     0.8588     0.1481         +0.0590
+eval_ant_hh                  0.9599     0.9595     0.9035         -0.0004
+eval_balanced_refusal        0.9977     0.9969     0.9919         -0.0008
+eval_daily_dilemmas          0.9050     0.9237     0.7188         +0.0186
+mean                         0.9156     0.9347     0.6906         +0.0191
+
+
+########## 2. transfer (fit on the real training set) ##########
+  what each family achieves on the eval splits from the training distribution
+
+--- deepseekv4pro ---
+family          val  eval mean        ai_dilemmas             ant_hh   balanced_refusal     daily_dilemmas  core recovered
+linear       0.9942     0.7694             0.6228             0.7775             0.8798             0.7976           11/31
+rbf_svm      0.9942     0.7698             0.6138             0.8020             0.8804             0.7831           12/31
+trees        0.9896     0.6993             0.5221             0.7367             0.7085             0.8299           17/31
+
+--- gptoss120b ---
+family          val  eval mean        ai_dilemmas             ant_hh   balanced_refusal     daily_dilemmas  core recovered
+linear       1.0000     0.7744             0.6356             0.7721             0.9126             0.7773            9/31
+rbf_svm      1.0000     0.7762             0.6410             0.7877             0.9073             0.7687            9/31
+trees        0.9995     0.7012             0.5536             0.7313             0.7814             0.7382            9/31
+
+
+########## reading this ##########
+  eval_ant_hh holds two thirds of the 31-row hard core. Its LINEAR ceiling is
+  0.9599; the best non-linear ceiling is 0.9595 (-0.0004).
+  -> capacity is NOT the binding constraint on that split. An MLP head that
+     fails to help in arch_sweep is confirming this bound, not under-tuned.
+
+wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation/arch_sweep/nonlinear_ceiling.json
