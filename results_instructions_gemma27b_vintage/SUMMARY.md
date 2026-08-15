@@ -1,5 +1,5 @@
 # Red-team vintage sweep — instruction-following concept
-_Updated 2026-08-15T14:07:11+00:00_
+_Updated 2026-08-15T14:38:13+00:00_
 
 **What this measures.** Each row is a real `ProbeFactory` refit on the base training data (`data/instructions_llama70b_50.jsonl`) plus one *vintage* of iteration-3 red-team pairs, scored on the seven `eval_instructions` splits from cached activations. Only set membership varies between vintages — content, activations and every hyperparameter are iteration 3's — so the vintages are directly comparable to each other in a way the original `probe_iter1/2/3` are not (those came from separate retrains with their own filter draws and contrastive generations).
 
@@ -15,23 +15,25 @@ _Updated 2026-08-15T14:07:11+00:00_
 
 **Read the sd, not just the mean.** These are independent `ProbeFactory` fits with independent initialisations, and seed alone moves some splits by more than the between-vintage gaps. A single-seed comparison of two vintages means nothing; quantifying that is what this sweep exists for.
 
-## Progress: 6 fits recorded
+## Progress: 14 fits recorded
 
-- **gptoss120b**: v0×1, v1×1, v2×1
-- **nemotron**: v0×1, v1×1, v2×1
+- **gptoss120b**: v0×2, v1×2, v2×2, v3×1
+- **nemotron**: v0×2, v1×2, v2×2, v3×1
 
 ## gptoss120b — mean ± sd over seeds (pipeline scale)
 
 | vintage | rows | seeds | anthropic_harmless_refusal | bbq_substitution | hc_context_drift | hc_contradiction | mm_substitution | oig_context_drift | oig_omission | mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| v0 | 0 | 1 | 0.6406 | 0.5167 | 0.4872 | 0.4904 | 0.3471 | 0.5558 | 0.4535 | 0.4988 |
-| v1 | 434 | 1 | 0.4305 | 0.9203 | 0.6723 | 0.9265 | 0.9140 | 0.6877 | 0.7073 | 0.7512 |
-| v2 | 674 | 1 | 0.7866 | 0.8802 | 0.6598 | 0.9069 | 0.7974 | 0.5554 | 0.7421 | 0.7612 |
+| v0 | 0 | 2 | 0.6155 ± 0.0356 | 0.4612 ± 0.0784 | 0.4758 ± 0.0161 | 0.4694 ± 0.0298 | 0.4019 ± 0.0776 | 0.5545 ± 0.0018 | 0.4708 ± 0.0245 | 0.4927 ± 0.0085 |
+| v1 | 434 | 2 | 0.4226 ± 0.0112 | 0.9273 ± 0.0099 | 0.7476 ± 0.1065 | 0.9191 ± 0.0105 | 0.9034 ± 0.0150 | 0.7032 ± 0.0219 | 0.7277 ± 0.0288 | 0.7644 ± 0.0186 |
+| v2 | 674 | 2 | 0.7833 ± 0.0047 | 0.8998 ± 0.0277 | 0.7386 ± 0.1114 | 0.9045 ± 0.0033 | 0.8346 ± 0.0527 | 0.5811 ± 0.0364 | 0.7291 ± 0.0183 | 0.7816 ± 0.0288 |
+| v3 | 858 | 1 | 0.8042 | 0.9348 | 0.7627 | 0.9131 | 0.8499 | 0.5731 | 0.7742 | 0.8017 |
 
 ## nemotron — mean ± sd over seeds (pipeline scale)
 
 | vintage | rows | seeds | anthropic_harmless_refusal | bbq_substitution | hc_context_drift | hc_contradiction | mm_substitution | oig_context_drift | oig_omission | mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| v0 | 0 | 1 | 0.6406 | 0.5167 | 0.4872 | 0.4904 | 0.3471 | 0.5558 | 0.4535 | 0.4988 |
-| v1 | 458 | 1 | 0.6217 | 0.9653 | 0.8168 | 0.8703 | 0.9749 | 0.7374 | 0.7244 | 0.8158 |
-| v2 | 630 | 1 | 0.8851 | 0.9412 | 0.8978 | 0.7264 | 0.8925 | 0.7102 | 0.6644 | 0.8168 |
+| v0 | 0 | 2 | 0.6155 ± 0.0356 | 0.4612 ± 0.0784 | 0.4758 ± 0.0161 | 0.4694 ± 0.0298 | 0.4019 ± 0.0776 | 0.5545 ± 0.0018 | 0.4708 ± 0.0245 | 0.4927 ± 0.0085 |
+| v1 | 458 | 2 | 0.6515 ± 0.0422 | 0.9700 ± 0.0066 | 0.8446 ± 0.0392 | 0.8642 ± 0.0086 | 0.9648 ± 0.0143 | 0.7557 ± 0.0259 | 0.6951 ± 0.0414 | 0.8209 ± 0.0071 |
+| v2 | 630 | 2 | 0.8607 ± 0.0345 | 0.9419 ± 0.0010 | 0.8908 ± 0.0098 | 0.7732 ± 0.0663 | 0.9230 ± 0.0431 | 0.7145 ± 0.0062 | 0.6510 ± 0.0188 | 0.8222 ± 0.0076 |
+| v3 | 926 | 1 | 0.7423 | 0.8631 | 0.7964 | 0.7500 | 0.9298 | 0.6736 | 0.5988 | 0.7649 |
