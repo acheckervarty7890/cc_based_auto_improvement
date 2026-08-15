@@ -125,8 +125,18 @@ def assemble(arm: str, iteration: int = 3, verbose: bool = True) -> Assembled:
 
 
 def refit(asm: Assembled, drop_rows: set[int] | None = None, seed: int = A.SEED,
-          quiet: bool = True, include_base: bool = True):
+          quiet: bool = True, include_base: bool = True, arch: str | None = None,
+          hyperparams: dict | None = None):
     """Train one probe with ``drop_rows`` (red-team row indices) removed.
+
+    ``arch`` overrides the architecture inherited from the loaded probe (which is what
+    ``asm.probe_spec`` carries, and what every caller wanted until the architecture
+    sweep). Naming one routes the fit through
+    ``agentic_redteam.probe_architectures.build_probe`` instead of
+    ``ProbeFactory.build``, which is the only way to reach an architecture the
+    ``ProbeType`` enum does not contain — and, as a side effect, the only path on which
+    early stopping restores the epoch it selected. Leave it ``None`` to reproduce
+    exactly what the pipeline built.
 
     ``include_base=False`` trains on the red-team rows **alone**, dropping the base
     training data from both sides of the split. Every caller in this directory wants the
@@ -171,17 +181,32 @@ def refit(asm: Assembled, drop_rows: set[int] | None = None, seed: int = A.SEED,
     sink = io.StringIO()
     ctx = contextlib.redirect_stdout(sink) if quiet else contextlib.nullcontext()
     with ctx:
-        probe = ProbeFactory.build(
-            probe_spec=asm.probe_spec,
-            train_dataset=train,
-            model_name=asm.probe.model_name,
-            layer=asm.probe.layer,
-            validation_dataset=val,
-            use_store=False,
-            pos_class_label=asm.probe.pos_class_label,
-            neg_class_label=asm.probe.neg_class_label,
-            probe_description=asm.probe.description,
-        )
+        if arch is None:
+            probe = ProbeFactory.build(
+                probe_spec=asm.probe_spec,
+                train_dataset=train,
+                model_name=asm.probe.model_name,
+                layer=asm.probe.layer,
+                validation_dataset=val,
+                use_store=False,
+                pos_class_label=asm.probe.pos_class_label,
+                neg_class_label=asm.probe.neg_class_label,
+                probe_description=asm.probe.description,
+            )
+        else:
+            from agentic_redteam.probe_architectures import build_probe
+
+            probe = build_probe(
+                arch,
+                train,
+                val,
+                model_name=asm.probe.model_name,
+                layer=asm.probe.layer,
+                pos_class_label=asm.probe.pos_class_label,
+                neg_class_label=asm.probe.neg_class_label,
+                probe_description=asm.probe.description,
+                hyperparams=hyperparams,
+            )
     return probe, len(train), len(val)
 
 
