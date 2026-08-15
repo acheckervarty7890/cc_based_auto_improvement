@@ -328,12 +328,20 @@ deployed probe actually faces — fit on the real base + red-team training set, 
 eval splits — with model selection on the pipeline's own validation side, never on eval.
 deepseekv4pro:
 
-| family | val AUROC | eval mean AUROC | hard-core rows recovered |
-|---|---|---|---|
-| linear | 0.9942 | 0.7694 | 11 / 31 |
-| RBF-SVM | 0.9942 | **0.7698** | 12 / 31 |
-| trees | 0.9896 | 0.6993 | 17 / 31 |
-| *(random ranking, for reference)* | | | *15.5 ± 2.8* |
+| arm | family | val AUROC | eval mean AUROC | hard-core rows recovered |
+|---|---|---|---|---|
+| deepseekv4pro | linear | 0.9942 | 0.7694 | 11 / 31 |
+| deepseekv4pro | RBF-SVM | 0.9942 | **0.7698** | 12 / 31 |
+| deepseekv4pro | trees | 0.9896 | 0.6993 | 17 / 31 |
+| gptoss120b | linear | 1.0000 | 0.7744 | 9 / 31 |
+| gptoss120b | RBF-SVM | 1.0000 | **0.7762** | 9 / 31 |
+| gptoss120b | trees | 0.9995 | 0.7012 | 9 / 31 |
+| *(random ranking, for reference)* | | | | *15.5 ± 2.8* |
+
+**Both arms replicate.** RBF-SVM over linear: +0.0004 and +0.0018. Trees: −0.070 and
+−0.073. The direction, the magnitude and the ordering are the same on two arms whose
+red-team training data was written by different attacker models and shares no
+conversations.
 
 **RBF-SVM against linear: +0.0004 mean AUROC and one extra core row out of 31.** So the
 in-domain bound is not merely an upper bound that transfer fails to reach — there is
@@ -342,14 +350,14 @@ better than plain logistic regression.
 
 **On core recovery, read the uncertainty before the numbers.** The balanced rule predicts
 exactly half of each split positive, so a ranking uncorrelated with these 31 rows recovers
-15.5 ± 2.8 of them (binomial, n=31). Measured against that, trees at 17 are +0.5 sd and
-linear/RBF at 11/12 are −1.6/−1.3 sd. **None of the three differs from chance at any
-standard worth quoting**, and 31 rows cannot support a finer distinction. The honest
-reading is therefore the weak one: no model family here does appreciably better than
-chance on the core rows, and the two smooth families trend somewhat worse. Trees'
-apparently better 17/31 comes packaged with the worst eval AUROC of the three, which is
-what a noisier ranking looks like on a small subset — not evidence that trees have found
-something.
+15.5 ± 2.8 of them (binomial, n=31). Measured against that, no family on either arm differs
+from chance by more than 2.3 sd, and 31 rows cannot support a finer distinction.
+
+The cross-arm replication settles it directly: **trees recover 17/31 on deepseekv4pro and
+9/31 on gptoss120b** — the same model family, the same 31 rows, a swing of 8 rows (2.9 sd)
+from nothing but which arm's training data was used. Whatever the deepseek 17 looked like,
+it was noise. The honest reading is the weak one: no model family here does appreciably
+better than chance on the core rows, and both smooth families trend somewhat worse.
 
 An earlier revision of this section read 11/31 as showing the core rows are
 "systematically mis-ranked". That over-read a 1.6-sd deviation; it is corrected here.
@@ -388,7 +396,34 @@ story `why_last_iteration_adds_nothing.md` tells about the loop.
 
 ### 2. Per-architecture performance
 
-### 2. Per-architecture performance
+**Partial — three of eight architectures, one seed, one arm (deepseekv4pro, seed 42).**
+Reported now only because a pattern is visible across two of them; none of it is settled
+until five seeds land. Per-split seed noise in the comparable heldout run was sd
+0.014-0.059, so **no single-split difference below ~0.06 here is distinguishable from
+reseeding.**
+
+| architecture | params | ai_dilemmas | `ant_hh` | balanced_refusal | daily_dilemmas | **mean** | best epoch |
+|---|---|---|---|---|---|---|---|
+| `linear_then_softmax` (deployed) | 5,377 | 0.9886 | 0.7149 | 0.9535 | 0.9878 | **0.9112** | 36 |
+| `attention` † | 10,754 | 0.6851 | **0.7740** | 0.9162 | 0.8877 | 0.8158 | 38 |
+| `mlp_then_softmax` | 344,193 | 0.8804 | **0.7521** | 0.8328 | 0.9876 | 0.8632 | 17 |
+
+† optimizer settings differ (batch 128) — see the confound note above.
+
+**The readout result is as §1 predicted.** `mlp_then_softmax` is the clean test — same
+softmax pooling, same optimizer settings, 64x the parameters — and it **loses 0.048 mean
+AUROC**. Its best epoch is 17 against the linear head's 36: it peaks earlier and then
+overfits, which is what 344k parameters on 747 training rows should do, and what §1 said
+there was no signal to justify.
+
+**The thing to watch.** Both non-baseline architectures gain on `eval_ant_hh` — the split
+holding 21 of the 31 core rows — while losing mean AUROC elsewhere: `attention` +0.059
+(mean −0.095), `mlp_then_softmax` +0.037 (mean −0.048). Two architectures trading the same
+way is more interesting than one would be. But at one seed both gains sit inside the
+per-split noise band, `attention`'s is confounded by its batch size, and a model that is
+simply *worse and differently biased* can score higher on the split where the baseline is
+weakest without understanding anything more. Five seeds plus the clean `pre_mean` contrast
+decide it; until then this is a hypothesis, not a result.
 
 ### 3. Hard-core recovery
 
