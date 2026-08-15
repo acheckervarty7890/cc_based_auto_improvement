@@ -500,6 +500,48 @@ trade-off line, they are the mundane mechanism. An architecture that sits *above
 line — better on `ant_hh` than its overall performance predicts — is the real thing. Until
 that is run, no architecture here has been shown to help on the hard split.
 
+### 2b. Both arms, seed 42 — the ranking replicates, and so does one gain
+
+Seed 42 complete on both attacker arms. Mean AUROC, and each architecture's `eval_ant_hh`
+delta against that arm's own `linear_then_softmax`:
+
+| architecture | pooling | deepseek mean | gptoss mean | `ant_hh` Δ deepseek | `ant_hh` Δ gptoss |
+|---|---|---|---|---|---|
+| `linear_then_softmax` | softmax | **0.9112** | **0.9032** | — | — |
+| `mlp_then_softmax` | softmax | 0.8632 | 0.8913 | +0.037 | +0.001 |
+| `attention` | attn query | 0.8158 | 0.7789 | **+0.059** | **+0.052** |
+| `pre_mean` | mean | 0.7751 | 0.7625 | **+0.060** | **+0.049** |
+| `attention_then_mlp` | attn query | 0.7653 | 0.7751 | +0.020 | +0.005 |
+| `mean_then_mlp` | mean | 0.7610 | 0.7668 | **+0.057** | **+0.051** |
+| `lda_shrinkage` | mean | 0.6603 | 0.6916 | +0.019 | −0.077 |
+| `difference_of_means` | mean | 0.6462 | 0.6453 | −0.108 | −0.095 |
+
+**The ranking is arm-independent.** Top three and bottom two are identical on both arms;
+only `pre_mean` / `attention_then_mlp` / `mean_then_mlp` shuffle in the middle, and on
+gptoss those three sit within 0.013 of each other. Two arms whose red-team data was
+written by different attacker models and shares no conversations produce the same ordering
+— so the architecture effects here are properties of the head, not of one arm's data.
+
+**And the `ant_hh` gain separates cleanly along the pooling axis.** Three architectures
+replicate a gain of ~0.05 on both arms — `attention` (+0.059/+0.052), `pre_mean`
+(+0.060/+0.049), `mean_then_mlp` (+0.057/+0.051) — and **all three abandon
+softmax-over-own-logits pooling.** The one architecture that keeps that pooling and changes
+only the readout, `mlp_then_softmax`, does **not** replicate (+0.037 then +0.001).
+
+That is the pooling/readout split landing exactly where §1 predicted: a non-linear readout
+has nothing to add, while *how the probe aggregates evidence across tokens* changes what it
+sees on the split holding the hard core. It is also the first result in this document that
+is about pooling at all — §1 could not speak to it, because it holds pooling fixed at mean
+for every family.
+
+**The caveat has not gone away.** Every one of those three costs 0.10-0.15 of mean AUROC to
+buy ~0.05 on one split. One detail argues mildly *against* the pure trade-off reading,
+though: the gains do not scale with the loss. `attention` gives up 0.095 of mean and
+`mean_then_mlp` 0.150, yet both gain ~0.055 on `ant_hh` — if `ant_hh` were simply rising as
+overall fit degrades, the bigger sacrifice should buy more. It does not; the gain looks
+capped at ~0.05. That is what `print_tradeoff_test`'s residuals will quantify once more
+seeds land, and it is the single most interesting open question in this run.
+
 ### 3. Hard-core recovery
 
 ### 4. Pooling vs. non-linearity
