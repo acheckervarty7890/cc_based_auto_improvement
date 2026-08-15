@@ -412,16 +412,40 @@ until five seeds land. Per-split seed noise in the comparable heldout run was sd
 0.014-0.059, so **no single-split difference below ~0.06 here is distinguishable from
 reseeding.**
 
-Ordered by mean AUROC:
+All eight architectures, ordered by mean AUROC:
 
-| architecture | params | ai_dilemmas | `ant_hh` | balanced_refusal | daily_dilemmas | **mean** | best epoch |
-|---|---|---|---|---|---|---|---|
-| `linear_then_softmax` (deployed) | 5,377 | 0.9886 | 0.7149 | 0.9535 | 0.9878 | **0.9112** | 36 |
-| `mlp_then_softmax` | 344,193 | 0.8804 | 0.7521 | 0.8328 | 0.9876 | 0.8632 | 17 |
-| `attention` † | 10,754 | 0.6851 | **0.7740** | 0.9162 | 0.8877 | 0.8158 | 38 |
-| `attention_then_mlp` † | 349,570 | 0.5993 | 0.7344 | 0.8771 | 0.8503 | 0.7653 | 8 |
+| architecture | pooling | params | ai_dilemmas | `ant_hh` | balanced_refusal | daily_dilemmas | **mean** | best epoch |
+|---|---|---|---|---|---|---|---|---|
+| `linear_then_softmax` (deployed) | softmax | 5,377 | 0.9886 | 0.7149 | 0.9535 | 0.9878 | **0.9112** | 36 |
+| `mlp_then_softmax` | softmax | 344,193 | 0.8804 | 0.7521 | 0.8328 | 0.9876 | 0.8632 | 17 |
+| `attention` † | attn query | 10,754 | 0.6851 | **0.7740** | 0.9162 | 0.8877 | 0.8158 | 38 |
+| `pre_mean` | mean | 5,377 | 0.6248 | **0.7744** | 0.8824 | 0.8189 | 0.7751 | 3 |
+| `attention_then_mlp` † | attn query | 349,570 | 0.5993 | 0.7344 | 0.8771 | 0.8503 | 0.7653 | 8 |
+| `mean_then_mlp` | mean | 344,193 | 0.6191 | 0.7719 | 0.8722 | 0.7809 | 0.7610 | 7 |
+| `lda_shrinkage` | mean | 5,377 | 0.5229 | 0.7336 | 0.7623 | 0.6224 | 0.6603 | — |
+| `difference_of_means` | mean | 5,377 | 0.5571 | 0.6072 | 0.7305 | 0.6901 | 0.6462 | — |
 
 † optimizer settings differ (batch 128) — see the confound note above.
+
+**The deployed head wins, by a wide margin.** Nothing here comes within 0.048 of its
+0.9112, and the two closed-form estimators are 0.25 behind. Whatever the 31-row residue
+needs, replacing the head with any of these seven costs a great deal elsewhere to get it.
+
+**The clean pooling contrast.** `linear_then_softmax` vs `pre_mean` is the one pair that
+differs *only* in pooling — same 5,377 parameters, same optimizer settings, same trainer.
+Softmax-over-own-logits pooling is worth **+0.136 mean AUROC** over mean pooling
+(0.9112 vs 0.7751). That is the largest single effect in the table, and it is the one
+number here that is unambiguously about architecture rather than tuning. Note `pre_mean`'s
+best epoch is 3: mean pooling saturates almost immediately and has nothing further to
+learn. As an independent check, `pre_mean`'s 0.7751 sits close to §1's mean-pooled logistic
+transfer (0.7694), which is the same function class fitted by a different optimizer.
+
+**On the estimator axis**, the real LDA beats the unwhitened mass-mean (0.6603 vs 0.6462
+mean, and 0.7336 vs 0.6072 on `ant_hh`) — the opposite of what Marks & Tegmark's
+distribution-shift result would suggest, though at one seed and with both families far
+behind every Adam-trained head, this is a weak signal at best. It does at least confirm
+that writing a real LDA was worth doing: tuberlens' aliased `lda` would have reported the
+`difference_of_means` row twice and hidden the difference entirely.
 
 **The readout result is as §1 predicted.** `mlp_then_softmax` is the clean test — same
 softmax pooling, same optimizer settings, 64x the parameters — and it **loses 0.048 mean
@@ -432,12 +456,17 @@ justify. **Nothing beats the deployed head on mean AUROC.**
 
 #### The `ant_hh` gain is probably a trade-off, not a win
 
-All three alternatives score higher than the deployed head on `eval_ant_hh` — the split
-holding 21 of the 31 core rows — which is the result this whole sweep was hoping for. It
-should not be believed yet, for a reason visible in the table itself: **every architecture
-that gains on `ant_hh` is worse overall**, and the ordering is close to inverse. The
-deployed head is best on mean AUROC and worst on `ant_hh`; `attention` is third on mean and
-best on `ant_hh`.
+Five of the seven alternatives score higher than the deployed head on `eval_ant_hh` — the
+split holding 21 of the 31 core rows — which is the result this whole sweep was hoping for.
+It should not be believed yet, for a reason visible in the table itself: **among the
+Adam-trained heads, every architecture that gains on `ant_hh` is worse overall**, and the
+ordering is close to inverse. The deployed head is best on mean AUROC and worst on
+`ant_hh`; `pre_mean` and `attention` are 4th and 3rd on mean and best on `ant_hh`.
+
+The two closed-form heads break the pattern by being worse *everywhere* including
+`ant_hh`, which is a useful warning about the regression that tests this: a family that is
+uniformly bad anchors the low end and pulls the fitted slope positive, masking a trade-off
+operating among the stronger heads. `print_tradeoff_test` says so in its output.
 
 There is a mundane mechanism that produces exactly this. `eval_ant_hh` is the split
 *furthest* from the training distribution — short, blunt HH-style dialogue against a
