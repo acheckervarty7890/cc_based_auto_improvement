@@ -264,23 +264,37 @@ each family's grid. The linear column is the protocol `why_last_iteration_adds_n
 | split | linear | RBF-SVM | trees | best non-linear − linear | hard-core rows |
 |---|---|---|---|---|---|
 | `eval_ai_dilemmas` | 0.7997 | **0.8588** | 0.1481 † | **+0.0591** | 0 |
-| `eval_ant_hh` | **0.9599** | 0.9595 | 0.9035 | **−0.0004** | 21 |
-| `eval_balanced_refusal` | *pending* | | | | 7 |
-| `eval_daily_dilemmas` | *pending* | | | | 3 |
+| `eval_ant_hh` | **0.9599** | 0.9595 | 0.9035 | **−0.0004** | **21** |
+| `eval_balanced_refusal` | **0.9977** | 0.9969 | 0.9919 | **−0.0008** | 7 |
+| `eval_daily_dilemmas` | 0.9050 | **0.9237** | *pending* | **+0.0187** | 3 |
+
+**Every linear value reproduces `why_last_iteration_adds_nothing.md` §2 exactly** — 0.7997,
+0.9599, 0.9977, 0.9050, all four to four decimals. The non-linear columns are therefore
+measured on the same instrument, not a re-derived one.
 
 † inverted by prompt-pairing, not a ceiling — see the caveat above. `eval_ant_hh` is the
 only unpaired split, and its tree score of 0.9035 (above chance, merely worse than linear)
 is the control that confirms the mechanism: same code path, same grid, no inversion where
-there are no pairs.
+there are no pairs. Note `eval_balanced_refusal` is 100% paired yet its trees score 0.9919
+rather than inverting — which sharpens the mechanism usefully: the inversion takes hold
+only when memorising the prompt is *easier* than learning the real signal. That split's
+signal is nearly perfect (linear ceiling 0.9977), so there is no incentive to memorise;
+`eval_ai_dilemmas` is the weakest split (0.7997) and inverts hardest.
 
 **The headline.** On `eval_ant_hh` — the split holding 21 of the 31 hard-core rows, and the
 one split whose CV is not compromised by pairing — the best non-linear ceiling is
 **0.0004 below** the linear one. There is nothing for a higher-capacity readout to
 extract there that a linear one cannot.
 
-And the split where non-linearity *does* buy something, `eval_ai_dilemmas` at +0.059,
-contains **none** of the hard core. So the non-linear headroom in these activations sits
-exactly where the problem isn't, and is absent exactly where it is.
+The two splits that between them hold **28 of the 31** core rows (`eval_ant_hh` 21,
+`eval_balanced_refusal` 7) show **−0.0004** and **−0.0008**: no headroom at all. The two
+that show headroom, `eval_ai_dilemmas` (+0.059) and `eval_daily_dilemmas` (+0.019), hold
+**0 and 3** rows between them.
+
+With only four splits this is a suggestive ordering rather than a fitted relationship, and
+it is worth stating the load-bearing part on its own so it does not rest on the pattern:
+**on the split carrying two thirds of the hard core, the non-linear readout ceiling is
+zero.** The wider anticorrelation is consistent with that and adds nothing to it.
 
 This is the falsification test the sweep was bounded by, and it did not falsify §2's
 reading. The prediction it licenses: **the MLP heads should not recover hard-core rows.**
