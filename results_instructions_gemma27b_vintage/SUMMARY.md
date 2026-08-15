@@ -1,5 +1,5 @@
 # Red-team vintage sweep — instruction-following concept
-_Updated 2026-08-15T16:39:40+00:00_
+_Updated 2026-08-15T17:10:02+00:00_
 
 **What this measures.** Each row is a real `ProbeFactory` refit on the base training data (`data/instructions_llama70b_50.jsonl`) plus one *vintage* of iteration-3 red-team pairs, scored on the seven `eval_instructions` splits from cached activations. Only set membership varies between vintages — content, activations and every hyperparameter are iteration 3's — so the vintages are directly comparable to each other in a way the original `probe_iter1/2/3` are not (those came from separate retrains with their own filter draws and contrastive generations).
 
@@ -15,25 +15,25 @@ _Updated 2026-08-15T16:39:40+00:00_
 
 **Read the sd, not just the mean.** These are independent `ProbeFactory` fits with independent initialisations, and seed alone moves some splits by more than the between-vintage gaps. A single-seed comparison of two vintages means nothing; quantifying that is what this sweep exists for.
 
-## Progress: 49 fits recorded
+## Progress: 60 fits recorded
 
-- **gptoss120b**: v0×7, v1×7, v2×7, v3×6
-- **nemotron**: v0×6, v1×6, v2×5, v3×5
+- **gptoss120b**: v0×9, v1×9, v2×8, v3×8
+- **nemotron**: v0×7, v1×7, v2×6, v3×6
 
 ## gptoss120b — mean ± sd over seeds (pipeline scale)
 
 | vintage | rows | seeds | anthropic_harmless_refusal | bbq_substitution | hc_context_drift | hc_contradiction | mm_substitution | oig_context_drift | oig_omission | mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| v0 | 0 | 7 | 0.4447 ± 0.2296 | 0.5085 ± 0.0605 | 0.5012 ± 0.0315 | 0.4988 ± 0.0364 | 0.5037 ± 0.1359 | 0.5052 ± 0.0581 | 0.4851 ± 0.0312 | 0.4925 ± 0.0291 |
-| v1 | 434 | 7 | 0.4331 ± 0.0769 | 0.9137 ± 0.0139 | 0.7271 ± 0.0704 | 0.9287 ± 0.0154 | 0.8857 ± 0.0177 | 0.6738 ± 0.0255 | 0.7230 ± 0.0174 | 0.7550 ± 0.0188 |
-| v2 | 674 | 7 | 0.7074 ± 0.1007 | 0.8901 ± 0.0275 | 0.7306 ± 0.0965 | 0.8959 ± 0.0223 | 0.8755 ± 0.0441 | 0.5849 ± 0.0371 | 0.7171 ± 0.0589 | 0.7716 ± 0.0220 |
-| v3 | 858 | 6 | 0.8275 ± 0.0450 | 0.8994 ± 0.0365 | 0.7700 ± 0.0660 | 0.9050 ± 0.0153 | 0.8620 ± 0.0372 | 0.6016 ± 0.0240 | 0.7763 ± 0.0177 | 0.8060 ± 0.0245 |
+| v0 | 0 | 9 | 0.4217 ± 0.2334 | 0.5049 ± 0.0581 | 0.4996 ± 0.0278 | 0.4984 ± 0.0328 | 0.5238 ± 0.1295 | 0.5102 ± 0.0522 | 0.4778 ± 0.0332 | 0.4909 ± 0.0304 |
+| v1 | 434 | 9 | 0.4423 ± 0.0691 | 0.9082 ± 0.0209 | 0.7332 ± 0.0622 | 0.9311 ± 0.0142 | 0.8747 ± 0.0349 | 0.6675 ± 0.0290 | 0.7223 ± 0.0154 | 0.7542 ± 0.0181 |
+| v2 | 674 | 8 | 0.7112 ± 0.0938 | 0.8919 ± 0.0259 | 0.7538 ± 0.1109 | 0.8962 ± 0.0207 | 0.8715 ± 0.0424 | 0.5878 ± 0.0353 | 0.7147 ± 0.0549 | 0.7753 ± 0.0229 |
+| v3 | 858 | 8 | 0.8362 ± 0.0541 | 0.8950 ± 0.0323 | 0.7608 ± 0.0593 | 0.9003 ± 0.0208 | 0.8599 ± 0.0319 | 0.5915 ± 0.0276 | 0.7790 ± 0.0190 | 0.8033 ± 0.0235 |
 
 ## nemotron — mean ± sd over seeds (pipeline scale)
 
 | vintage | rows | seeds | anthropic_harmless_refusal | bbq_substitution | hc_context_drift | hc_contradiction | mm_substitution | oig_context_drift | oig_omission | mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| v0 | 0 | 6 | 0.4145 ± 0.2358 | 0.5080 ± 0.0662 | 0.4991 ± 0.0340 | 0.4980 ± 0.0398 | 0.4819 ± 0.1348 | 0.5082 ± 0.0631 | 0.4814 ± 0.0325 | 0.4844 ± 0.0217 |
-| v1 | 458 | 6 | 0.6549 ± 0.0454 | 0.9686 ± 0.0042 | 0.8542 ± 0.0302 | 0.8648 ± 0.0108 | 0.9583 ± 0.0112 | 0.7456 ± 0.0177 | 0.6811 ± 0.0328 | 0.8182 ± 0.0055 |
-| v2 | 630 | 5 | 0.8390 ± 0.0499 | 0.9502 ± 0.0096 | 0.8743 ± 0.0255 | 0.7700 ± 0.0592 | 0.9059 ± 0.0655 | 0.7043 ± 0.0208 | 0.6554 ± 0.0598 | 0.8141 ± 0.0343 |
-| v3 | 926 | 5 | 0.7111 ± 0.0291 | 0.9133 ± 0.0281 | 0.7758 ± 0.0349 | 0.8140 ± 0.0575 | 0.9361 ± 0.0175 | 0.6793 ± 0.0312 | 0.6171 ± 0.0355 | 0.7781 ± 0.0155 |
+| v0 | 0 | 7 | 0.4447 ± 0.2296 | 0.5085 ± 0.0605 | 0.5012 ± 0.0315 | 0.4988 ± 0.0364 | 0.5037 ± 0.1359 | 0.5052 ± 0.0581 | 0.4851 ± 0.0312 | 0.4925 ± 0.0291 |
+| v1 | 458 | 7 | 0.6109 ± 0.1237 | 0.9674 ± 0.0049 | 0.8449 ± 0.0370 | 0.8678 ± 0.0125 | 0.9589 ± 0.0104 | 0.7434 ± 0.0171 | 0.6830 ± 0.0304 | 0.8109 ± 0.0200 |
+| v2 | 630 | 6 | 0.8244 ± 0.0572 | 0.9519 ± 0.0095 | 0.8745 ± 0.0228 | 0.7677 ± 0.0532 | 0.8914 ± 0.0684 | 0.6991 ± 0.0225 | 0.6407 ± 0.0644 | 0.8071 ± 0.0352 |
+| v3 | 926 | 6 | 0.6999 ± 0.0377 | 0.9091 ± 0.0271 | 0.7727 ± 0.0322 | 0.8262 ± 0.0595 | 0.9248 ± 0.0318 | 0.6785 ± 0.0279 | 0.6043 ± 0.0446 | 0.7737 ± 0.0176 |
