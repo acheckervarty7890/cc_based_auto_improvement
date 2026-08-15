@@ -322,19 +322,32 @@ deepseekv4pro:
 |---|---|---|---|
 | linear | 0.9942 | 0.7694 | 11 / 31 |
 | RBF-SVM | 0.9942 | **0.7698** | 12 / 31 |
-| trees | *pending* | | |
+| trees | 0.9896 | 0.6993 | 17 / 31 |
+| *(random ranking, for reference)* | | | *15.5 ± 2.8* |
 
-**+0.0004 mean AUROC and one extra core row out of 31.** So the in-domain bound is not
-merely an upper bound that transfer fails to reach — there is nothing there to reach.
+**RBF-SVM against linear: +0.0004 mean AUROC and one extra core row out of 31.** So the
+in-domain bound is not merely an upper bound that transfer fails to reach — there is
+nothing there to reach. Trees are *worse* overall by 0.07, so no family here transfers
+better than plain logistic regression.
 
-Two things worth reading off this table beyond the headline. The val AUROC of 0.9942
-against an eval mean of 0.769 is the distribution gap in one line: both families fit the
-red-team-heavy training distribution nearly perfectly and lose ~0.22 crossing to eval,
-which is the same story `why_last_iteration_adds_nothing.md` tells about the loop. And
-11/31 is *below* the ~15.5 a random ranking would score under the balanced rule (which
-predicts exactly half of each split positive), so the core rows are **systematically
-mis-ranked** by these models too, not merely uncertain — the same property that made them
-survive every red-team vintage.
+**On core recovery, read the uncertainty before the numbers.** The balanced rule predicts
+exactly half of each split positive, so a ranking uncorrelated with these 31 rows recovers
+15.5 ± 2.8 of them (binomial, n=31). Measured against that, trees at 17 are +0.5 sd and
+linear/RBF at 11/12 are −1.6/−1.3 sd. **None of the three differs from chance at any
+standard worth quoting**, and 31 rows cannot support a finer distinction. The honest
+reading is therefore the weak one: no model family here does appreciably better than
+chance on the core rows, and the two smooth families trend somewhat worse. Trees'
+apparently better 17/31 comes packaged with the worst eval AUROC of the three, which is
+what a noisier ranking looks like on a small subset — not evidence that trees have found
+something.
+
+An earlier revision of this section read 11/31 as showing the core rows are
+"systematically mis-ranked". That over-read a 1.6-sd deviation; it is corrected here.
+
+The other number on this table is solid and worth keeping: **val 0.9942 against an eval
+mean of 0.769**. Both smooth families fit the red-team-heavy training distribution almost
+perfectly and lose ~0.22 crossing to eval — the distribution gap in one line, and the same
+story `why_last_iteration_adds_nothing.md` tells about the loop.
 
 > **Scope — this bounds the readout axis only, not pooling.** Every family here is fitted
 > on **mean-pooled** activations, so what is held fixed is the pooling and what varies is
@@ -389,14 +402,18 @@ pooling waits on §§2-4.*
    the weakest split. The linear results published so far are unaffected, but the next
    person to try a richer model on this data will get a nonsense number and no error.
 
-4. **The hard core is mis-ranked, not merely uncertain.** Under the balanced rule a random
-   ranking recovers ~15.5 of the 31 rows; the mean-pooled linear and RBF models recover 11
-   and 12. Being *worse than chance* on those rows means the models place them confidently
-   on the wrong side — the same property that let them survive every red-team vintage, and
-   a reason to suspect the label boundary on those rows rather than the model's capacity.
-   Two thirds of them sit in `eval_ant_hh`; reading those 21 conversations against the
-   probe's concept description is the cheapest next step, and it is an eval-side question,
-   not a probe-side one.
+4. **Nothing reaches the hard core, but 31 rows cannot prove much either way.** Under the
+   balanced rule a ranking uncorrelated with those rows recovers 15.5 ± 2.8 of them; the
+   three transfer families land at 11, 12 and 17, i.e. within ±1.6 sd of chance. No family
+   beats chance on the core, the two smooth ones trend slightly worse, and the set is far
+   too small to separate them. Treat "core rows recovered" as a coarse screen — good for
+   noticing an architecture that clears most of them, useless for ranking architectures
+   that all sit near chance. The stronger evidence that these rows are a concept problem
+   rather than a model problem remains `heldout_v3_vs_v2_overlap.md`'s own: they survived
+   two attacker models × two disjoint red-team vintages × with and without the base data ×
+   five seeds. Two thirds sit in `eval_ant_hh`, and reading those 21 conversations against
+   the probe's concept description is the cheapest next step — an eval-side question, not
+   a probe-side one.
 
 ## Reproducing
 
