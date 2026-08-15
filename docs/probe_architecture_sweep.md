@@ -7,10 +7,14 @@
 `arch_sweep.json`, `nonlinear_ceiling.json`), logs `logs/arch_sweep.log`,
 `logs/nonlinear_ceiling.log`.*
 
-> **Status: ceiling complete, sweep in progress.** §1 (the non-linear ceiling) is
-> measured and its headline finding is settled. §§2-6 are filled in from
-> `arch_sweep.json` as fits land — the sweep is ~32 h of wall clock and runs past any one
-> session. Do not cite §§2-6 until this banner says they are complete.
+> **Status: §1 complete; §2 complete at one seed on both arms; §§3-6 pending more seeds.**
+> §1 (ceiling and transfer, both arms) is finished and settled. §2 and §2b hold a full
+> 8-architecture comparison on **both** attacker arms at seed 42 — enough for the ranking
+> and the pooling result, which already replicate across arms, but **not** enough to
+> separate the `eval_ant_hh` gain from a generalisation trade-off. That needs the residual
+> test in §4, which requires at least two seeds. Everything is single-seed until this
+> banner says otherwise: per-split seed noise in the comparable heldout run was sd
+> 0.014-0.059.
 >
 > **To check on it or pick it up:**
 > ```bash
@@ -19,9 +23,15 @@
 > nohup bash run_arch_sweep.sh 42 43 44 45 46 >> logs/arch_sweep.log 2>&1 &   # (re)start
 > nohup bash failsafe_commit_arch.sh > logs/failsafe_arch.out 2>&1 &          # 30-min pushes
 > ```
-> Everything resumes at `(arm, architecture, seed, variant, legacy)` granularity, so a
-> restart costs at most the fit that was in flight. Fits are ~20 min for the batch-16
-> heads and ~55 min for the two attention heads (batch 128).
+> Run `--summarize-only` **only while the sweep is idle** — see the warning in
+> `run_arch_sweep.sh`. Everything resumes at
+> `(arm, architecture, seed, variant, legacy)` granularity, so a restart costs at most the
+> fit that was in flight.
+>
+> **Timing.** Fits vary by more than 10x. On deepseekv4pro the batch-16 heads take ~20 min
+> and the two attention heads (batch 128) ~50; on gptoss120b every head lands in ~5 min,
+> because that arm's validation split is perfectly separable and early stopping fires at
+> epoch 3-5 (see §2). Budget ~3 h per seed for both arms, so ~15 h for the five.
 
 ## The question
 
