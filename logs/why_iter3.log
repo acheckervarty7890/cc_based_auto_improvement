@@ -1,0 +1,104 @@
+loading eval activations ...
+  eval_ai_dilemmas: (136, 5376)
+  eval_ant_hh: (134, 5376)
+  eval_balanced_refusal: (400, 5376)
+  eval_daily_dilemmas: (196, 5376)
+
+=== 2. CEILING: best linear probe fitted ON the split (5-fold CV) ===
+  eval_ai_dilemmas         0.7997
+  eval_ant_hh              0.9599
+  eval_balanced_refusal    0.9977
+  eval_daily_dilemmas      0.9050
+  mean                     0.9156
+
+########## gptoss120b ##########
+loading red-team activations ...
+
+=== 1. VINTAGE CURVE, deterministic instrument ===
+ vintage  rows      ai_dilemmas           ant_hh balanced_refusal   daily_dilemmas     mean
+       0     0           0.6311           0.8082           0.6049           0.8582   0.7256   (C=0.003)
+       1   356           0.6605           0.7463           0.8963           0.8065   0.7774   (C=0.003)
+       2   546           0.6375           0.7766           0.9016           0.7688   0.7711   (C=0.003)
+       3   778           0.6356           0.7721           0.9126           0.7773   0.7744   (C=0.003)
+
+=== 3. TRANSFER GAP (ceiling - v3) ===
+  eval_ai_dilemmas         ceiling 0.7997  v3 0.6356  gap +0.1641
+  eval_ant_hh              ceiling 0.9599  v3 0.7721  gap +0.1878
+  eval_balanced_refusal    ceiling 0.9977  v3 0.9126  gap +0.0850
+  eval_daily_dilemmas      ceiling 0.9050  v3 0.7773  gap +0.1278
+
+=== 4. DIRECTION SATURATION ===
+  cos(w_v1, w_v2) = 0.7608
+  cos(w_v2, w_v3) = 0.8981
+  cos(w_v1, w_v3) = 0.7096
+  |w_v2/|w| - w_v1/|w|| = 0.6916
+  |w_v3/|w| - w_v2/|w|| = 0.4515
+  cos(w_v3, w_oracle[eval_ai_dilemmas]) = 0.1489
+  cos(w_v3, w_oracle[eval_ant_hh]) = 0.1343
+  cos(w_v3, w_oracle[eval_balanced_refusal]) = 0.0625
+  cos(w_v3, w_oracle[eval_daily_dilemmas]) = 0.1820
+
+=== 5. COVERAGE / NOVELTY ===
+  new-in-v3 rows: 232
+  nearest-neighbour cosine, new-in-v3 -> v2 : mean 0.9432  p10 0.9047  p90 0.9762
+  nearest-neighbour cosine, v2 -> v2 (self) : mean 0.9728  p10 0.9525  p90 0.9899
+  eval_ai_dilemmas         eval->v3 0.9305   eval->v2 0.9220   eval->own-split 0.9995
+  eval_ant_hh              eval->v3 0.9024   eval->v2 0.9018   eval->own-split 0.9336
+  eval_balanced_refusal    eval->v3 0.9108   eval->v2 0.9098   eval->own-split 0.9682
+  eval_daily_dilemmas      eval->v3 0.9202   eval->v2 0.9195   eval->own-split 0.9952
+
+=== 6. SOURCE vs GENERATED CONFOUND ===
+  P(label predictable from provenance alone) = 68.9%
+  source-vs-generated separability (in-sample AUROC) = 1.0000
+  cos(w_v3, w_provenance) = +0.0915
+    provenance direction alone on eval_ai_dilemmas         0.4593
+    provenance direction alone on eval_ant_hh              0.5948
+    provenance direction alone on eval_balanced_refusal    0.6981
+    provenance direction alone on eval_daily_dilemmas      0.1945
+
+########## deepseekv4pro ##########
+loading red-team activations ...
+
+=== 1. VINTAGE CURVE, deterministic instrument ===
+ vintage  rows      ai_dilemmas           ant_hh balanced_refusal   daily_dilemmas     mean
+       0     0           0.6311           0.8082           0.6049           0.8582   0.7256   (C=0.003)
+       1   368           0.6661           0.7668           0.7773           0.8498   0.7650   (C=0.003)
+       2   706           0.6274           0.7910           0.8886           0.7789   0.7715   (C=1.0)
+       3   878           0.6228           0.7775           0.8798           0.7976   0.7694   (C=1.0)
+
+=== 3. TRANSFER GAP (ceiling - v3) ===
+  eval_ai_dilemmas         ceiling 0.7997  v3 0.6228  gap +0.1769
+  eval_ant_hh              ceiling 0.9599  v3 0.7775  gap +0.1824
+  eval_balanced_refusal    ceiling 0.9977  v3 0.8798  gap +0.1179
+  eval_daily_dilemmas      ceiling 0.9050  v3 0.7976  gap +0.1075
+
+=== 4. DIRECTION SATURATION ===
+  cos(w_v1, w_v2) = 0.5290
+  cos(w_v2, w_v3) = 0.9335
+  cos(w_v1, w_v3) = 0.5456
+  |w_v2/|w| - w_v1/|w|| = 0.9706
+  |w_v3/|w| - w_v2/|w|| = 0.3648
+  cos(w_v3, w_oracle[eval_ai_dilemmas]) = 0.1296
+  cos(w_v3, w_oracle[eval_ant_hh]) = 0.1548
+  cos(w_v3, w_oracle[eval_balanced_refusal]) = 0.0376
+  cos(w_v3, w_oracle[eval_daily_dilemmas]) = 0.1769
+
+=== 5. COVERAGE / NOVELTY ===
+  new-in-v3 rows: 172
+  nearest-neighbour cosine, new-in-v3 -> v2 : mean 0.9599  p10 0.9423  p90 0.9804
+  nearest-neighbour cosine, v2 -> v2 (self) : mean 0.9733  p10 0.9570  p90 0.9874
+  eval_ai_dilemmas         eval->v3 0.9331   eval->v2 0.9331   eval->own-split 0.9995
+  eval_ant_hh              eval->v3 0.8988   eval->v2 0.8985   eval->own-split 0.9336
+  eval_balanced_refusal    eval->v3 0.9053   eval->v2 0.9049   eval->own-split 0.9682
+  eval_daily_dilemmas      eval->v3 0.9280   eval->v2 0.9259   eval->own-split 0.9952
+
+=== 6. SOURCE vs GENERATED CONFOUND ===
+  P(label predictable from provenance alone) = 70.4%
+  source-vs-generated separability (in-sample AUROC) = 1.0000
+  cos(w_v3, w_provenance) = +0.1498
+    provenance direction alone on eval_ai_dilemmas         0.4494
+    provenance direction alone on eval_ant_hh              0.5112
+    provenance direction alone on eval_balanced_refusal    0.7071
+    provenance direction alone on eval_daily_dilemmas      0.2435
+
+wrote results_hu_harm_gemma27b_batch_ablation/vintage/why_iter3.json

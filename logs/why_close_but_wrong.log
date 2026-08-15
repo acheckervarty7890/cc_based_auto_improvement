@@ -1,0 +1,62 @@
+
+########## gptoss120b ##########
+
+=== A. what the cosine scale is in this space ===
+  random v2 pair                       mean 0.8683  p10 0.8071  p50 0.8733  p90 0.9206
+  random v2 pair, SAME label           mean 0.8749  p10 0.8041  p50 0.8815  p90 0.9362
+  random v2 pair, OPPOSITE label       mean 0.8616  p10 0.8106  p50 0.8672  p90 0.9057
+
+=== B. a source vs its OWN opposite-label counterpart ===
+  source <-> its generated counterpart mean 0.9364  p10 0.8888  p50 0.9417  p90 0.9731   (n=389)
+  ... these two rows carry OPPOSITE labels by construction.
+  new-in-v3 -> nearest v2 row          mean 0.9432  p10 0.9047  p50 0.9455  p90 0.9762
+  -> 45% of opposite-label pairs are CLOSER than the median new-row/v2 nearest neighbour
+
+=== C. label of the nearest v2 neighbour ===
+  nearest v2 neighbour has the SAME label: 77.6% of new-in-v3 rows
+  ... restricted to the red-team SUCCESSES only (116 rows): 56.0%
+
+=== D. k-NN fitted on v2, predicting the new rows ===
+  k= 1: accuracy on all new-in-v3 rows 77.6%   on the successes only 56.0%
+  k= 5: accuracy on all new-in-v3 rows 74.1%   on the successes only 51.7%
+  k=15: accuracy on all new-in-v3 rows 71.6%   on the successes only 48.3%
+  (chance is 50% -- the new rows are exactly class-balanced)
+
+=== E. distance in the probe's OWN metric ===
+  probe_iter2 logit of the success            mean -1.1303  p10 -6.8616  p50 -1.6137  p90 4.4296
+  probe_iter2 logit of its nearest v2 row     mean 2.2907  p10 -9.7869  p50 5.3379  p90 11.3347
+  |logit difference| across that 0.94 hop     mean 7.1703  p10 1.4808  p50 5.9251  p90 14.8827
+  -> 41% of successes sit on the OPPOSITE side of the boundary from their nearest v2 neighbour
+  logit change per unit of cosine distance    95.0
+
+########## deepseekv4pro ##########
+
+=== A. what the cosine scale is in this space ===
+  random v2 pair                       mean 0.8821  p10 0.8335  p50 0.8850  p90 0.9254
+  random v2 pair, SAME label           mean 0.8874  p10 0.8353  p50 0.8906  p90 0.9353
+  random v2 pair, OPPOSITE label       mean 0.8766  p10 0.8331  p50 0.8808  p90 0.9134
+
+=== B. a source vs its OWN opposite-label counterpart ===
+  source <-> its generated counterpart mean 0.9488  p10 0.9090  p50 0.9551  p90 0.9757   (n=439)
+  ... these two rows carry OPPOSITE labels by construction.
+  new-in-v3 -> nearest v2 row          mean 0.9599  p10 0.9423  p50 0.9609  p90 0.9804
+  -> 39% of opposite-label pairs are CLOSER than the median new-row/v2 nearest neighbour
+
+=== C. label of the nearest v2 neighbour ===
+  nearest v2 neighbour has the SAME label: 81.4% of new-in-v3 rows
+  ... restricted to the red-team SUCCESSES only (86 rows): 77.9%
+
+=== D. k-NN fitted on v2, predicting the new rows ===
+  k= 1: accuracy on all new-in-v3 rows 81.4%   on the successes only 77.9%
+  k= 5: accuracy on all new-in-v3 rows 79.1%   on the successes only 66.3%
+  k=15: accuracy on all new-in-v3 rows 76.2%   on the successes only 58.1%
+  (chance is 50% -- the new rows are exactly class-balanced)
+
+=== E. distance in the probe's OWN metric ===
+  probe_iter2 logit of the success            mean 0.1096  p10 -6.7809  p50 -1.6977  p90 7.4977
+  probe_iter2 logit of its nearest v2 row     mean 3.7993  p10 -10.9315  p50 6.9792  p90 17.3198
+  |logit difference| across that 0.94 hop     mean 9.5118  p10 2.2856  p50 9.2136  p90 17.5573
+  -> 60% of successes sit on the OPPOSITE side of the boundary from their nearest v2 neighbour
+  logit change per unit of cosine distance    195.9
+
+wrote results_hu_harm_gemma27b_batch_ablation/vintage/why_close_but_wrong.json
