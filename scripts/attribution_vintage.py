@@ -429,6 +429,11 @@ def main() -> None:
                     help="skip (vintage, seed) pairs already in the progress sidecar")
     ap.add_argument("--membership-only", action="store_true",
                     help="print the vintage/length report and exit, fitting nothing")
+    ap.add_argument("--summarize-only", action="store_true",
+                    help="re-aggregate the progress sidecar and exit, fitting nothing. Use "
+                         "after running the arms as separate processes: each of those only "
+                         "knows its own rows, so the last one to finish would otherwise "
+                         "leave CSVs covering one arm.")
     ap.add_argument("--eval-dir", type=Path, default=A.EVAL_ACTIVATIONS_DIR)
     ap.add_argument(
         "--out-dir",
@@ -446,9 +451,11 @@ def main() -> None:
             print(json.dumps(report, indent=2))
         return
 
-    for arm in args.arm:
-        run_arm(arm, args.iteration, seeds, args.eval_dir, args.out_dir, progress,
-                resume=args.resume, only_vintages=args.vintages, drop_long=args.drop_long)
+    if not args.summarize_only:
+        for arm in args.arm:
+            run_arm(arm, args.iteration, seeds, args.eval_dir, args.out_dir, progress,
+                    resume=args.resume, only_vintages=args.vintages,
+                    drop_long=args.drop_long)
 
     # Report from the SIDECAR, not from this process's return values: on a resumed run the
     # rows computed before the restart are on disk and nowhere else, and a summary covering

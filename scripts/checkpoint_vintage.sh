@@ -32,19 +32,25 @@ while true; do
     HF_TOKEN="${HF_TOKEN:-}" .venv_claude/bin/python scripts/vintage_summary_md.py \
         >/dev/null 2>&1 || echo "    (summary render failed; committing rows anyway)"
 
-    git add -f \
-        "$OUT_DIR"/vintage_progress.jsonl \
-        "$OUT_DIR"/SUMMARY.md \
-        "$OUT_DIR"/*.csv \
-        "$OUT_DIR"/*.json \
-        scripts/attribution_lib.py \
-        scripts/attribution_refit.py \
-        scripts/attribution_vintage.py \
-        scripts/attribution_fetch_eval.py \
-        scripts/vintage_summary_md.py \
-        scripts/checkpoint_vintage.sh \
-        scripts/publish_kaggle_redteam_activations.py \
-        src/agentic_redteam/token_budget.py 2>/dev/null
+    # One `git add` per path, because a single call with several pathspecs aborts the
+    # WHOLE add when any one of them matches nothing — and the CSV/JSON outputs only
+    # appear when an arm finishes, so for the first hours of the sweep the globs are
+    # unmatched and a combined add would stage nothing at all while still reporting
+    # "nothing new". (That is exactly what the first two polls of this script did.)
+    for p in "$OUT_DIR"/vintage_progress.jsonl \
+             "$OUT_DIR"/SUMMARY.md \
+             "$OUT_DIR"/*.csv \
+             "$OUT_DIR"/*.json \
+             scripts/attribution_lib.py \
+             scripts/attribution_refit.py \
+             scripts/attribution_vintage.py \
+             scripts/attribution_fetch_eval.py \
+             scripts/vintage_summary_md.py \
+             scripts/checkpoint_vintage.sh \
+             scripts/publish_kaggle_redteam_activations.py \
+             src/agentic_redteam/token_budget.py; do
+        [ -f "$p" ] && git add -f "$p" 2>/dev/null
+    done
 
     n=$(grep -c . "$OUT_DIR/vintage_progress.jsonl" 2>/dev/null || echo 0)
     if git diff --cached --quiet; then
