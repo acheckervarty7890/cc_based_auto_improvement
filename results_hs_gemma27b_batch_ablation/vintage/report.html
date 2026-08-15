@@ -348,6 +348,29 @@
       than an idealised add-only curve.
     </p>
     <hr>
+    <p>
+      <strong>The original runs agree.</strong> The sweep was built because the committed
+      per-iteration probes are not comparable to each other — yet their published means
+      trace the same two shapes, from four entirely separate retrains per arm and a single
+      seed each. That the controlled sweep and the uncontrolled pipeline land on the same
+      ordering, including deepseekv4pro's drop at iteration 3, is the strongest evidence here
+      that the drop is a property of the data rather than of either measurement.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <caption>committed comparison CSV · mean AUROC · 1 seed</caption>
+        <thead><tr><th>arm</th><th>iter0</th><th>iter1</th><th>iter2</th><th>iter3</th></tr></thead>
+        <tbody>
+          <tr><td>gptoss120b</td><td>0.8597</td><td>0.9004</td><td>0.9297</td><td>0.9309</td></tr>
+          <tr><td>deepseekv4pro</td><td>0.8595</td><td>0.8835</td><td>0.9141</td><td>0.9017</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="footnote">
+      What the sweep adds is the error bar. On one seed, deepseekv4pro's 0.9141 → 0.9017 could
+      be nothing; across ten it is 2.8σ.
+    </p>
+    <hr>
     <p class="footnote">
       <strong>Validation.</strong> Scoring the shipped <code>probe_iter3.pkl</code> on the fetched
       eval activations reproduces the committed comparison CSVs to ~1e-5. Vintage 0 at seed 42
