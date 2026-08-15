@@ -264,6 +264,30 @@ def _jaccard(a: np.ndarray, b: np.ndarray) -> float:
     return float((a & b).sum() / u) if u else 1.0
 
 
+def _balanced_pred(logits: np.ndarray, n_pos: int) -> np.ndarray:
+    """Predict the top ``n_pos`` logits positive — the bias-free decision rule.
+
+    Why a second rule exists at all. ``logit >= 0`` is what the pipeline deploys, but on
+    these probes it is badly off-centre: the first fit scored ``eval_ai_dilemmas`` at
+    AUROC 0.987 and accuracy 0.581, i.e. it ranks the split almost perfectly and then
+    puts the cut in the wrong place. Tagged that way, "incorrect" is dominated by which
+    side of a global offset a row sits on, and two conditions would look alike merely by
+    sharing the offset — which is not the question being asked.
+
+    Every hu_ha eval split is exactly 50/50 by construction, so thresholding at the
+    split's own median is the operating point that matches the true prevalence; it
+    depends only on the *ranking*, so a probe that is uniformly shifted is unpenalised.
+    Both taggings are reported: ``raw`` is what a deployed probe would actually do,
+    ``balanced`` is what its ordering knows.
+
+    Ties are broken by ``argsort`` order, which is arbitrary but deterministic; at fp32
+    logits over 866 rows exact ties do not occur in practice.
+    """
+    out = np.zeros(len(logits), dtype=bool)
+    out[np.argsort(-logits, kind="stable")[:n_pos]] = True
+    return out
+
+
 def analyse(arm: str, rows: list[dict], truth: dict) -> dict:
     """Correct/incorrect tags per condition, and the overlap between them."""
     by = defaultdict(dict)
@@ -296,13 +320,24 @@ def analyse(arm: str, rows: list[dict], truth: dict) -> dict:
         )
 
     L = {c: logit_matrix(c) for c in CONDITIONS}
-    correct = {c: ((L[c] >= 0) == (y > 0.5)[None, :]) for c in CONDITIONS}
+    truth_bool = y > 0.5
+
+    def balanced_correct(mat: np.ndarray) -> np.ndarray:
+        """Per-seed correctness under the split-median rule (see ``_balanced_pred``)."""
+        out_m = np.zeros(mat.shape, dtype=bool)
+        for sp in splits:
+            m = split_all == sp
+            n_pos = int(truth_bool[m].sum())
+            for k in range(mat.shape[0]):
+                out_m[k, m] = _balanced_pred(mat[k, m], n_pos)
+        return out_m == truth_bool[None, :]
+
+    CORRECT = {
+        "raw": {c: ((L[c] >= 0) == truth_bool[None, :]) for c in CONDITIONS},
+        "balanced": {c: balanced_correct(L[c]) for c in CONDITIONS},
+    }
+    correct = CORRECT["raw"]
     n_correct = {c: correct[c].sum(0) for c in CONDITIONS}          # 0..len(seeds)
-    # Consensus tag: a row is "correct" for a condition when a strict majority of its
-    # seeds get it right. Unanimity is reported separately rather than used as the tag,
-    # because with 5 seeds it would push most of the mass into an "inconsistent" bucket
-    # and hide the structure the overlap question is about.
-    maj = {c: n_correct[c] * 2 > len(seeds) for c in CONDITIONS}
 
     out: dict = {
         "arm": arm,
@@ -327,13 +362,62 @@ def analyse(arm: str, rows: list[dict], truth: dict) -> dict:
             ]) if sp != "ALL" else np.array([
                 np.mean([by[c][s]["auroc"][x]["pipeline"] for x in splits]) for s in seeds
             ])
+            bal = (CORRECT["balanced"][c].mean(1) if sp == "ALL"
+                   else CORRECT["balanced"][c][:, split_all == sp].mean(1))
             perf[c][sp] = {
                 "acc_mean": float(acc.mean()), "acc_sd": float(acc.std(ddof=1)),
+                "bal_acc_mean": float(bal.mean()), "bal_acc_sd": float(bal.std(ddof=1)),
                 "auroc_mean": float(auc.mean()), "auroc_sd": float(auc.std(ddof=1)),
             }
     out["performance"] = perf
 
-    # --- the overlap question -----------------------------------------------------
+    # --- the overlap question, under each decision rule ---------------------------
+    for rule, CORR in CORRECT.items():
+        out[rule] = _overlap_block(CORR, split_all, splits, seeds)
+
+    # --- per-row tags, for downstream joins ---------------------------------------
+    # Both rules' tags on every row, so a reader can join a conversation to what each
+    # condition did with it without re-deriving anything from the logits.
+    nc = {r: {c: CORRECT[r][c].sum(0) for c in CONDITIONS} for r in CORRECT}
+    mj = {r: {c: nc[r][c] * 2 > len(seeds) for c in CONDITIONS} for r in CORRECT}
+    out["_tags"] = [
+        {
+            "split": str(split_all[i]),
+            "idx_in_split": int(i - offsets[split_all[i]]),
+            "sha16": key_all[i],
+            "label": "positive" if y[i] > 0.5 else "negative",
+            "v2_mean_logit": float(L["v2"][:, i].mean()),
+            "v3new_mean_logit": float(L["v3new"][:, i].mean()),
+            **{
+                f"{rule}_{cond}_{field}": val
+                for rule in CORRECT
+                for cond in CONDITIONS
+                for field, val in (
+                    ("n_correct", int(nc[rule][cond][i])),
+                    ("tag", "correct" if mj[rule][cond][i] else "incorrect"),
+                )
+            },
+        }
+        for i in range(n)
+    ]
+    return out
+
+
+def _overlap_block(correct: dict, split_all: np.ndarray, splits: list[str],
+                   seeds: list[int]) -> dict:
+    """Every overlap statistic for one decision rule.
+
+    ``correct[condition]`` is a ``[n_seeds, n_eval_rows]`` boolean. Consensus tag: a row
+    counts as correct for a condition when a strict majority of its seeds get it right.
+    Unanimity is reported separately rather than used as the tag, because with 5 seeds
+    it would push most of the mass into an "inconsistent" bucket and hide the structure
+    the overlap question is about.
+    """
+    n = correct[CONDITIONS[0]].shape[1]
+    n_correct = {c: correct[c].sum(0) for c in CONDITIONS}
+    maj = {c: n_correct[c] * 2 > len(seeds) for c in CONDITIONS}
+    out: dict = {}
+
     a, b = maj["v2"], maj["v3new"]
     tbl = {
         "correct_both": int((a & b).sum()),
@@ -436,22 +520,6 @@ def analyse(arm: str, rows: list[dict], truth: dict) -> dict:
         "jaccard_always_correct": _jaccard(easy_a, easy_b),
     }
 
-    # --- per-row tags, for downstream joins ---------------------------------------
-    out["_tags"] = [
-        {
-            "split": split_all[i],
-            "idx_in_split": int(i - offsets[split_all[i]]),
-            "sha16": key_all[i],
-            "label": "positive" if y[i] > 0.5 else "negative",
-            "v2_n_correct": int(n_correct["v2"][i]),
-            "v3new_n_correct": int(n_correct["v3new"][i]),
-            "v2_tag": "correct" if maj["v2"][i] else "incorrect",
-            "v3new_tag": "correct" if maj["v3new"][i] else "incorrect",
-            "v2_mean_logit": float(L["v2"][:, i].mean()),
-            "v3new_mean_logit": float(L["v3new"][:, i].mean()),
-        }
-        for i in range(n)
-    ]
     return out
 
 
@@ -462,56 +530,68 @@ def print_report(res: dict) -> None:
     print(f"  red-team rows: v2={res['n_redteam_rows']['v2']}  "
           f"v3new={res['n_redteam_rows']['v3new']}   eval rows: {res['n_eval_rows']}")
 
-    print("\n--- accuracy (logit>=0) and AUROC (pipeline scale), mean +/- sd over seeds ---")
-    print(f"{'split':22s} {'v2 acc':>16s} {'v3new acc':>16s} {'v2 auroc':>16s} {'v3new auroc':>16s}")
+    print("\n--- accuracy and AUROC (pipeline scale), mean +/- sd over seeds ---")
+    print("    'raw' = logit>=0 (what a deployed probe does); "
+          "'bal' = top-half-by-logit (bias-free, see _balanced_pred)")
+    print(f"{'split':22s} {'v2 raw':>15s} {'v3new raw':>15s} {'v2 bal':>15s} "
+          f"{'v3new bal':>15s} {'v2 auroc':>15s} {'v3new auroc':>15s}")
     for sp in list(A.EVAL_SPLITS) + ["ALL"]:
         p2, p3 = res["performance"]["v2"][sp], res["performance"]["v3new"][sp]
         print(f"{sp:22s} "
               f"{p2['acc_mean']:.3f}+/-{p2['acc_sd']:.3f} "
-              f"  {p3['acc_mean']:.3f}+/-{p3['acc_sd']:.3f} "
-              f"  {p2['auroc_mean']:.4f}+/-{p2['auroc_sd']:.4f} "
-              f"  {p3['auroc_mean']:.4f}+/-{p3['auroc_sd']:.4f}")
+              f" {p3['acc_mean']:.3f}+/-{p3['acc_sd']:.3f} "
+              f" {p2['bal_acc_mean']:.3f}+/-{p2['bal_acc_sd']:.3f} "
+              f" {p3['bal_acc_mean']:.3f}+/-{p3['bal_acc_sd']:.3f} "
+              f" {p2['auroc_mean']:.4f}+/-{p2['auroc_sd']:.3f} "
+              f" {p3['auroc_mean']:.4f}+/-{p3['auroc_sd']:.3f}")
 
-    o = res["overlap_majority"]
     n = res["n_eval_rows"]
-    print(f"\n--- overlap of the majority-vote tags ({n} eval rows) ---")
-    print(f"{'':>22s} {'v3new correct':>15s} {'v3new incorrect':>17s}")
-    print(f"{'v2 correct':>22s} {o['correct_both']:>15d} {o['correct_v2_only']:>17d}")
-    print(f"{'v2 incorrect':>22s} {o['correct_v3new_only']:>15d} {o['wrong_both']:>17d}")
-    print(f"  agreement on the tag: {o['agreement_rate']:.1%}")
-    print(f"  errors: v2 {o['n_error_v2']}, v3new {o['n_error_v3new']}, "
-          f"both {o['wrong_both']} "
-          f"(Jaccard {o['jaccard_error']:.3f}; "
-          f"{o['expected_wrong_both_if_independent']:.1f} expected if independent, "
-          f"lift {o['lift_over_independence']:.2f}x)")
-    print(f"  correct-set Jaccard: {o['jaccard_correct']:.3f}")
+    for rule in ("raw", "balanced"):
+        blk = res[rule]
+        o = blk["overlap_majority"]
+        print(f"\n\n===== decision rule: {rule} =====")
+        print(f"--- overlap of the majority-vote tags ({n} eval rows) ---")
+        print(f"{'':>22s} {'v3new correct':>15s} {'v3new incorrect':>17s}")
+        print(f"{'v2 correct':>22s} {o['correct_both']:>15d} {o['correct_v2_only']:>17d}")
+        print(f"{'v2 incorrect':>22s} {o['correct_v3new_only']:>15d} {o['wrong_both']:>17d}")
+        print(f"  agreement on the tag: {o['agreement_rate']:.1%}")
+        print(f"  errors: v2 {o['n_error_v2']}, v3new {o['n_error_v3new']}, "
+              f"both {o['wrong_both']} "
+              f"(Jaccard {o['jaccard_error']:.3f}; "
+              f"{o['expected_wrong_both_if_independent']:.1f} expected if independent, "
+              f"lift {o['lift_over_independence']:.2f}x)")
+        print(f"  correct-set Jaccard: {o['jaccard_correct']:.3f}")
 
-    s = res["seed_stability"]
-    print(f"\n--- is that overlap bigger than seed noise? (pairwise Jaccard of error sets) ---")
-    for name in ("within_v2", "within_v3new", "between"):
-        d = s[name]
-        print(f"  {name:14s} error {d['jaccard_error_mean']:.3f}+/-{d['jaccard_error_sd']:.3f}"
-              f"   correct {d['jaccard_correct_mean']:.3f}   ({d['n_pairs']} pairs)")
+        s = blk["seed_stability"]
+        print(f"\n--- is that overlap bigger than seed noise? "
+              f"(pairwise Jaccard of error sets) ---")
+        for name in ("within_v2", "within_v3new", "between"):
+            d = s[name]
+            print(f"  {name:14s} error {d['jaccard_error_mean']:.3f}"
+                  f"+/-{d['jaccard_error_sd']:.3f}"
+                  f"   correct {d['jaccard_correct_mean']:.3f}   ({d['n_pairs']} pairs)")
 
-    print("\n--- per split (majority tags) ---")
-    print(f"{'split':22s} {'n':>5s} {'both ok':>8s} {'v2 only':>8s} {'v3new only':>11s} "
-          f"{'both wrong':>11s} {'errJacc':>8s}")
-    for sp, d in res["overlap_per_split"].items():
-        print(f"{sp:22s} {d['n']:>5d} {d['correct_both']:>8d} {d['correct_v2_only']:>8d} "
-              f"{d['correct_v3new_only']:>11d} {d['wrong_both']:>11d} {d['jaccard_error']:>8.3f}")
+        print("\n--- per split (majority tags) ---")
+        print(f"{'split':22s} {'n':>5s} {'both ok':>8s} {'v2 only':>8s} {'v3new only':>11s} "
+              f"{'both wrong':>11s} {'errJacc':>8s}")
+        for sp, d in blk["overlap_per_split"].items():
+            print(f"{sp:22s} {d['n']:>5d} {d['correct_both']:>8d} {d['correct_v2_only']:>8d} "
+                  f"{d['correct_v3new_only']:>11d} {d['wrong_both']:>11d} "
+                  f"{d['jaccard_error']:>8.3f}")
 
-    u = res["unanimity"]
-    print(f"\n--- unanimity across the {k} seeds ---")
-    for c in CONDITIONS:
-        print(f"  {c:6s} always correct {u[c]['always_correct']:>4d}   "
-              f"always wrong {u[c]['always_wrong']:>4d}   mixed {u[c]['mixed']:>4d}   "
-              f"hist(n_correct 0..{k}) {u[c]['hist_n_correct']}")
-    x = u["cross"]
-    print(f"  always-wrong under BOTH conditions: {x['always_wrong_both']} "
-          f"(v2 only {x['always_wrong_v2_only']}, v3new only {x['always_wrong_v3new_only']}; "
-          f"Jaccard {x['jaccard_always_wrong']:.3f})")
-    print(f"  always-correct under BOTH: {x['always_correct_both']} "
-          f"(Jaccard {x['jaccard_always_correct']:.3f})")
+        u = blk["unanimity"]
+        print(f"\n--- unanimity across the {k} seeds ---")
+        for c in CONDITIONS:
+            print(f"  {c:6s} always correct {u[c]['always_correct']:>4d}   "
+                  f"always wrong {u[c]['always_wrong']:>4d}   mixed {u[c]['mixed']:>4d}   "
+                  f"hist(n_correct 0..{k}) {u[c]['hist_n_correct']}")
+        x = u["cross"]
+        print(f"  always-wrong under BOTH conditions: {x['always_wrong_both']} "
+              f"(v2 only {x['always_wrong_v2_only']}, "
+              f"v3new only {x['always_wrong_v3new_only']}; "
+              f"Jaccard {x['jaccard_always_wrong']:.3f})")
+        print(f"  always-correct under BOTH: {x['always_correct_both']} "
+              f"(Jaccard {x['jaccard_always_correct']:.3f})")
 
 
 def summarize(arms: list[str]) -> None:
