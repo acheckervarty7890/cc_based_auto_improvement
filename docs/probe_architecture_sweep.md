@@ -724,18 +724,60 @@ pooling waits on §§2-4.*
 ## Reproducing
 
 ```bash
-# 80 fits off cached activations; resumes at (arm, architecture, seed) granularity
-.venv_claude/bin/python scripts/arch_sweep.py
-.venv_claude/bin/python scripts/arch_sweep.py --summarize-only     # re-derive, no refits
-.venv_claude/bin/python scripts/arch_sweep.py --sensitivity        # hidden_dim x weight_decay
-.venv_claude/bin/python scripts/arch_sweep.py --legacy-best-epoch  # the control arm
+# the main sweep — 80 fits off cached activations, seed-major so each finished seed is a
+# complete comparison; resumes at (arm, architecture, seed, variant, legacy) granularity
+nohup bash run_arch_sweep.sh 42 43 44 45 46 >> logs/arch_sweep.log 2>&1 &
+nohup bash failsafe_commit_arch.sh > logs/failsafe_arch.out 2>&1 &   # 30-min checkpoints
 
-# the ceiling / transfer measurement (run it ALONE — see the note below)
+.venv_claude/bin/python scripts/arch_sweep.py --summarize-only     # re-derive, no refits
+
+# the ceiling / transfer measurement — DONE, results in §1
 .venv_claude/bin/python scripts/nonlinear_ceiling.py
+.venv_claude/bin/python scripts/nonlinear_ceiling.py --group-by-prompt   # correct CV for
+                                                    # high-capacity families; see §1's caveat
 
 # seconds, no cached activations needed
 .venv_claude/bin/python scripts/test_probe_architectures.py
 ```
+
+### The follow-ups §4 calls for, in priority order
+
+Each is a cached-activation refit, so all are minutes-to-hours rather than days. **Run
+them after the main sweep finishes**, not alongside it.
+
+```bash
+# 1. Removes the batch-size confound from `attention`, the leading candidate in §4.
+#    20 fits (2 architectures x 5 seeds x 2 arms).
+.venv_claude/bin/python scripts/arch_sweep.py --normalize-hyperparams
+
+# 2. Confirms the MLP null is not an under-tuning artefact. 12 fits, one arm.
+.venv_claude/bin/python scripts/arch_sweep.py --sensitivity
+
+# 3. Quantifies what the best-epoch fix is worth, which conclusion 3 rests on.
+#    Currently a single-seed estimate.
+.venv_claude/bin/python scripts/arch_sweep.py --legacy-best-epoch
+```
+
+```bash
+# 0. The most direct test of §4's mechanism, and it needs no new architecture.
+#    50 fits (5 temperatures x 5 seeds x 2 arms); run it FIRST of the four.
+.venv_claude/bin/python scripts/arch_sweep.py --temperature-sweep
+```
+
+**Why that one first.** `LinearThenSoftmax` pools with `softmax(x / temperature)`, so as
+temperature grows the weights go uniform and the head *becomes* mean pooling — verified
+numerically, the gap decays as 1/T (0.096 at T=5, 5×10⁻⁶ at T=10⁵). The deployed head runs
+at **T=5** and measured a residual of **−0.045** on `eval_ant_hh`; `pre_mean` **is** the
+T→∞ limit and measured **+0.049**. So temperature is a continuous knob between the two ends
+of the entire effect, already exposed as a hyperparameter of the architecture the pipeline
+already ships.
+
+That makes it both the cleanest confirmation available — if §4's mechanism is right, the
+`ant_hh` residual should climb monotonically with temperature — and the most likely place
+to find something usable, since it can ask whether an intermediate value keeps most of the
+deployed head's near-split performance while recovering the far-split one. The sweep prints
+`ant_hh` and the other three splits side by side per temperature for exactly that reason,
+and includes T=5 as an internal control that should reproduce the shipped-defaults row.
 
 **Run one of these at a time.** Both hold large activation sets resident, and this box's
 cgroup limit is below its 31 GB of RAM: running the ceiling measurement alongside the

@@ -150,6 +150,17 @@ SENSITIVITY_ARCH = "mlp_then_softmax"
 NORMALIZE_ARCHES = ["attention", "attention_then_mlp"]
 NORMALIZE_REFERENCE = "linear_then_softmax"
 
+#: --temperature-sweep: the most direct test of the pooling result, and it needs no new
+#: architecture. ``LinearThenSoftmax.agg`` pools with ``softmax(x / temperature)``, so as
+#: temperature grows the weights go uniform and the head becomes **mean pooling** —
+#: verified numerically, the gap decays as 1/T (0.096 at T=5, 5e-6 at T=1e5). The deployed
+#: head runs at T=5 and measured a residual of -0.045 on eval_ant_hh; `pre_mean`, which is
+#: the T→infinity limit, measured +0.049. Temperature therefore interpolates continuously
+#: between the two ends of the effect, and this sweep asks whether some intermediate value
+#: keeps the deployed head's mean AUROC while shedding its concentration bias.
+TEMPERATURE_GRID = [1, 5, 20, 100, 1000]
+TEMPERATURE_ARCH = "linear_then_softmax"
+
 
 # --- eval side ----------------------------------------------------------------------
 
@@ -699,15 +710,29 @@ def print_sensitivity(rows: list[dict], truth: dict) -> None:
         if "error" not in r and not r.get("variant") and not r.get("legacy_best_epoch"):
             default_auc[(r["arm"], r["architecture"])].append(mean_auc(r))
 
-    groups = {"bs16": [], "other": []}
+    groups: dict = {"bs16": [], "temperature": [], "other": []}
     for r in var_rows:
-        groups["bs16" if r["variant"] == "bs16" else "other"].append(r)
+        if r["variant"] == "bs16":
+            groups["bs16"].append(r)
+        elif r["variant"].startswith("T") and r["variant"][1:].isdigit():
+            groups["temperature"].append(r)
+        else:
+            groups["other"].append(r)
 
     if groups["other"]:
         print("\n\n########## sensitivity: capacity and regularisation ##########")
         print("  (same architecture, varying hidden_dim / weight_decay — if the spread")
         print("   here covers the architecture differences above, the sweep measured tuning)")
         _print_variant_group(groups["other"], default_auc, mean_auc)
+
+    if groups["temperature"]:
+        print("\n\n########## pooling temperature sweep (--temperature-sweep) ##########")
+        print("  Softmax pooling at high temperature IS mean pooling (the gap decays as")
+        print("  1/T), so temperature interpolates continuously between the deployed head")
+        print("  (T=5) and pre_mean (T -> infinity) — the two ends of the eval_ant_hh")
+        print("  effect. T5 should reproduce the shipped-defaults row; it is the control.")
+        _print_variant_group(groups["temperature"], default_auc, mean_auc)
+        _print_temperature_ant_hh(groups["temperature"])
 
     if groups["bs16"]:
         print("\n\n########## hyperparameter normalisation (--normalize-hyperparams) ##########")
@@ -716,6 +741,34 @@ def print_sensitivity(rows: list[dict], truth: dict) -> None:
         print("  architecture stand on its shipped defaults, which differ; this removes")
         print("  that difference so the pooling contrast is architecture alone.")
         _print_variant_group(groups["bs16"], default_auc, mean_auc)
+
+
+def _print_temperature_ant_hh(rows: list[dict]) -> None:
+    """`eval_ant_hh` against the other three splits, per temperature.
+
+    The whole point of the sweep: the deployed temperature trades `ant_hh` away for the
+    other three, so the useful question is whether some intermediate value keeps most of
+    the near-split performance while recovering the far-split one. Printing both columns
+    side by side is what makes that visible.
+    """
+    others = [s for s in A.EVAL_SPLITS if s != "eval_ant_hh"]
+    by: dict = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        by[r["arm"]][r["variant"]]["ant"] = by[r["arm"]][r["variant"]].get("ant", [])
+        by[r["arm"]][r["variant"]]["ant"].append(r["auroc"]["eval_ant_hh"]["pipeline"])
+        by[r["arm"]][r["variant"]].setdefault("other", []).append(
+            float(np.mean([r["auroc"][s]["pipeline"] for s in others]))
+        )
+    for arm in sorted(by):
+        print(f"\n  {arm}")
+        print(f"    {'temperature':>12s} {'ant_hh':>16s} {'other 3 splits':>18s}")
+        for vname in sorted(by[arm], key=lambda v: int(v[1:])):
+            a = np.array(by[arm][vname]["ant"])
+            o = np.array(by[arm][vname]["other"])
+            sd_a = a.std(ddof=1) if len(a) > 1 else 0.0
+            sd_o = o.std(ddof=1) if len(o) > 1 else 0.0
+            print(f"    {vname[1:]:>12s} {a.mean():.4f}+/-{sd_a:.4f} "
+                  f"  {o.mean():.4f}+/-{sd_o:.4f}")
 
 
 def _print_variant_group(var_rows: list[dict], default_auc: dict, mean_auc) -> None:
@@ -879,6 +932,12 @@ def main() -> None:
     ap.add_argument("--legacy-best-epoch", action="store_true",
                     help="reproduce tuberlens' non-restoring early stopping, to measure "
                          "what the fix itself is worth")
+    ap.add_argument("--temperature-sweep", action="store_true",
+                    help=f"sweep {TEMPERATURE_ARCH}'s pooling temperature over "
+                         f"{TEMPERATURE_GRID}. Softmax pooling at high temperature IS "
+                         "mean pooling, so this interpolates continuously between the "
+                         "deployed head and pre_mean — the two ends of the eval_ant_hh "
+                         "effect — without needing a new architecture")
     ap.add_argument("--normalize-hyperparams", action="store_true",
                     help=f"re-run {NORMALIZE_ARCHES} under {NORMALIZE_REFERENCE}'s "
                          "optimizer settings, so the decoupled-query pooling can be "
@@ -894,7 +953,16 @@ def main() -> None:
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     if not args.summarize_only:
-        if args.normalize_hyperparams:
+        if args.temperature_sweep:
+            variants = [(f"T{t}", {"temperature": t}) for t in TEMPERATURE_GRID]
+            print(f"--temperature-sweep: {TEMPERATURE_ARCH} at temperatures "
+                  f"{TEMPERATURE_GRID} (T=5 is the deployed default; large T is mean "
+                  "pooling)")
+            for arm in args.arm:
+                run_arm(arm, args.seeds, [TEMPERATURE_ARCH], args.eval_dir,
+                        resume=not args.no_resume, variants=variants,
+                        legacy_best_epoch=args.legacy_best_epoch)
+        elif args.normalize_hyperparams:
             from agentic_redteam.probe_architectures import default_hyperparams
 
             ref = default_hyperparams(NORMALIZE_REFERENCE)
