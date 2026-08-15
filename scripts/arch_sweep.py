@@ -324,9 +324,11 @@ def run_arm(arm: str, seeds: list[int], architectures: list[str], eval_dir: Path
             n_tr, n_val = len(train), len(val)
         except Exception as exc:  # noqa: BLE001 — one arm failing must not kill the sweep
             print(f"  seed {seed} {arch:22s} FAILED: {exc!r}", flush=True)
+            # legacy_best_epoch is part of the resume key, so an error row that omitted
+            # it would key as a non-legacy fit and block that fit from ever being retried.
             append_progress(PROGRESS, {
                 "arm": arm, "architecture": arch, "seed": seed, "variant": vname,
-                "error": repr(exc),
+                "legacy_best_epoch": legacy_best_epoch, "error": repr(exc),
             })
             continue
         fit_s = time.time() - t0

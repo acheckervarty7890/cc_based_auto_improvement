@@ -299,12 +299,15 @@ def _ledoit_wolf_alpha(x: torch.Tensor, cov: torch.Tensor) -> float:
     """
     n, d = x.shape
     mu = torch.diagonal(cov).mean()
-    delta_sq = ((cov - mu * torch.eye(d, dtype=cov.dtype)) ** 2).sum() / d
+    # ||S - mu I||_F^2 expanded as ||S||_F^2 - 2 mu tr(S) + d mu^2, which avoids
+    # materialising a 5376x5376 float64 identity (231 MB) purely to subtract a diagonal.
+    cov_sq_norm = (cov**2).sum()
+    delta_sq = (cov_sq_norm - 2 * mu * torch.diagonal(cov).sum() + d * mu**2) / d
 
     sq_norms = (x * x).sum(dim=1)
     term_xx = (sq_norms**2).sum()
-    term_xs = torch.einsum("ij,jk,ik->", x, cov, x)
-    beta_sq = (term_xx - 2 * term_xs + n * (cov**2).sum()) / (n**2 * d)
+    term_xs = ((x @ cov) * x).sum()
+    beta_sq = (term_xx - 2 * term_xs + n * cov_sq_norm) / (n**2 * d)
 
     if delta_sq <= 0:
         return 1.0
