@@ -734,6 +734,68 @@ def _print_variant_group(var_rows: list[dict], default_auc: dict, mean_auc) -> N
                   f"({len(a)} seed(s)){delta}")
 
 
+def print_tradeoff_test(rows: list[dict]) -> None:
+    """Is an architecture's `eval_ant_hh` gain real, or just the generalisation trade-off?
+
+    Every alternative architecture measured so far scores higher than the deployed head on
+    `eval_ant_hh` — the split holding 21 of the 31 hard-core rows — and every one is worse
+    on mean AUROC. There is a mundane mechanism that produces exactly that pattern:
+    `eval_ant_hh` is the split furthest from the training distribution (short, blunt
+    HH-style dialogue against a red-team median of 1364 source characters), so a head that
+    fits the training distribution harder wins on the three near splits and loses on the
+    far one. That trade-off is driven by effective capacity and would look identical to
+    "this architecture understands the concept better".
+
+    The separation: fit `ant_hh ~ mean-of-the-other-three` across every fit, and read each
+    architecture's **residual**. Points on the line are the trade-off. An architecture
+    sitting consistently *above* it does better on the hard split than its overall
+    performance predicts, which is the thing worth having.
+
+    The regressor is the mean of the other three splits, not the overall mean, so
+    ``ant_hh`` does not appear on both axes.
+    """
+    fits = [r for r in rows
+            if "error" not in r and not r.get("variant")
+            and not r.get("legacy_best_epoch")]
+    if len(fits) < 6:
+        return
+    others = [s for s in A.EVAL_SPLITS if s != "eval_ant_hh"]
+    x = np.array([np.mean([r["auroc"][s]["pipeline"] for s in others]) for r in fits])
+    y = np.array([r["auroc"]["eval_ant_hh"]["pipeline"] for r in fits])
+    if len(np.unique(x)) < 3:
+        return
+
+    slope, intercept = np.polyfit(x, y, 1)
+    resid = y - (slope * x + intercept)
+    rmse = float(np.sqrt((resid**2).mean()))
+
+    print("\n\n########## is the eval_ant_hh gain real, or the trade-off? ##########")
+    print(f"  ant_hh = {slope:+.3f} x (mean of other 3 splits) + {intercept:.3f}   "
+          f"[n={len(fits)} fits, residual rmse {rmse:.4f}]")
+    if slope < 0:
+        print("  Slope is NEGATIVE: across these fits, doing better on the three near")
+        print("  splits goes with doing WORSE on eval_ant_hh — the trade-off is real and")
+        print("  an ant_hh gain alone is not evidence an architecture helps.")
+    else:
+        print("  Slope is positive: the splits move together, so the trade-off story does")
+        print("  NOT hold here and an ant_hh gain can be read at face value.")
+
+    by: dict = defaultdict(list)
+    for r, e in zip(fits, resid):
+        by[r["architecture"]].append(e)
+    print(f"\n  residual = how much better on ant_hh than overall performance predicts")
+    print(f"{'architecture':24s} {'residual':>18s} {'n':>4s}   verdict")
+    for arch in ARCHITECTURES:
+        if arch not in by:
+            continue
+        v = np.array(by[arch])
+        sd = v.std(ddof=1) if len(v) > 1 else 0.0
+        # "above the line" only counts when the whole spread clears it
+        verdict = ("ABOVE the line" if v.mean() - sd > 0
+                   else "below" if v.mean() + sd < 0 else "on the line")
+        print(f"{arch:24s} {v.mean():>+10.4f}+/-{sd:.4f} {len(v):>4d}   {verdict}")
+
+
 def print_legacy_control(rows: list[dict]) -> None:
     """What the best-epoch fix itself is worth, where both variants were run.
 
@@ -783,6 +845,7 @@ def summarize() -> None:
     res = analyse(rows, truth)
     print_report(res)
     print_sensitivity(rows, truth)
+    print_tradeoff_test(rows)
     print_legacy_control(rows)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)

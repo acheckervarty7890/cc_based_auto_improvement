@@ -412,32 +412,58 @@ until five seeds land. Per-split seed noise in the comparable heldout run was sd
 0.014-0.059, so **no single-split difference below ~0.06 here is distinguishable from
 reseeding.**
 
+Ordered by mean AUROC:
+
 | architecture | params | ai_dilemmas | `ant_hh` | balanced_refusal | daily_dilemmas | **mean** | best epoch |
 |---|---|---|---|---|---|---|---|
 | `linear_then_softmax` (deployed) | 5,377 | 0.9886 | 0.7149 | 0.9535 | 0.9878 | **0.9112** | 36 |
+| `mlp_then_softmax` | 344,193 | 0.8804 | 0.7521 | 0.8328 | 0.9876 | 0.8632 | 17 |
 | `attention` † | 10,754 | 0.6851 | **0.7740** | 0.9162 | 0.8877 | 0.8158 | 38 |
-| `mlp_then_softmax` | 344,193 | 0.8804 | **0.7521** | 0.8328 | 0.9876 | 0.8632 | 17 |
+| `attention_then_mlp` † | 349,570 | 0.5993 | 0.7344 | 0.8771 | 0.8503 | 0.7653 | 8 |
 
 † optimizer settings differ (batch 128) — see the confound note above.
 
 **The readout result is as §1 predicted.** `mlp_then_softmax` is the clean test — same
 softmax pooling, same optimizer settings, 64x the parameters — and it **loses 0.048 mean
-AUROC**. Its best epoch is 17 against the linear head's 36: it peaks earlier and then
-overfits, which is what 344k parameters on 747 training rows should do, and what §1 said
-there was no signal to justify.
+AUROC**. Best epoch falls monotonically with capacity across the whole table (36 → 17 → 8
+as parameters go 5k → 344k → 350k): the bigger heads peak earlier and then overfit, which
+is what they should do on 747 training rows, and what §1 said there was no signal to
+justify. **Nothing beats the deployed head on mean AUROC.**
 
-**The thing to watch.** Both non-baseline architectures gain on `eval_ant_hh` — the split
-holding 21 of the 31 core rows — while losing mean AUROC elsewhere: `attention` +0.059
-(mean −0.095), `mlp_then_softmax` +0.037 (mean −0.048). Two architectures trading the same
-way is more interesting than one would be. But at one seed both gains sit inside the
-per-split noise band, `attention`'s is confounded by its batch size, and a model that is
-simply *worse and differently biased* can score higher on the split where the baseline is
-weakest without understanding anything more. Five seeds plus the clean `pre_mean` contrast
-decide it; until then this is a hypothesis, not a result.
+#### The `ant_hh` gain is probably a trade-off, not a win
+
+All three alternatives score higher than the deployed head on `eval_ant_hh` — the split
+holding 21 of the 31 core rows — which is the result this whole sweep was hoping for. It
+should not be believed yet, for a reason visible in the table itself: **every architecture
+that gains on `ant_hh` is worse overall**, and the ordering is close to inverse. The
+deployed head is best on mean AUROC and worst on `ant_hh`; `attention` is third on mean and
+best on `ant_hh`.
+
+There is a mundane mechanism that produces exactly this. `eval_ant_hh` is the split
+*furthest* from the training distribution — short, blunt HH-style dialogue against a
+red-team median of 1364 source characters (`why_last_iteration_adds_nothing.md`, "What the
+data actually is"). A head that fits the training distribution harder does better on the
+three near splits and worse on the far one; a head that fits it less hard trades the other
+way. That is a generalisation trade-off driven by effective capacity, and it would look
+identical to "this pooling understands harm better".
+
+**The test that separates them**, once five seeds are in: regress `ant_hh` AUROC on mean
+AUROC across all 8 architectures × 5 seeds × 2 arms. If the `ant_hh` gains lie on the
+trade-off line, they are the mundane mechanism. An architecture that sits *above* that
+line — better on `ant_hh` than its overall performance predicts — is the real thing. Until
+that is run, no architecture here has been shown to help on the hard split.
 
 ### 3. Hard-core recovery
 
 ### 4. Pooling vs. non-linearity
+
+*Pending five seeds. The analysis that decides it — `print_tradeoff_test` in
+`arch_sweep.py` — is implemented and runs automatically in `--summarize-only` once six or
+more fits exist, so it does not depend on anyone remembering to do it. It regresses
+`eval_ant_hh` AUROC on the mean of the other three splits across every fit and reports
+each architecture's residual: on the line means the gain is the generalisation trade-off
+described in §2, consistently above it means the architecture genuinely does better on the
+hard split than its overall performance predicts.*
 
 ### 5. What the best-epoch fix was worth
 
