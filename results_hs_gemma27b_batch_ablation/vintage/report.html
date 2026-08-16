@@ -322,6 +322,143 @@
   </div>
 </section>
 
+<section class="wide">
+  <div class="sechead">
+    <span class="eyebrow">Transfer · v2 probes, v3-only attacks</span>
+    <h2>The attacks iteration 3 added still beat the probes that never saw them</h2>
+  </div>
+  <div class="stack">
+    <p class="standfirst" style="max-width:72ch">
+      Same ten <code>v2</code> probes, now used as classifiers rather than as a curve. Every
+      attack found in iteration 2 was replayed against all ten — none of which was trained on
+      it — and scored at the pipeline's own rule, <code>sigmoid(logit) ≥ 0.5</code>.
+    </p>
+
+    <div class="verdicts">
+      <div class="card" data-arm="gptoss120b">
+        <h3>gptoss120b</h3>
+        <div class="curve">
+          <span class="step best"><span class="vlab">success rate</span>
+            <span style="font-size:1.6rem">0.856</span></span>
+        </div>
+        <p class="ok-note">
+          <span class="num">54</span> attacks × <span class="num">10</span> seeds.
+          <span class="num">36</span> of the 54 beat <strong>every</strong> seed;
+          <span class="num">0</span> were caught by all ten.
+        </p>
+      </div>
+      <div class="card" data-arm="deepseekv4pro">
+        <h3>deepseekv4pro</h3>
+        <div class="curve">
+          <span class="step best"><span class="vlab">success rate</span>
+            <span style="font-size:1.6rem">0.901</span></span>
+        </div>
+        <p class="ok-note">
+          <span class="num">73</span> attacks × <span class="num">10</span> seeds.
+          <span class="num">47</span> of the 73 beat <strong>every</strong> seed;
+          <span class="num">0</span> were caught by all ten.
+        </p>
+      </div>
+    </div>
+
+    <div class="flag">
+      <span class="mark">▲</span>
+      <span>
+        <strong>This is the arm whose v3 regressed.</strong> deepseekv4pro's added attacks
+        transfer <em>better</em> than gptoss120b's (0.901 against 0.856), not worse — so its
+        iteration-3 data was not redundant filler. It was the harder material, and training on
+        it is what cost 2.8σ of eval AUROC. Difficulty for the probe and value as training data
+        are pulling in opposite directions here.
+      </span>
+    </div>
+
+    <div class="legend" style="margin-top:10px">
+      <span><i class="swatch" style="background:var(--teal)"></i>gptoss120b</span>
+      <span><i class="swatch" style="background:var(--rust)"></i>deepseekv4pro</span>
+      <span style="color:var(--ink-faint)">how many of the ten seeds each attack defeated</span>
+    </div>
+    <div id="hist"></div>
+    <p class="footnote">
+      The mass sits hard against the right edge and nothing at all sits on the left: a v3-only
+      attack is not a coin flip against a v2 probe, it is close to a yes/no property of the
+      conversation. Seed-to-seed variation is the small term — per-seed rates span
+      0.778–0.981 for gptoss120b (sd 0.073) and 0.849–0.932 for deepseekv4pro (sd 0.028).
+    </p>
+
+    <div class="tablewrap">
+      <table>
+        <caption>attacks found at iteration 2, scored on probes that never saw them</caption>
+        <thead><tr>
+          <th>arm</th><th>attacks</th><th>success rate</th>
+          <th>false_positive hunts</th><th>false_negative hunts</th>
+          <th>counterpart rows</th><th>rows in v2 training</th><th>anchor</th>
+        </tr></thead>
+        <tbody>
+          <tr><td>gptoss120b</td><td>54</td><td>0.856</td><td>0.983 <span class="sd">(18)</span></td>
+              <td>0.792 <span class="sd">(36)</span></td><td>0.000</td><td>0.019</td><td>1.000</td></tr>
+          <tr><td>deepseekv4pro</td><td>73</td><td>0.901</td><td>0.941 <span class="sd">(39)</span></td>
+              <td>0.856 <span class="sd">(34)</span></td><td>0.008</td><td>0.032</td><td>1.000</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li>
+        <strong>Direction matters.</strong> Attacks hunting a probe <em>false positive</em> —
+        benign conversations the probe calls high-stakes — transfer almost perfectly (0.983 /
+        0.941). False-negative hunts transfer less well (0.792 / 0.856). Whatever makes a
+        conversation read as spuriously high-stakes is a stable property of this probe family;
+        hiding real stakes is more seed-dependent.
+      </li>
+      <li>
+        <strong>Counterpart rows are not attacks and behave nothing like them.</strong> The
+        LLM-written opposite-class halves of the same pairs are misclassified 0.000 / 0.008 of
+        the time. They are reported separately and never pooled into the rate above.
+      </li>
+      <li>
+        <strong>The memorization contrast.</strong> Rows that <em>were</em> in every v2 probe's
+        training set are missed 0.019 / 0.032 of the time. So the ~0.88 out-of-sample rate is
+        not "this probe family is easy to fool" — the same probes handle their own training
+        attacks nearly perfectly.
+      </li>
+    </ul>
+
+    <hr>
+    <p class="footnote">
+      <strong>Why the cohort is defined by provenance, not by set difference.</strong>
+      "New in the iteration-3 dump" is not the same as "found against <code>probe_iter2</code>":
+      <code>filter_dataset</code> refits every cycle, so successes from iteration 0 and 1 get
+      dropped and later re-admitted. Those never faced an iteration-2 probe, and the v2 probes
+      classify them correctly essentially always — pooling them in would drag the rate from
+      0.856 to 0.660 for gptoss120b and 0.901 to 0.772 for deepseekv4pro while measuring
+      something other than transfer. The attempt log's own <code>iteration</code> field settles
+      each row.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <caption>new-in-v3 attacker rows, split by the iteration they were found in</caption>
+        <thead><tr><th>arm</th><th>found at</th><th>attacks</th><th>v2-probe success rate</th>
+          <th>real probe_iter2</th></tr></thead>
+        <tbody>
+          <tr><td>gptoss120b</td><td>iter 0</td><td>13</td><td>0.000</td><td>0.000</td></tr>
+          <tr><td>gptoss120b</td><td>iter 1</td><td>3</td><td>0.000</td><td>0.000</td></tr>
+          <tr data-best="1"><td>gptoss120b</td><td>iter 2</td><td>54</td><td>0.856</td><td>1.000</td></tr>
+          <tr><td>deepseekv4pro</td><td>iter 0</td><td>7</td><td>0.000</td><td>0.000</td></tr>
+          <tr><td>deepseekv4pro</td><td>iter 1</td><td>7</td><td>0.200</td><td>0.143</td></tr>
+          <tr data-best="1"><td>deepseekv4pro</td><td>iter 2</td><td>73</td><td>0.901</td><td>1.000</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="footnote">
+      <strong>Validation.</strong> The last column is the check, not a result. Scoring the real
+      shipped <code>probe_iter2.pkl</code> on these same cached activations misclassifies
+      <strong>1.000</strong> of the iteration-2 cohort in both arms — exactly the definition
+      that admitted those rows in the first place. Labels, pair rejoining, cached activations
+      and the prediction rule all have to be right for that to come out at 1.000 rather than
+      near it.
+    </p>
+  </div>
+</section>
+
 <section class="col">
   <div class="sechead">
     <span class="eyebrow">Method</span>
@@ -494,5 +631,81 @@ for (const arm of ARMS) {
           return `<td>${m.toFixed(4)} <span class="sd">± ${sd.toFixed(4)}</span></td>`;
         }).join("")}</tr>`).join("")}</tbody></table>`;
   tables.appendChild(wrap);
+}
+
+/* ---- how many of the ten seeds each v3-only attack defeated ---- */
+const HIST = {
+  gptoss120b:    [0, 1, 0, 2, 3, 3, 2, 2, 3, 2, 36],
+  deepseekv4pro: [0, 0, 1, 0, 2, 2, 2, 5, 5, 9, 47],
+};
+{
+  const NS = "http://www.w3.org/2000/svg";
+  const W = 1080, H = 230, PAD = { t: 10, r: 8, b: 34, l: 34 };
+  const iw = W - PAD.l - PAD.r, ih = H - PAD.t - PAD.b;
+  const max = Math.max(...Object.values(HIST).flat());
+  const series = [
+    { key: "gptoss120b", color: "var(--teal)", data: HIST.gptoss120b },
+    { key: "deepseekv4pro", color: "var(--rust)", data: HIST.deepseekv4pro },
+  ];
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label",
+    "Distribution of how many of ten vintage-2 probes each iteration-3 attack defeated. " +
+    "Both arms pile up at ten of ten: 36 of 54 for gptoss120b, 47 of 73 for deepseekv4pro.");
+
+  const el = (n, a) => {
+    const e = document.createElementNS(NS, n);
+    for (const k in a) e.setAttribute(k, a[k]);
+    return e;
+  };
+  const y = v => PAD.t + ih - (v / max) * ih;
+
+  for (const g of [0, 0.25, 0.5, 0.75, 1]) {
+    const gy = PAD.t + ih - g * ih;
+    svg.appendChild(el("line", { x1: PAD.l, x2: W - PAD.r, y1: gy, y2: gy,
+      stroke: "var(--grid)", "stroke-width": 1 }));
+    svg.appendChild(el("text", { x: PAD.l - 8, y: gy + 3.5, "text-anchor": "end",
+      fill: "var(--ink-faint)", "font-family": "var(--mono)", "font-size": 10 }))
+      .textContent = Math.round(g * max);
+  }
+
+  const slot = iw / 11;
+  // 2px of surface between the two bars of a bin, and between bins — the spacer rule.
+  const bw = (slot - 12) / 2 - 1;
+  for (let k = 0; k <= 10; k++) {
+    const x0 = PAD.l + k * slot + 6;
+    svg.appendChild(el("text", { x: x0 + bw + 1, y: H - PAD.b + 16,
+      "text-anchor": "middle", fill: k === 10 ? "var(--ink)" : "var(--ink-faint)",
+      "font-family": "var(--mono)", "font-size": 10.5,
+      "font-weight": k === 10 ? 700 : 400 })).textContent = `${k}/10`;
+
+    series.forEach((s, i) => {
+      const v = s.data[k];
+      const x = x0 + i * (bw + 2);
+      if (v > 0) {
+        const h = Math.max(2, PAD.t + ih - y(v));
+        svg.appendChild(el("rect", { x, y: y(v), width: bw, height: h,
+          rx: 3, fill: s.color }));
+        if (v >= max * 0.3) {
+          svg.appendChild(el("text", { x: x + bw / 2, y: y(v) - 6,
+            "text-anchor": "middle", fill: "var(--ink-muted)",
+            "font-family": "var(--mono)", "font-size": 10.5 })).textContent = v;
+        }
+      }
+      const hit = el("rect", { x: x - 1, y: PAD.t, width: bw + 2, height: ih,
+        fill: "transparent" });
+      hit.addEventListener("mousemove", e => showTip(e,
+        `<b>${s.key}</b><br>${v} attack${v === 1 ? "" : "s"} defeated ${k} of 10 seeds`));
+      hit.addEventListener("mouseleave", hideTip);
+      svg.appendChild(hit);
+    });
+  }
+  svg.appendChild(el("line", { x1: PAD.l, x2: W - PAD.r, y1: PAD.t + ih, y2: PAD.t + ih,
+    stroke: "var(--rule)", "stroke-width": 1 }));
+  svg.style.display = "block";
+  svg.style.width = "100%";
+  svg.style.height = "auto";
+  document.getElementById("hist").appendChild(svg);
 }
 </script>
