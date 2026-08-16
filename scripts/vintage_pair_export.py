@@ -142,13 +142,13 @@ def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict,
     v2_pairs = v2_pairs or {}
     v2_scores = v2_scores or {}
 
-    def v2_side(source_row: int | None) -> dict | None:
-        """The minimal-edit rewrite of this pair's source, if one was generated.
+    def counterpart(source_row: int | None) -> dict | None:
+        """This pair's minimal-edit counterpart.
 
-        Its conversation comes from the regeneration output and its numbers from the
-        scoring run — the two are joined on the same ``source_key`` the viewer's pairs
-        are keyed by. ``tok`` is read off the freshly extracted blob, so an over-cap v2
-        rewrite would be visible here the same way a v1 one is.
+        Its conversation comes from the generation output and its numbers from the
+        scoring run — joined on the same ``source_key`` the viewer's pairs are keyed by.
+        ``tok`` is read off its extracted blob, so a counterpart that overran the
+        1024-token window would be visible here exactly as a source one is.
         """
         if source_row is None:
             return None
@@ -163,18 +163,17 @@ def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict,
         )
         blob = A.redteam_blob_path(msgs)
         sc = v2_scores.get((arm, "new", skey), {})
-        # A rewrite that changed NOTHING is the one outcome a minimal-edit prompt can
-        # produce that is worse than the old lookalike: the training set would then
-        # carry the same conversation twice under opposite labels. It happens when the
-        # generator disagrees with the source's judge label and says so instead of
-        # editing. Flagged here so the viewer can badge and filter it, and so it can
-        # never be quietly folded into a retrain.
+        # A counterpart identical to its source is the one degenerate outcome a
+        # minimal-edit instruction can produce: the training set would then carry the
+        # same conversation twice under opposite labels. It happens when the generator
+        # disagrees with the source's judge label and says so instead of editing.
+        # Flagged here so the viewer can badge and filter it, and so it can never be
+        # quietly folded into a retrain.
         return {
             "same": A.canon(msgs) == A.canon(ds.inputs[source_row]),
             "label": rec["target_label"],
             "tok": (A.blob_width(blob) if blob.exists() else None),
             "sim": round(rec["sim_new"], 4),
-            "sim_v1": (None if rec.get("sim_old") is None else round(rec["sim_old"], 4)),
             "why": rec.get("explanation", ""),
             "nw": sc.get("n_misclassified"),
             "ns": sc.get("n_seeds"),
@@ -204,8 +203,11 @@ def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict,
                 m.get("found_error_type")),
             "found": m.get("found_iteration"),
             "src": side(p.source_idx),
-            "gen": side(p.generated_idx),
-            "v2": v2_side(p.source_idx),
+            # The pair's counterpart is the minimal-edit rewrite. The dump also holds
+            # the counterpart the pipeline itself generated, but the viewer does not
+            # show it: it is superseded, and carrying it doubled the payload for a
+            # conversation the page makes no claim about.
+            "cp": counterpart(p.source_idx),
         })
     return {"pairs": out, "n_orphan": stats["n_orphan"]}
 
@@ -232,7 +234,7 @@ def main() -> None:
     metrics = _metrics(args.out_dir / "new_sample_success.jsonl")
     v2_pairs = _v2_pairs(args.v2_dir / "cohort_contrastive_v2.jsonl")
     v2_scores = _v2_scores(args.v2_scored_dir / "contrastive_v2_success.jsonl")
-    print(f"v2 rewrites: {len(v2_pairs)}   v2 scored rows: {len(v2_scores)}", flush=True)
+    print(f"counterparts: {len(v2_pairs)}   v2 scored rows: {len(v2_scores)}", flush=True)
 
     payload = {"roles": ROLES, "cohort": args.cohort, "arms": {}}
     for arm in sorted(A.ARMS):
@@ -244,8 +246,8 @@ def main() -> None:
         print(f"{arm:14s} {len(n):4d} pair(s)  "
               + "  ".join(f"{k}={v}" for k, v in sorted(c.items()))
               + f"   [in v3 not v2 = {c['new'] + c['readd']}]"
-              + f"  v2={sum(1 for p in n if p['v2'])}"
-              + f"  UNCHANGED={sum(1 for p in n if p['v2'] and p['v2']['same'])}"
+              + f"  counterparts={sum(1 for p in n if p['cp'])}"
+              + f"  UNCHANGED={sum(1 for p in n if p['cp'] and p['cp']['same'])}"
               + f"  orphan={payload['arms'][arm]['n_orphan']}", flush=True)
 
     blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
