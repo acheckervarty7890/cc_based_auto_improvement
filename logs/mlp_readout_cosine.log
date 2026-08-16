@@ -21,3 +21,124 @@
   seed 43 mlp_then_softmax     fit  437.1s  v2|v3new 0.2961  v2|ant_hh 1.8649  within v2 0.8562
   seed 43 mean_then_mlp        fit  411.5s  v2|v3new 0.4750  v2|ant_hh 1.5962  within v2 0.8806
   seed 43 attention_then_mlp   fit  396.2s  v2|v3new 0.2823  v2|ant_hh 1.7272  within v2 0.9077
+  seed 44 mlp_then_softmax     fit  459.7s  v2|v3new 0.2884  v2|ant_hh 1.7201  within v2 0.9217
+  seed 44 mean_then_mlp        fit  330.6s  v2|v3new 0.3224  v2|ant_hh 1.3269  within v2 0.8436
+  seed 44 attention_then_mlp   fit  464.6s  v2|v3new 0.3604  v2|ant_hh 1.5462  within v2 0.8515
+
+========================================================================================
+MLP post-readout cosine geometry — 18 fits, seeds [42, 43, 44]
+========================================================================================
+
+Refit check (mean eval AUROC, pipeline scale) — should match arch_sweep
+  deepseekv4pro   mlp_then_softmax     0.8848 +/- 0.0189  (n=3)
+  deepseekv4pro   mean_then_mlp        0.7597 +/- 0.0083  (n=3)
+  deepseekv4pro   attention_then_mlp   0.7695 +/- 0.0128  (n=3)
+  gptoss120b      mlp_then_softmax     0.8792 +/- 0.0201  (n=3)
+  gptoss120b      mean_then_mlp        0.7586 +/- 0.0090  (n=3)
+  gptoss120b      attention_then_mlp   0.7723 +/- 0.0045  (n=3)
+
+----------------------------------------------------------------------------------------
+POST-READOUT (64-d), centered on the grand mean  [HEADLINE]
+----------------------------------------------------------------------------------------
+arm             architecture           v2|v3new       v2|ai_dilemmas           v2|ant_hh v2|balanced_refusal   v2|daily_dilemmas
+deepseekv4pro   mlp_then_softmax        0.2806   1.9062+/-0.0518( 6.8x)  1.6619+/-0.2375( 5.9x)  1.9524+/-0.0084( 7.0x)  1.8458+/-0.1177( 6.6x)
+deepseekv4pro   mean_then_mlp           0.3425   1.6874+/-0.0937( 4.9x)  1.3967+/-0.1754( 4.1x)  1.7931+/-0.0607( 5.2x)  1.9123+/-0.0614( 5.6x)
+deepseekv4pro   attention_then_mlp      0.3575   1.6563+/-0.0424( 4.6x)  1.5169+/-0.2263( 4.2x)  1.7218+/-0.0508( 4.8x)  1.9335+/-0.0264( 5.4x)
+gptoss120b      mlp_then_softmax        0.4053   1.9461+/-0.0208( 4.8x)  1.2709+/-0.6180( 3.1x)  1.9227+/-0.0447( 4.7x)  1.6332+/-0.2840( 4.0x)
+gptoss120b      mean_then_mlp           0.4203   1.7069+/-0.1444( 4.1x)  1.2486+/-0.3588( 3.0x)  1.6785+/-0.2795( 4.0x)  1.8878+/-0.0402( 4.5x)
+gptoss120b      attention_then_mlp      0.5473   1.8914+/-0.0349( 3.5x)  1.5029+/-0.1674( 2.7x)  1.6874+/-0.0949( 3.1x)  1.8118+/-0.0506( 3.3x)
+  (each eval cell: cosine distance from the v2 centroid, +/- sd over seeds, and x the v2|v3new distance)
+
+  within-group spread (mean cosine distance to own centroid), post_centered
+    deepseekv4pro   mlp_then_softmax     v2=0.897 v3new=0.680 ai_dilemmas=0.103 ant_hh=0.585 balanced_refusal=0.502 daily_dilemmas=0.528
+    deepseekv4pro   mean_then_mlp        v2=0.848 v3new=0.748 ai_dilemmas=0.096 ant_hh=0.658 balanced_refusal=0.636 daily_dilemmas=0.248
+    deepseekv4pro   attention_then_mlp   v2=0.883 v3new=0.763 ai_dilemmas=0.063 ant_hh=0.623 balanced_refusal=0.683 daily_dilemmas=0.294
+    gptoss120b      mlp_then_softmax     v2=0.939 v3new=0.825 ai_dilemmas=0.235 ant_hh=0.775 balanced_refusal=0.499 daily_dilemmas=0.638
+    gptoss120b      mean_then_mlp        v2=0.853 v3new=0.674 ai_dilemmas=0.142 ant_hh=0.728 balanced_refusal=0.640 daily_dilemmas=0.186
+    gptoss120b      attention_then_mlp   v2=0.912 v3new=0.792 ai_dilemmas=0.076 ant_hh=0.656 balanced_refusal=0.678 daily_dilemmas=0.216
+
+----------------------------------------------------------------------------------------
+PRE-READOUT (5376-d pooled input), centered  [control]
+----------------------------------------------------------------------------------------
+arm             architecture           v2|v3new       v2|ai_dilemmas           v2|ant_hh v2|balanced_refusal   v2|daily_dilemmas
+deepseekv4pro   mlp_then_softmax        0.2563   1.6411+/-0.1284( 6.4x)  1.2212+/-0.0759( 4.8x)  1.7856+/-0.0111( 7.0x)  1.8185+/-0.0200( 7.1x)
+deepseekv4pro   mean_then_mlp           0.3012   1.3401+/-0.0000( 4.4x)  1.5319+/-0.0000( 5.1x)  1.8381+/-0.0000( 6.1x)  1.6348+/-0.0000( 5.4x)
+deepseekv4pro   attention_then_mlp      0.3256   1.3560+/-0.0016( 4.2x)  1.4629+/-0.0072( 4.5x)  1.8126+/-0.0025( 5.6x)  1.6535+/-0.0039( 5.1x)
+gptoss120b      mlp_then_softmax        0.3732   1.5237+/-0.0071( 4.1x)  1.2917+/-0.0067( 3.5x)  1.7062+/-0.0368( 4.6x)  1.7711+/-0.0099( 4.7x)
+gptoss120b      mean_then_mlp           0.3062   1.4113+/-0.0000( 4.6x)  1.4780+/-0.0000( 4.8x)  1.8042+/-0.0000( 5.9x)  1.6297+/-0.0000( 5.3x)
+gptoss120b      attention_then_mlp      0.3442   1.4201+/-0.0030( 4.1x)  1.4131+/-0.0051( 4.1x)  1.7734+/-0.0031( 5.2x)  1.6380+/-0.0037( 4.8x)
+  (each eval cell: cosine distance from the v2 centroid, +/- sd over seeds, and x the v2|v3new distance)
+
+  within-group spread (mean cosine distance to own centroid), pre_centered
+    deepseekv4pro   mlp_then_softmax     v2=0.704 v3new=0.546 ai_dilemmas=0.224 ant_hh=0.616 balanced_refusal=0.601 daily_dilemmas=0.438
+    deepseekv4pro   mean_then_mlp        v2=0.706 v3new=0.569 ai_dilemmas=0.252 ant_hh=0.567 balanced_refusal=0.581 daily_dilemmas=0.414
+    deepseekv4pro   attention_then_mlp   v2=0.717 v3new=0.582 ai_dilemmas=0.241 ant_hh=0.572 balanced_refusal=0.594 daily_dilemmas=0.406
+    gptoss120b      mlp_then_softmax     v2=0.762 v3new=0.668 ai_dilemmas=0.332 ant_hh=0.633 balanced_refusal=0.690 daily_dilemmas=0.514
+    gptoss120b      mean_then_mlp        v2=0.691 v3new=0.610 ai_dilemmas=0.238 ant_hh=0.587 balanced_refusal=0.598 daily_dilemmas=0.396
+    gptoss120b      attention_then_mlp   v2=0.703 v3new=0.627 ai_dilemmas=0.235 ant_hh=0.589 balanced_refusal=0.617 daily_dilemmas=0.395
+
+----------------------------------------------------------------------------------------
+POST-READOUT, raw (uncentered)
+----------------------------------------------------------------------------------------
+arm             architecture           v2|v3new       v2|ai_dilemmas           v2|ant_hh v2|balanced_refusal   v2|daily_dilemmas
+deepseekv4pro   mlp_then_softmax        0.0213   0.2643+/-0.1454(12.4x)  0.0276+/-0.0069( 1.3x)  0.0849+/-0.0387( 4.0x)  0.0820+/-0.0421( 3.9x)
+deepseekv4pro   mean_then_mlp           0.0125   0.1138+/-0.0468( 9.1x)  0.0376+/-0.0182( 3.0x)  0.0534+/-0.0198( 4.3x)  0.1039+/-0.0361( 8.3x)
+deepseekv4pro   attention_then_mlp      0.0091   0.1476+/-0.0368(16.1x)  0.0425+/-0.0120( 4.7x)  0.0485+/-0.0141( 5.3x)  0.1060+/-0.0167(11.6x)
+gptoss120b      mlp_then_softmax        0.0158   0.1011+/-0.0481( 6.4x)  0.0185+/-0.0089( 1.2x)  0.0516+/-0.0206( 3.3x)  0.0614+/-0.0410( 3.9x)
+gptoss120b      mean_then_mlp           0.0104   0.0913+/-0.0786( 8.8x)  0.0428+/-0.0383( 4.1x)  0.0617+/-0.0634( 5.9x)  0.1312+/-0.1167(12.6x)
+gptoss120b      attention_then_mlp      0.0128   0.1817+/-0.0742(14.2x)  0.0704+/-0.0076( 5.5x)  0.0589+/-0.0033( 4.6x)  0.1452+/-0.0490(11.3x)
+  (each eval cell: cosine distance from the v2 centroid, +/- sd over seeds, and x the v2|v3new distance)
+
+  within-group spread (mean cosine distance to own centroid), post_raw
+    deepseekv4pro   mlp_then_softmax     v2=0.258 v3new=0.213 ai_dilemmas=0.049 ant_hh=0.162 balanced_refusal=0.164 daily_dilemmas=0.161
+    deepseekv4pro   mean_then_mlp        v2=0.251 v3new=0.204 ai_dilemmas=0.014 ant_hh=0.136 balanced_refusal=0.118 daily_dilemmas=0.042
+    deepseekv4pro   attention_then_mlp   v2=0.273 v3new=0.227 ai_dilemmas=0.011 ant_hh=0.154 balanced_refusal=0.140 daily_dilemmas=0.055
+    gptoss120b      mlp_then_softmax     v2=0.298 v3new=0.258 ai_dilemmas=0.129 ant_hh=0.195 balanced_refusal=0.233 daily_dilemmas=0.223
+    gptoss120b      mean_then_mlp        v2=0.206 v3new=0.145 ai_dilemmas=0.012 ant_hh=0.087 balanced_refusal=0.081 daily_dilemmas=0.023
+    gptoss120b      attention_then_mlp   v2=0.273 v3new=0.234 ai_dilemmas=0.023 ant_hh=0.121 balanced_refusal=0.121 daily_dilemmas=0.057
+
+----------------------------------------------------------------------------------------
+WITHIN-CLASS centroid distances, post-readout centered (class balance removed)
+----------------------------------------------------------------------------------------
+
+  pos rows only
+  arm             architecture           v2|v3new v2|ai_dilemmas     v2|ant_hhv2|balanced_refusalv2|daily_dilemmas
+  deepseekv4pro   mlp_then_softmax        0.2652        1.9339        1.9629        1.9875        1.8064 
+  deepseekv4pro   mean_then_mlp           0.7859        1.8400        1.7417        1.8966        1.8849 
+  deepseekv4pro   attention_then_mlp      1.0023        1.7237        1.7580        1.8921        1.8867 
+  gptoss120b      mlp_then_softmax        0.4843        1.9660        1.9179        1.9717        1.4078 
+  gptoss120b      mean_then_mlp           0.8744        1.9248        1.3295        1.8715        1.9747 
+  gptoss120b      attention_then_mlp      1.0026        1.9143        1.0493        1.7639        1.9564 
+
+  neg rows only
+  arm             architecture           v2|v3new v2|ai_dilemmas     v2|ant_hhv2|balanced_refusalv2|daily_dilemmas
+  deepseekv4pro   mlp_then_softmax        0.1935        1.8887        1.5898        1.8481        1.8290 
+  deepseekv4pro   mean_then_mlp           0.2348        1.9180        1.6970        1.7099        1.9663 
+  deepseekv4pro   attention_then_mlp      0.2427        1.9393        1.8234        1.6522        1.9681 
+  gptoss120b      mlp_then_softmax        0.3306        1.9305        1.5528        1.7978        1.8655 
+  gptoss120b      mean_then_mlp           0.2564        1.8874        1.8707        1.7233        1.8926 
+  gptoss120b      attention_then_mlp      0.2758        1.9589        1.9559        1.8531        1.9418 
+
+----------------------------------------------------------------------------------------
+IN-SAMPLE CONTROL: same numbers off the validation-side red-team rows only
+----------------------------------------------------------------------------------------
+  arm             architecture          v2val|v3newval  v2val|ai_dilemmas      v2val|ant_hhv2val|balanced_refusalv2val|daily_dilemmas
+  deepseekv4pro   mlp_then_softmax             0.2986            1.8932            1.6876            1.9433            1.8511 
+  deepseekv4pro   mean_then_mlp                0.3966            1.7247            1.4568            1.7913            1.8763 
+  deepseekv4pro   attention_then_mlp           0.4539            1.6920            1.5533            1.7261            1.8950 
+  gptoss120b      mlp_then_softmax             0.5255            1.8836            1.0226            1.9171            1.5039 
+  gptoss120b      mean_then_mlp                0.5120            1.4396            0.8660            1.6231            1.9379 
+  gptoss120b      attention_then_mlp           0.7146            1.7161            1.0662            1.5589            1.9392 
+
+----------------------------------------------------------------------------------------
+v3new vs v2: which vintage is closer to each eval split? (post-readout centered)
+----------------------------------------------------------------------------------------
+  deepseekv4pro   mlp_then_softmax     ai_dilemmas=v3new(+0.0824) ant_hh=v3new(+0.2410) balanced_refusal=v3new(+0.1615) daily_dilemmas=v3new(+0.0861)
+  deepseekv4pro   mean_then_mlp        ai_dilemmas=v3new(+0.0929) ant_hh=v3new(+0.2228) balanced_refusal=v3new(+0.0219) daily_dilemmas=v3new(+0.2858)
+  deepseekv4pro   attention_then_mlp   ai_dilemmas=v2   (-0.0295) ant_hh=v3new(+0.3896) balanced_refusal=v3new(+0.0621) daily_dilemmas=v3new(+0.2668)
+  gptoss120b      mlp_then_softmax     ai_dilemmas=v3new(+0.3058) ant_hh=v2   (-0.2228) balanced_refusal=v3new(+0.2063) daily_dilemmas=v2   (-0.0299)
+  gptoss120b      mean_then_mlp        ai_dilemmas=v3new(+0.3494) ant_hh=v2   (-0.3379) balanced_refusal=v2   (-0.1968) daily_dilemmas=v3new(+0.4826)
+  gptoss120b      attention_then_mlp   ai_dilemmas=v3new(+0.4562) ant_hh=v3new(+0.0396) balanced_refusal=v2   (-0.1401) daily_dilemmas=v3new(+0.4860)
+  (sign is d(v2,split) - d(v3new,split); positive means v3new sits closer)
+
+wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation/arch_sweep/readout_cosine.json
