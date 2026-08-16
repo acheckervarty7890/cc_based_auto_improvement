@@ -595,14 +595,32 @@
 
     <hr>
     <p class="footnote">
+      <strong>Nothing is retrained here.</strong> This section re-evaluates already-fitted
+      probes — the ten vintage-2 refits, and the shipped <code>probe_iter2</code> as the
+      anchor — on attacks none of them was trained on. The probes are fixed; the only thing
+      that varies is <em>which</em> attacks get scored, which makes defining that set the
+      whole measurement.
+    </p>
+    <p class="footnote">
       <strong>Why the cohort is defined by provenance, not by set difference.</strong>
       "New in the iteration-3 dump" is not the same as "found against <code>probe_iter2</code>":
       <code>filter_dataset</code> refits every cycle, so successes from iteration 0 and 1 get
       dropped and later re-admitted. Those never faced an iteration-2 probe, and the v2 probes
-      classify them correctly essentially always — pooling them in would drag the rate from
-      0.856 to 0.660 for gptoss120b and 0.901 to 0.772 for deepseekv4pro while measuring
-      something other than transfer. The attempt log's own <code>iteration</code> field settles
-      each row.
+      classify them correctly essentially always. Taking the set difference alone would give
+      70 and 87 attacks and drag the rate from 0.856 to 0.660 for gptoss120b and 0.901 to
+      0.772 for deepseekv4pro — measuring how comprehensively <em>old</em> attacks were
+      patched rather than whether new ones transfer. The attempt log's own
+      <code>iteration</code> field settles each row.
+    </p>
+    <p class="footnote">
+      <strong>"Trained on" checked, not assumed.</strong> Comparing canonical conversation
+      text rather than row indices, the cohort overlaps the v2 probes' red-team training rows,
+      their validation rows and the base data in <strong>0</strong> conversations, on both
+      arms — validation checked separately because those rows are not fit on but do steer
+      early stopping. Nor is anything a re-skin: the closest match between any cohort attack
+      and any row the probes trained on is <strong>0.500</strong> (gptoss120b) and
+      <strong>0.478</strong> (deepseekv4pro), against the 0.8 threshold the near-duplicate
+      guard rejects at.
     </p>
     <div class="tablewrap">
       <table>
