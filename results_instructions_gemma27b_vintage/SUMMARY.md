@@ -175,10 +175,21 @@ this measurement does not settle.
 mostly miss violations rather than over-flag compliance. nemotron's are symmetric
 (0.389 / 0.413).
 
+**One caveat on "new at iteration 3":** it is a property of the training set, not of when
+the attacker found the conversation. `filter_dataset` refits each cycle and drops a
+different top-percentile, so a pair can be found early, dropped from the iteration-2 set,
+and taken back at iteration 3 — 22 of gptoss120b's 92 pairs and 19 of nemotron's 148 came
+from the first rotation. They are held out of every v2 fit either way, which is what the
+number measures.
+
 Per-row detail is in `holdout_success_rows.csv` (one row per held-out sample: label, pair
 role, split side, success count, mean/min/max logit) and the group table in
 `holdout_success_summary.csv`; `*_holdout_membership.json` carries the membership and row
-provenance.
+provenance. The conversations themselves are in
+`viewers/instructions_v3_only_pairs_viewer.html` (only these pairs, each annotated with
+how many of the ten v2 probes it fools), and this section is also rendered standalone as
+`viewers/instructions_v2_holdout_report.html`. Both are built by
+`scripts/build_holdout_viewer.py`.
 
 ## Reproducing
 
@@ -203,4 +214,7 @@ AGENTIC_FAST_ACTS=1 .venv_claude/bin/python scripts/vintage_holdout_success.py \
 AGENTIC_FAST_ACTS=1 .venv_claude/bin/python scripts/vintage_holdout_success.py \
   --arm nemotron --seeds 10
 .venv_claude/bin/python scripts/vintage_holdout_success.py --summarize-only
+
+# the HTML report + the viewer holding only the v3-only pairs
+.venv_claude/bin/python scripts/build_holdout_viewer.py
 ```
