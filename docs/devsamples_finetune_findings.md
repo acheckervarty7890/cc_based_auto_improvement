@@ -33,6 +33,21 @@ Sequential column is its best variant (stage-2 validation = the mixed val set, l
 | 8  | 24 | 0.9154 ± 0.0035 | 0.8655 ± 0.0247 | **−0.050** | 0.9224 ± 0.0080 | 0.8918 ± 0.0084 | **−0.031** |
 | 16 | 49 | 0.9196 ± 0.0043 | 0.9138 ± 0.0025 | −0.006 | 0.9184 ± 0.0049 | 0.9154 ± 0.0070 | −0.003 |
 | 30 | 94 | 0.9292 ± 0.0009 | 0.9272 ± 0.0035 | −0.002 | 0.9250 ± 0.0086 | 0.9224 ± 0.0079 | −0.003 |
+| *ceiling* | *~693* | **0.9750** | | | **0.9750** | | |
+
+The ceiling row is the 5-fold CV of `scripts/eval_kfold_cv.py` (`pooled` geometry) — a probe
+of this architecture trained on the eval distribution itself, so it is arm-independent and
+is a bound, not a competitor. **It is the unweighted mean of the four per-split CV AUROCs,
+not the 0.9766 headline** of `docs/devsamples_kfold_findings.md`: that figure pools all 866
+held-out rows into one AUROC, and `eval_balanced_refusal` is 46% of them. Every other number
+in this table is `evaluate_probe`'s `mean` row, which averages the four splits equally
+(`tuberlens/evaluation.py:125`), so 0.9750 is the like-for-like value. The `within` geometry
+gives 0.9718 by the same aggregation.
+
+At N=30 both schedules are ~0.046–0.053 short of it, and the mixed-vs-sequential gap
+(0.002–0.003) is ~5% of the distance still to go. **The order the dev samples arrive in is
+a rounding error against what separates either schedule from a probe that has seen the
+target distribution.**
 
 **Mixing is better at every N and under every variant, and the margin is a function of how
 much dev data there is.** At N=2 and N=8 the gap is 0.03–0.05, against per-cell seed sds of
@@ -51,12 +66,20 @@ every point on the curve.
 
 The 3-seed per-split AUROCs (deepseekv4pro, sequential mixed/×1.0 against mixed):
 
-| split | mix N=0 | seq N=8 | mix N=8 | seq N=30 | mix N=30 |
-|---|---|---|---|---|---|
-| eval_ai_dilemmas | 0.9220 | 0.9841 | 0.9981 | 0.9988 | 0.9990 |
-| eval_ant_hh | 0.7267 | 0.7107 | 0.7290 | **0.7791** | 0.7588 |
-| eval_balanced_refusal | 0.9015 | **0.7885** | 0.9472 | 0.9418 | 0.9685 |
-| eval_daily_dilemmas | 0.9846 | 0.9789 | 0.9872 | 0.9889 | 0.9905 |
+| split | mix N=0 | seq N=8 | mix N=8 | seq N=30 | mix N=30 | *ceiling* |
+|---|---|---|---|---|---|---|
+| eval_ai_dilemmas | 0.9220 | 0.9841 | 0.9981 | 0.9988 | 0.9990 | *0.9912* |
+| eval_ant_hh | 0.7267 | 0.7107 | 0.7290 | **0.7791** | 0.7588 | *0.9347* |
+| eval_balanced_refusal | 0.9015 | **0.7885** | 0.9472 | 0.9418 | 0.9685 | *0.9924* |
+| eval_daily_dilemmas | 0.9846 | 0.9789 | 0.9872 | 0.9889 | 0.9905 | *0.9818* |
+
+Against the ceiling column, three of the four splits are essentially solved by N=30 —
+`eval_ai_dilemmas` and `eval_daily_dilemmas` are *above* their CV ceilings (both arms), and
+`eval_balanced_refusal` is within 0.024 of it. **The entire 0.046 mean gap is
+`eval_ant_hh`**, which sits 0.176 (mixed) / 0.156 (sequential) below a probe trained on its
+own distribution and alone accounts for 96% of it. So "0.05 short of the ceiling" is not a diffuse shortfall spread over the
+concept — it is one split, and it is the same split sequential training is the only thing
+here that improves.
 
 The damage is concentrated in `eval_balanced_refusal` — the split the stage-1 probe was
 already good at — and it is worst at low N. Dev-only gradient steps have nothing holding
@@ -121,11 +144,12 @@ Re-running the mixed arm on all three seeds changes what its curve says:
 | 8 | 0.9113 | 0.9154 ± 0.0035 |
 | 16 | 0.9203 | 0.9196 ± 0.0043 |
 | 30 | 0.9290 | 0.9292 ± 0.0009 |
+| *ceiling* | *0.9750* | *0.9750* |
 
 **The n=2 dip flagged as unresolved in the previous write-up is gone.** It was not a dip;
 it was an inflated N=0 reference. The corrected curve rises from 0.884 to 0.929 and is
 monotone from N=2 up. The direction of the earlier conclusion survives — dev samples help,
-~0.93 at N=30, still ~0.05 short of the 0.977 pooled CV ceiling — but its shape at the
+~0.93 at N=30, still ~0.046 short of the 0.9750 CV ceiling — but its shape at the
 low end did not.
 
 The sd column carries the other half of it: **dev samples do not only raise the mean, they
@@ -165,10 +189,13 @@ tuberlens.)
   red-team set back into stage 2. That is a third schedule with its own ratio knob, and it
   is the obvious way to ask whether the N=8 gap is intrinsic to sequential training or
   just to *dev-only* sequential training.
-- **`eval_ant_hh` is where the headroom is.** It sits at 0.73–0.79 under every schedule
-  while the other three are at 0.94–0.999, and it is the one split sequential training
-  *improves*. It is also the only unpaired split (see `CLAUDE.md`), so part of that number
-  is a property of the data.
+- **`eval_ant_hh` is where the headroom is — all of it.** It sits at 0.73–0.79 under every
+  schedule against a 0.9347 CV ceiling, and that one split accounts for 96% of the mean
+  gap; the other three are at or above their ceilings by N=30. It is also the one split
+  sequential training *improves*, and the only unpaired split (see `CLAUDE.md`), so part
+  of the number is a property of the data. Any further work on this concept should be
+  scored on `eval_ant_hh` alone — movement in the 4-split mean is now almost entirely
+  movement in it.
 - **Three seeds is the new floor, not a luxury.** Any future cell reported at one seed on
   the deepseekv4pro arm is reporting a draw from a ±0.025 distribution.
 
