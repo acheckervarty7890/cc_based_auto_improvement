@@ -698,28 +698,43 @@ nor the vintage sweep would have shown it, because both report single-seed numbe
 
 **This complicates the best-epoch fix rather than vindicating it** — see §5.
 
-### 5. What the best-epoch fix was worth — and whether it is even an improvement
+### 5. The best-epoch fix makes the probe **worse**. Do not port it on its own.
 
-*Running: `--architectures linear_then_softmax --legacy-best-epoch`, 10 fits.*
+10 fits, `linear_then_softmax`, 5 seeds × 2 arms, identical in every respect except
+whether early stopping's chosen epoch is actually restored:
 
-§4b makes this question sharper than it was when the fix went in. The fix makes the
-trainer do what its code says — restore the epoch validation selected — and the
-single-seed estimate suggested that was worth ~+0.02 AUROC (0.9112 against the committed
-0.8880). But §4b shows the deployed head's score is **dominated** by which epoch gets
-selected, and §1 shows the validation split is nearly saturated on both arms (AUROC 0.994
-and 1.000).
+| arm | **legacy** (tuberlens' no-op) | **fixed** (restores the epoch) | delta |
+|---|---|---|---|
+| deepseekv4pro | **0.8935 ± 0.0226** | 0.8748 ± 0.0543 | **−0.0188** |
+| gptoss120b | **0.9082 ± 0.0166** | 0.8988 ± 0.0117 | **−0.0094** |
 
-Put together, those say the fix **couples the probe tightly to a signal that may not
-deserve it.** On the seed where validation peaked at epoch 5, restoring epoch 5 is
-*faithful* and gives 0.7836; simply training on to epoch 55, as the unfixed code
-accidentally did, might well have given more. The fix is unambiguously correct as code —
-`load_state_dict` should restore what it claims to — but "correct" and "better probe" come
-apart when the selection signal is this weak.
+The fix costs **0.019 and 0.009 mean AUROC**, and on deepseek it more than doubles the
+seed variance (sd 0.0543 against 0.0226). The two runs follow identical trajectories and
+select identical epochs — 36, 44, 5, 50, 12 on deepseek — so the *only* difference is
+which weights come back, and the accidental behaviour wins on both arms.
 
-That makes the legacy control worth more than a footnote, and it is why it was promoted
-ahead of the temperature sweep: it decides whether conclusion 3 should read *"apply this
-fix"* or *"apply this fix **and** fix the validation split first, because the fix
-amplifies whatever that split tells you."*
+**This reverses what this document said earlier**, and the earlier claim deserves an
+explicit post-mortem because the error was methodological rather than arithmetic. The
+first estimate — "the fix is worth ~+0.02 AUROC" — compared one fixed fit (0.9112) against
+the *committed comparison CSV* (0.8880). That is not a control: it varies the seed, the
+code path, and the training-data snapshot all at once. The proper control varies one
+boolean, and says the opposite. A cross-run comparison standing in for an ablation is the
+same mistake `attribution_findings.md` warns about, made here in a fresh place.
+
+**Why the accidental behaviour wins** is §4b's finding: the deployed head's score is
+dominated by which epoch is selected, and the validation split — ~180 rows, AUROC 0.994
+and 1.000 (§1) — is too saturated to select well. Restoring its choice is *faithful to a
+signal that does not deserve the faith*. Not restoring it means training to the patience
+limit regardless, which on this data is simply better. The seed where validation peaked at
+epoch 5 is the clearest case: the fixed run returns epoch 5 and scores 0.7836, the legacy
+run trains on and does better.
+
+**So the fix is correct as code and wrong as a change.** `load_state_dict` should restore
+what it claims to restore, and a reader of `PytorchAdamClassifier` is entitled to assume it
+does. But porting it into `retrain.py` without touching the validation split would make
+every probe in this repo measurably worse. The ordering matters: **enlarge or stratify the
+validation split first** — it is the thing actually broken — and only then make early
+stopping honest. Until then, tuberlens' bug is load-bearing.
 
 ### 6. Sensitivity to capacity and regularisation
 
@@ -754,15 +769,22 @@ pooling waits on §§2-4.*
    an ensemble or interpolation of softmax and mean pooling. Both are refits off cached
    activations, i.e. minutes each.
 
-3. **Fix the best-epoch restore before running any further probe comparison.**
-   `docs/attribution_findings.md` §1 recorded the shallow-copy defect; this run measured
-   what it costs. The single refit available so far puts the deployed architecture at
-   0.9112 mean AUROC against the committed iteration-3 value of 0.8880 — **an order of
-   magnitude larger than the `v3 − v2` vintage effect (−0.002) the vintage sweep spent 80
-   fits trying to resolve.** Until it is fixed everywhere, every probe in this repo is its
-   final epoch rather than its best, and cross-run comparisons inherit that noise. The fix
-   is in `probe_architectures.build_probe`; porting it into `retrain.py`'s path is a
-   separate, small change.
+3. **Do *not* port the best-epoch fix on its own — fix the validation split first.**
+   `docs/attribution_findings.md` §1 recorded the shallow-copy defect, and the obvious
+   response is to make early stopping restore the epoch it selects. §5 measured that
+   directly, as a proper one-boolean ablation over 10 fits: the fix costs **0.019 and
+   0.009 mean AUROC** on the two arms and doubles the seed variance on one. tuberlens'
+   bug is currently load-bearing.
+
+   The reason is §4b: the deployed head's score is dominated by which epoch is chosen,
+   and the ~180-row validation split (AUROC 0.994 and 1.000) is too saturated to choose
+   well. Restoring its pick is faithful to a signal that does not deserve it. So the
+   ordering is: **enlarge or stratify the validation split, then** make early stopping
+   honest. Doing the second without the first is a measurable regression.
+
+   The fix itself lives in `probe_architectures.build_probe` and can be disabled with
+   `AGENTIC_REDTEAM_LEGACY_BEST_EPOCH=1`, so both behaviours remain available for whoever
+   does that work.
 
 4. **Group by prompt before measuring anything with a high-capacity model on these eval
    splits.** Three of the four are prompt-paired with the label carried entirely by the
