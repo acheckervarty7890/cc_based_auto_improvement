@@ -74,6 +74,112 @@ because nemotron gives the gain back over iterations 2-3 while gptoss120b slowly
 The two arms' v0 rows matching to the last digit is a consistency check on the two processes,
 not a result.
 
+## Held-out attack success: the v2 probes against the rows only v3 has
+
+**What this measures.** Take the ten v2 probes above and put in front of them the pairs
+that first appear at iteration 3 — rows held out of every v2 fit, on both sides of the
+split. A misclassification is exactly the find the red-teamer was hunting, so per row the
+**success rate is the fraction of the ten independently-initialised v2 probes that get it
+wrong**. That separates a sample which beats *the architecture on this data* (10/10) from
+one which beats *a single draw* (1/10) — the distinction a single-seed red-team run cannot
+make, since it reports both as a find.
+
+Thresholding follows `ProbeJudge.evaluate`: positive at `predict_proba >= 0.5`, i.e.
+`logit >= 0` (`probe.threshold`'s default, which both arm configs use). The v2 probes are
+**re-fit, not reloaded** — the sweep kept AUROC and dropped the probes — and every refit
+asserts it reproduces the sweep's probe by re-scoring `oig_omission` and demanding the
+recorded AUROC to the last bit. All 20 did.
+
+| arm | held out of v2 | pairs | per-seed success rate |
+|---|---|---|---|
+| gptoss120b | 184 rows of 858 | 92 | 0.273 +/- 0.021 (min 0.239, max 0.310) |
+| nemotron | 296 rows of 926 | 148 | 0.401 +/- 0.011 (min 0.385, max 0.416) |
+
+### By row type — mean over the ten seeds
+
+| arm | group | n | success | always (10/10) | never (0/10) |
+|---|---|---|---|---|---|
+| gptoss120b | held-out, all | 184 | 0.273 | 30 | 103 |
+| gptoss120b | — attacker successes | 92 | **0.477** | 29 | 30 |
+| gptoss120b | — generated counterparts | 92 | 0.070 | 1 | 73 |
+| gptoss120b | — label `does_not_follow` | 92 | 0.420 | 25 | 36 |
+| gptoss120b | — label `follows` | 92 | 0.127 | 5 | 67 |
+| gptoss120b | v2's own rows, fit on | 562 | 0.003 | 0 | 553 |
+| gptoss120b | v2's own rows, val side | 112 | 0.353 | 18 | 48 |
+| nemotron | held-out, all | 296 | 0.401 | 77 | 132 |
+| nemotron | — attacker successes | 148 | **0.707** | 74 | 21 |
+| nemotron | — generated counterparts | 148 | 0.095 | 3 | 111 |
+| nemotron | — label `does_not_follow` | 148 | 0.389 | 36 | 66 |
+| nemotron | — label `follows` | 148 | 0.413 | 41 | 66 |
+| nemotron | v2's own rows, fit on | 518 | 0.006 | 0 | 512 |
+| nemotron | v2's own rows, val side | 112 | 0.265 | 14 | 61 |
+
+### Distribution of the per-row success count
+
+```
+                gptoss120b (184)        nemotron (296)
+ 0/10 seeds        103                     132
+ 1/10                15                      15
+ 2/10                 6                      12
+ 3/10                 6                       9
+ 4/10                 4                       6
+ 5/10                 4                      10
+ 6/10                 5                       9
+ 7/10                 2                       3
+ 8/10                 3                       5
+ 9/10                 6                      18
+10/10                30                      77
+```
+
+### Findings
+
+**About half of iteration 3's genuinely-new finds were not probe-draw artifacts.** Of the
+attacker's own success conversations that v2 never saw, **45 of 92 (gptoss120b) and 109 of
+148 (nemotron) fool at least 5 of the 10 v2 probes**, and 29 / 74 fool all ten. So
+iteration 3 was largely re-finding weaknesses the iteration-2 probe *really* has, not
+exploiting the particular fit it happened to be handed.
+
+**The rest is a seed lottery, and it is large.** 30 of 92 (gptoss) and 21 of 148
+(nemotron) attacker successes fool **none** of the ten v2 probes. Those are conversations
+that the probe of the day misclassified and a rerun of the same training with a different
+initialisation would have classified correctly — reported as finds, trained against, and
+not reproducible. Between the extremes the middle is thin (51 and 87 rows at 1-9 of 10),
+so per-sample this is close to bimodal: a find is usually either robust or a coin flip,
+rarely in between.
+
+**Generated counterparts are nearly free.** The LLM-written opposite-class halves fail at
+0.070 / 0.095 against probes that never saw them — 5-7x lower than the successes they were
+written from. Only 1 of 92 and 3 of 148 fool all ten seeds; in just 1 and 6 pairs
+respectively do *both* members beat a majority of seeds. They balance the labels, but as
+held-out evidence about the probe they carry little.
+
+**Memorisation is total, so the held-out rate is a real generalisation gap.** v2's own
+*fitted* rows fail at 0.003 / 0.006 — the probe gets essentially every training row right.
+Its *validation* rows (never fit; they act only through early stopping) fail at 0.353 /
+0.265, which brackets the held-out numbers. Read against that reference, gptoss120b's
+v3-only rows are no harder than v2's own unfitted rows (0.273 vs 0.353), whereas
+nemotron's are harder (0.401 vs 0.265): its iteration-3 attacker found something its
+iteration-2 data genuinely did not cover.
+
+**And that is the tension with the AUROC table above.** nemotron's iteration-3 finds
+transfer to the v2 probes far better than gptoss120b's (0.707 vs 0.477) — they are, by
+this measure, the better attack — yet training on them *lowered* mean eval AUROC
+(v3 0.785 vs v2 0.803). Beating the probe and improving the probe are not the same thing:
+a batch of samples can be reliable probe failures and still not generalise to the eval
+splits, either because they concentrate in a region those splits do not sample or because
+they resemble each other more than they resemble anything else. Which of the two it is,
+this measurement does not settle.
+
+**Per-arm asymmetry.** gptoss120b's held-out failures are lopsided — 0.420 on rows labelled
+`assistant_does_not_follow_the_instruction` against 0.127 on `follows`, i.e. its v2 probes
+mostly miss violations rather than over-flag compliance. nemotron's are symmetric
+(0.389 / 0.413).
+
+Per-row detail is in `holdout_success_rows.csv` (one row per held-out sample: label, pair
+role, split side, success count, mean/min/max logit) and the group table in
+`holdout_success_summary.csv`; `*_holdout_membership.json` carries the membership and row
+provenance.
+
 ## Reproducing
 
 ```bash
@@ -90,4 +196,11 @@ AGENTIC_FAST_ACTS=1 .venv_claude/bin/python scripts/attribution_vintage.py \
 AGENTIC_FAST_ACTS=1 .venv_claude/bin/python scripts/attribution_vintage.py \
   --arm nemotron --seeds 10 --drop-long pair
 .venv_claude/bin/python scripts/attribution_vintage.py --summarize-only   # merge both arms
+
+# held-out attack success of the v2 probes (same two-process pattern)
+AGENTIC_FAST_ACTS=1 .venv_claude/bin/python scripts/vintage_holdout_success.py \
+  --arm gptoss120b --seeds 10
+AGENTIC_FAST_ACTS=1 .venv_claude/bin/python scripts/vintage_holdout_success.py \
+  --arm nemotron --seeds 10
+.venv_claude/bin/python scripts/vintage_holdout_success.py --summarize-only
 ```
