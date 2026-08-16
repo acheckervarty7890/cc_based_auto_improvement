@@ -111,6 +111,33 @@ Sub-chance cells are real and reported as such — `mm_substitution` bottoms out
 0.3245 +/- 0.0212 (deepseekv4pro, v3), i.e. the high-stakes score ranks
 *instruction-following* responses **below** instruction-violating ones there.
 
+## The disjoint follow-up
+
+The curve above is cumulative — v3 contains v2 contains v1 — so a later vintage is both
+newer data and *more* data. A second sweep
+(`attribution_vintage.py --membership disjoint`, 40 fits, results in
+`../results_hs_gemma27b_batch_ablation/vintage_disjoint/`) fits each increment alone:
+v1, v2-minus-v1, v3-minus-v2. v1 is the same set under both memberships, so its fits are
+reused rather than recomputed.
+
+**On its own concept it is redundancy, not decay.** Every increment alone is
+statistically indistinguishable from the entire cumulative set containing it:
+gptoss120b's 140-row v3-only scores 0.9321 against the 562-row v3's 0.9326 (0.1 sigma),
+deepseekv4pro's 174-row v3-only scores 0.8971 against the 716-row v3's 0.8912 (0.6
+sigma). Per row the *later* data is the better data — v3-only beats v1 by 3.2 sigma on
+gptoss120b with 140 rows against 228 — so the deepseekv4pro dip at cumulative v3 is a
+property of the mixture, not of iteration 3's conversations.
+
+**Off-concept the decomposition changes nothing, except at v2.** Every slice fitted alone
+still lands near chance on both foreign eval sets, and v3-only matches cumulative v3
+everywhere (0.1-1.9 sigma). But v2-only differs from cumulative v2 in all four
+arm x concept cells, consistently pushing *further* from chance in both directions — up on
+human-harm (+0.038 / +0.017, 2.4 / 2.3 sigma), down on instructions (-0.034 / -0.048,
+3.7 / 4.0 sigma). Mixing v1 back in pulls it toward the middle, so the cumulative set's
+off-concept behaviour is partly two increments cancelling. That masking hides the sharpest
+single result here: gptoss120b's v2-only slice drives `anthropic_harmless_refusal` to
+0.2766 +/- 0.0414.
+
 ## What this does not show
 
 - **v0 is identical across the two arms by construction** (0.5864 / 0.4672), not by
@@ -126,6 +153,9 @@ Sub-chance cells are real and reported as such — `mm_substitution` bottoms out
 - **This measures the probes, not the concepts.** That high-stakes and human-harm are
   entangled on `eval_ant_hh` is a fact about these fits and that split, not a claim that
   the two concepts coincide in general.
+- **The disjoint increments differ in size as well as in vintage**, so "later data is
+  better per row" is confounded with "smaller training sets behave differently here". A
+  size-matched subsample of v1 would settle it; that run has not been done.
 
 ## Reproducing
 

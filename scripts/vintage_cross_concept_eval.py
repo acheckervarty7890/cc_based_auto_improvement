@@ -128,44 +128,68 @@ TARGETS: dict[str, Target] = {
 }
 
 
-def redteam_rows_by_fit() -> dict[tuple[str, int], int]:
-    """``{(arm, vintage): n_redteam_rows}`` off the sweep's progress sidecar.
+def slice_label(k: int, membership: str) -> str:
+    """``v2`` under the cumulative sweep, ``v2-only`` under the disjoint one.
 
-    Only used to label the tables with the same row counts ``SUMMARY.md`` carries, so a
-    reader can line the two up. Absent sidecar simply means the column reads 0.
+    v0 and v1 are the same set under both memberships, so they never take the suffix —
+    writing ``v1-only`` would imply a distinction that does not exist.
     """
-    path = VINTAGE_DIR / "vintage_progress.jsonl"
+    return f"v{k}-only" if membership == "disjoint" and k >= 2 else f"v{k}"
+
+
+def redteam_rows_by_fit(dirs: list[Path]) -> dict[tuple[str, int], int]:
+    """``{(arm, vintage): n_redteam_rows}`` off the sweeps' progress sidecars.
+
+    Searched in the same order as the fits, so a disjoint run reports the *slice* size
+    (v2-only's 262 rows) and only falls back to the cumulative sweep for the vintages it
+    did not refit. Only used to label the tables; an absent sidecar reads as 0.
+    """
     out: dict[tuple[str, int], int] = {}
-    if not path.exists():
-        return out
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            out[(row["arm"], int(row["vintage"]))] = int(row["n_redteam_rows"])
+    for d in reversed(dirs):  # earlier dirs win, so apply them last
+        path = d / "vintage_progress.jsonl"
+        if not path.exists():
+            continue
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                row = json.loads(line)
+                out[(row["arm"], int(row["vintage"]))] = int(row["n_redteam_rows"])
     return out
 
 
-def load_fits(arms: list[str], vintages: list[int], seeds: list[int]) -> dict:
+def load_fits(arms: list[str], vintages: list[int], seeds: list[int],
+              dirs: list[Path]) -> dict:
     """``{(arm, vintage, seed): probe}`` for every checkpoint that exists.
 
-    A checkpoint is 13 KB, so all 80 are held at once and every split's blob is opened
-    exactly once for the whole set — the same trade ``score_many`` makes for ten seeds.
-    Missing checkpoints are reported and skipped rather than refitted: refitting here
-    would silently mix probes from two different runs into one table.
+    ``dirs`` are searched in order, which is what lets the disjoint sweep be scored
+    without refitting v1: that vintage is the same set under both memberships, so the
+    disjoint run never produced its own checkpoint and the cumulative sweep's is the
+    correct one. Provenance is printed per (dir, vintage) rather than assumed, because
+    silently mixing two sweeps' probes into one table is exactly the failure this
+    ordering could otherwise hide.
+
+    A checkpoint is 13 KB, so the whole set is held at once and every split's blob is
+    opened exactly once for all of them — the trade ``score_many`` makes for ten seeds.
+    Missing checkpoints are reported and skipped, never refitted.
     """
     probes, missing = {}, []
+    provenance: dict[tuple[str, int], int] = {}
     for arm in arms:
         ref = A.load_probe(A.ARMS[arm] / "probe_iter3.pkl")
         for k in vintages:
             for seed in seeds:
-                path = fit_path(VINTAGE_DIR, arm, k, seed)
-                if not path.exists():
-                    missing.append(path.name)
+                path = next((fit_path(d, arm, k, seed) for d in dirs
+                             if fit_path(d, arm, k, seed).exists()), None)
+                if path is None:
+                    missing.append(f"{arm}_v{k}_s{seed}.pt")
                     continue
                 probe, _ = _load_fitted(ref, path)
                 probes[(arm, k, seed)] = probe
+                key = (str(path.parent.parent.name), k)
+                provenance[key] = provenance.get(key, 0) + 1
+    for (where, k), n in sorted(provenance.items()):
+        print(f"  v{k}: {n} fit(s) from {where}/fits", flush=True)
     if missing:
         print(f"  WARNING: {len(missing)} checkpoint(s) missing: {missing[:5]}"
               + (" ..." if len(missing) > 5 else ""), flush=True)
@@ -320,7 +344,8 @@ def on_concept_means() -> dict[tuple[str, int], float]:
     return out
 
 
-def readout(summary: list[dict], concepts: list[str], scale: str = "pipeline") -> list[str]:
+def readout(summary: list[dict], concepts: list[str], scale: str = "pipeline",
+            membership: str = "cumulative") -> list[str]:
     """The interpretation lines, computed rather than written by hand.
 
     Two questions per (concept, arm): does the off-concept mean move as red-team data is
@@ -341,7 +366,9 @@ def readout(summary: list[dict], concepts: list[str], scale: str = "pipeline") -
             vints = sorted({r["vintage"] for r in summary
                             if r["concept"] == concept and r["arm"] == arm})
             means = {k: cell(k, "mean") for k in vints}
-            curve = " → ".join(f"v{k} {means[k]['mean']:.4f}" for k in vints if means[k])
+            curve = " → ".join(
+                f"{slice_label(k, membership)} {means[k]['mean']:.4f}"
+                for k in vints if means[k])
             lines.append(f"- **{concept} / {arm}**: {curve}.")
 
             if 0 in means and means[0]:
@@ -352,7 +379,8 @@ def readout(summary: list[dict], concepts: list[str], scale: str = "pipeline") -
                     pooled = (means[0]["sd"] ** 2 + means[k]["sd"] ** 2) ** 0.5 or 1e-12
                     if abs(gap) >= 2 * pooled:
                         lines.append(
-                            f"  - v{k} moves {gap:+.4f} against v0 ({abs(gap) / pooled:.1f}σ) — "
+                            f"  - {slice_label(k, membership)} moves {gap:+.4f} against v0 "
+                            f"({abs(gap) / pooled:.1f}σ) — "
                             "the red-team data changed what this probe does off-concept."
                         )
 
@@ -363,7 +391,8 @@ def readout(summary: list[dict], concepts: list[str], scale: str = "pipeline") -
                 key=lambda r: abs(r["mean"] - 0.5),
             )
             lines.append(
-                f"  - strongest single split: `{best['dataset']}` at v{best['vintage']}, "
+                f"  - strongest single split: `{best['dataset']}` at "
+                f"{slice_label(best['vintage'], membership)}, "
                 f"{best['mean']:.4f} ± {best['sd']:.4f} "
                 f"({'above' if best['mean'] > 0.5 else 'below'} chance by "
                 f"{abs(best['mean'] - 0.5):.4f})."
@@ -378,7 +407,8 @@ def readout(summary: list[dict], concepts: list[str], scale: str = "pipeline") -
     return lines
 
 
-def write_markdown(path: Path, summary: list[dict], concepts: list[str], scale: str = "pipeline") -> None:
+def write_markdown(path: Path, summary: list[dict], concepts: list[str],
+                   scale: str = "pipeline", membership: str = "cumulative") -> None:
     """One mean +/- sd table per (concept, arm), in ``vintage/SUMMARY.md``'s shape."""
     lines = [
         "# High-stakes vintage probes scored OFF their own concept",
@@ -392,7 +422,7 @@ def write_markdown(path: Path, summary: list[dict], concepts: list[str], scale: 
         f"AUROC scale: `{scale}` (bf16 sigmoid then sklearn, as the pipeline reports it). "
         "The rank-faithful figures are in the CSVs alongside.",
         "",
-    ] + readout(summary, concepts, scale)
+    ] + readout(summary, concepts, scale, membership)
     for concept in concepts:
         target = TARGETS[concept]
         splits = target.splits()
@@ -417,7 +447,8 @@ def write_markdown(path: Path, summary: list[dict], concepts: list[str], scale: 
                         if r["concept"] == concept and r["arm"] == arm and r["vintage"] == k
                         and r["scale"] == scale]
                 lines.append(
-                    f"| v{k} | {head[0]['n_redteam_rows']} | {head[0]['n_seeds']} | "
+                    f"| {slice_label(k, membership)} | {head[0]['n_redteam_rows']} "
+                    f"| {head[0]['n_seeds']} | "
                     + " | ".join(cells) + " |"
                 )
             lines.append("")
@@ -479,6 +510,14 @@ def main() -> None:
                     help="Rebuild the summary and SUMMARY.md from the per-fit CSVs already in "
                          "--out-dir, scoring nothing. For editing the write-up without paying "
                          "for a rescore that would produce identical numbers.")
+    ap.add_argument("--fits-dir", nargs="+", type=Path, default=[VINTAGE_DIR],
+                    help="sweep dir(s) holding fits/<arm>_v<k>_s<seed>.pt, searched in "
+                         "order. Pass the disjoint sweep first and the cumulative one "
+                         "second to score the increments: v1 is the same set under both "
+                         "memberships, so only the cumulative sweep has its checkpoint.")
+    ap.add_argument("--membership", choices=("cumulative", "disjoint"), default="cumulative",
+                    help="labels only — how the slices are named in the write-up. It does "
+                         "not select fits; --fits-dir does that.")
     ap.add_argument("--out-dir", type=Path, default=OUT_DIR)
     args = ap.parse_args()
 
@@ -495,14 +534,15 @@ def main() -> None:
                                  "auroc_pipeline": float(r["auroc_pipeline"]),
                                  "auroc_rank": float(r["auroc_rank"])})
             print(f"  read {_short(path)}", flush=True)
-        summary = summarize(rows, redteam_rows_by_fit())
+        summary = summarize(rows, redteam_rows_by_fit(args.fits_dir))
         write_csv(args.out_dir / "cross_concept_summary.csv", summary)
-        write_markdown(args.out_dir / "SUMMARY.md", summary, args.concepts)
+        write_markdown(args.out_dir / "SUMMARY.md", summary, args.concepts,
+                       membership=args.membership)
         return
 
     print(f"loading {len(args.arms)} arm(s) x {len(args.vintages)} vintage(s) x "
           f"{len(args.seeds)} seed(s) of committed fits", flush=True)
-    probes = load_fits(args.arms, args.vintages, args.seeds)
+    probes = load_fits(args.arms, args.vintages, args.seeds, args.fits_dir)
     print(f"  {len(probes)} probe(s) loaded", flush=True)
     if not probes:
         raise SystemExit("no checkpoints found — run attribution_vintage.py first")
@@ -510,7 +550,7 @@ def main() -> None:
     if args.self_check:
         self_check(probes)
 
-    rt_rows = redteam_rows_by_fit()
+    rt_rows = redteam_rows_by_fit(args.fits_dir)
     all_rows: list[dict] = []
     for concept in args.concepts:
         print(f"\n=== {concept} ===", flush=True)
@@ -520,7 +560,8 @@ def main() -> None:
 
     summary = summarize(all_rows, rt_rows)
     write_csv(args.out_dir / "cross_concept_summary.csv", summary)
-    write_markdown(args.out_dir / "SUMMARY.md", summary, args.concepts)
+    write_markdown(args.out_dir / "SUMMARY.md", summary, args.concepts,
+                   membership=args.membership)
 
 
 if __name__ == "__main__":
