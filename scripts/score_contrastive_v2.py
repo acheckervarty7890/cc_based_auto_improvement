@@ -234,8 +234,11 @@ def main() -> None:
     ap.add_argument("--chunk", type=int, default=32)
     ap.add_argument("--fits-dir", type=Path,
                     default=A.REPO / "results_hs_gemma27b_batch_ablation/vintage")
+    # Deliberately NOT contrastive_v2/, which regen_cohort_contrastive wrote: that dir
+    # may be owned by whoever ran the generation (it was root here), and a scoring run
+    # should not need write access to the generator's output to record its own.
     ap.add_argument("--out-dir", type=Path,
-                    default=A.REPO / "results_hs_gemma27b_batch_ablation/contrastive_v2")
+                    default=A.REPO / "results_hs_gemma27b_batch_ablation/contrastive_v2_scored")
     args = ap.parse_args()
 
     with args.in_path.open(encoding="utf-8") as fh:
