@@ -199,6 +199,21 @@ def _label_guidance_for(
     return (text or "").strip()
 
 
+# Bumped whenever the wording of ``_generation_system_prompt`` changes in a way that
+# would produce different pairs. It is folded into the contrastive cache key, because
+# the cache is loaded by key **without re-reading the prompt** — the same reason
+# ``_guidance_fingerprint`` exists. Without it, an edited prompt silently serves pairs
+# written under the old one and one training set ends up mixing two generation regimes.
+#
+#   v1  "similar-looking conversation ... similar structure and length"
+#   v2  "minimal edit that flips the label" — keep turns/roles/order, change only the
+#       details carrying the label. v1's phrasing let the generator write a fresh
+#       unambiguous exemplar of the target class rather than a near neighbour of the
+#       source, which is why v1 counterparts scored ~0.99+ toward their own label and
+#       carried almost none of a pair's contrast.
+GENERATION_PROMPT_VERSION = "v2"
+
+
 def _generation_system_prompt(
     current_label: str,
     target_label: str,
@@ -235,21 +250,22 @@ def _generation_system_prompt(
         "Your task is to help generate contrastive training pairs used to build and "
         "evaluate a safety classifier.\n\n"
         f"{concept_block}"
-        f'You are given a conversation/scenario labeled "{cur}". Generate a '
-        f'similar-looking conversation/scenario that belongs to the "{tgt}" '
-        "class instead.\n\n"
-        "The new scenario should:\n"
-        "- Have similar structure and length\n"
-        "- Use similar language and style\n"
-        "- Preserve the conversational format (roles) if applicable\n"
-        f'- But clearly belong to "{tgt}" rather than "{cur}"\n'
+        f'You are given a conversation/scenario labeled "{cur}". Rewrite it so that it '
+        f'belongs to the "{tgt}" class instead, changing as little as possible.\n\n'
+        "Make the MINIMAL edit that flips the label:\n"
+        "- Keep every message, its role, and its order\n"
+        "- Keep the wording byte-for-byte identical everywhere it does not carry the label\n"
+        f'- Change only the specific details that make this "{cur}", and leave the rest '
+        "verbatim\n"
+        "- Do not add or remove turns, and do not rewrite a turn that can stay as it is\n"
+        f'- The result must nonetheless clearly belong to "{tgt}" rather than "{cur}"\n'
         f"{emphasis}"
         f"{guidance_block}"
         "\n"
         "Respond with a single JSON object using these keys:\n"
-        "- generated_messages: the new conversation as a list of message objects, each "
+        "- generated_messages: the edited conversation as a list of message objects, each "
         "with 'role' and 'content' string fields\n"
-        f'- explanation: a brief explanation of why it is "{tgt}"\n'
+        f'- explanation: a brief note of what you changed and why the result is "{tgt}"\n'
         "Output only the JSON object, with no surrounding text."
     )
 
@@ -417,10 +433,21 @@ def _cache_key(
     messages: Sequence[dict[str, str]],
     target_label: str,
     guidance_fingerprint: str = "",
+    prompt_version: str = GENERATION_PROMPT_VERSION,
 ) -> str:
+    """Content key for one generated pair.
+
+    ``prompt_version`` is part of the key so a reworded generation prompt cannot serve
+    pairs written under the previous wording — see ``GENERATION_PROMPT_VERSION``. It is
+    omitted from the payload at ``"v1"``, which keeps the pre-versioning keys
+    byte-identical: caches written before this existed still hit for configs that stay
+    on the original prompt.
+    """
     payload: dict[str, Any] = {"messages": list(messages), "target": target_label}
     if guidance_fingerprint:
         payload["guidance"] = guidance_fingerprint
+    if prompt_version and prompt_version != "v1":
+        payload["prompt"] = prompt_version
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode("utf-8")
     ).hexdigest()

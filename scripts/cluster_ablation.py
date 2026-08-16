@@ -189,7 +189,11 @@ def restrict_to_cached(rows, cache_dir, model, layer, combine, convert,
         target = neg_label if label == pos_label else pos_label
         msgs = _extract_messages({"inputs": raw_msgs}, "inputs")
         fingerprint = _guidance_fingerprint(description, target, guidance)
-        if _cache_key(msgs, target, fingerprint) not in contrastive_cache:
+        # Pinned to "v1" deliberately: this reads a contrastive_cache.jsonl written by a
+        # COMPLETED run, and every such cache predates GENERATION_PROMPT_VERSION. Taking
+        # the live default instead would put the current version in the key, miss every
+        # row, and silently report the whole run as having no pairs.
+        if _cache_key(msgs, target, fingerprint, "v1") not in contrastive_cache:
             dropped_pair += 1
             continue
         kept.append(r)
