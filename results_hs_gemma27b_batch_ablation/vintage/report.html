@@ -624,19 +624,30 @@
     </p>
     <div class="tablewrap">
       <table>
-        <caption>new-in-v3 attacker rows, split by the iteration they were found in</caption>
-        <thead><tr><th>arm</th><th>found at</th><th>attacks</th><th>v2-probe success rate</th>
-          <th>real probe_iter2</th></tr></thead>
+        <caption>new-in-v3 attacker rows, split by the shipped probe they were found against</caption>
+        <thead><tr><th>arm</th><th>found at</th><th>probe attacked</th><th>attacks</th>
+          <th>v2-probe success rate</th><th>real probe_iter2</th></tr></thead>
         <tbody>
-          <tr><td>gptoss120b</td><td>iter 0</td><td>13</td><td>0.000</td><td>0.000</td></tr>
-          <tr><td>gptoss120b</td><td>iter 1</td><td>3</td><td>0.000</td><td>0.000</td></tr>
-          <tr data-best="1"><td>gptoss120b</td><td>iter 2</td><td>54</td><td>0.856</td><td>1.000</td></tr>
-          <tr><td>deepseekv4pro</td><td>iter 0</td><td>7</td><td>0.000</td><td>0.000</td></tr>
-          <tr><td>deepseekv4pro</td><td>iter 1</td><td>7</td><td>0.200</td><td>0.143</td></tr>
-          <tr data-best="1"><td>deepseekv4pro</td><td>iter 2</td><td>73</td><td>0.901</td><td>1.000</td></tr>
+          <tr><td>gptoss120b</td><td>iter 0</td><td>probe_iter0</td><td>13</td><td>0.000</td><td>0.000</td></tr>
+          <tr><td>gptoss120b</td><td>iter 1</td><td>probe_iter1</td><td>3</td><td>0.000</td><td>0.000</td></tr>
+          <tr data-best="1"><td>gptoss120b</td><td>iter 2</td><td>probe_iter2</td><td>54</td><td>0.856</td><td>1.000</td></tr>
+          <tr><td>deepseekv4pro</td><td>iter 0</td><td>probe_iter0</td><td>7</td><td>0.000</td><td>0.000</td></tr>
+          <tr><td>deepseekv4pro</td><td>iter 1</td><td>probe_iter1</td><td>7</td><td>0.200</td><td>0.143</td></tr>
+          <tr data-best="1"><td>deepseekv4pro</td><td>iter 2</td><td>probe_iter2</td><td>73</td><td>0.901</td><td>1.000</td></tr>
         </tbody>
       </table>
     </div>
+    <p class="footnote">
+      <strong>How the iteration index maps to a probe.</strong> Each iteration red-teams the
+      probe it starts with and its retrain writes the next one, so iteration <em>k</em>
+      attacks <code>probe_iter{k}</code> and produces <code>probe_iter{k+1}</code>:
+      <code>probe_iter0</code> (initial, base data only) → attacked at iteration 0 →
+      <code>probe_iter1</code> → attacked at iteration 1 → <code>probe_iter2</code> →
+      attacked at iteration 2 → <code>probe_iter3</code>. All four are real files in the arm's
+      probe directory. Likewise <code>redteam_postprocessed_iter{N}.jsonl</code> is the
+      red-team half of what trained <code>probe_iter{N}</code>, which is what a vintage is
+      defined against.
+    </p>
     <p class="footnote">
       <strong>Validation.</strong> The last column is the check, not a result. Scoring the real
       shipped <code>probe_iter2.pkl</code> on these same cached activations misclassifies
