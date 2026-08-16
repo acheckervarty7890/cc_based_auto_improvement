@@ -169,17 +169,35 @@ def _source_keys(arm: str, iteration: int, gen2src: dict[str, str]) -> list[str]
     return [gen2src.get(k, k) for k in keys]
 
 
-def vintages(arm: str, iteration: int, exclude: set[int]) -> tuple[dict[int, list[int]], dict]:
+def vintages(arm: str, iteration: int, exclude: set[int],
+             membership: str = "cumulative") -> tuple[dict[int, list[int]], dict]:
     """``{vintage: iteration-3 row indices}`` plus a provenance report.
 
-    ``vintage k`` is every row of the iteration-``iteration`` dump whose source success
-    was already present in the iteration-``k`` dump, minus ``exclude``. Vintage
-    ``iteration`` is therefore the whole (kept) set, and vintage 0 the empty list.
+    ``cumulative`` (the default): ``vintage k`` is every row of the iteration-``iteration``
+    dump whose source success was already present in the iteration-``k`` dump, minus
+    ``exclude``. Vintage ``iteration`` is therefore the whole (kept) set, and vintage 0 the
+    empty list. This is the *curve* — each point is a training set the pipeline could
+    plausibly have had, and each contains the one before it.
+
+    ``disjoint``: vintage k keeps only what vintage k-1 did **not** have, so the points
+    are the per-iteration *increments* — v1, then v2-minus-v1, then v3-minus-v2 — each
+    trained alone on top of the base data. The cumulative curve confounds two things,
+    which is why this mode exists: a later vintage is both *newer* data and *more* data,
+    so it cannot say whether iteration 3's finds are individually weaker than iteration
+    1's or merely fewer. Fitting each increment by itself separates them.
+
+    Vintage 1 is identical under both modes (there is no earlier vintage to subtract), so
+    its fits are interchangeable — which doubles as a consistency check between the two
+    sweeps.
+
+    The subtraction runs **downward** (v3 loses cumulative v2, then v2 loses cumulative
+    v1) so each slice is measured against the set the previous vintage actually held, not
+    against an already-thinned one.
     """
     gen2src = A.generated_to_source(arm)
     final = _source_keys(arm, iteration, gen2src)
     report = {"arm": arm, "n_rows_final": len(final), "n_excluded": len(exclude),
-              "vintages": {}}
+              "membership": membership, "vintages": {}}
 
     keep: dict[int, list[int]] = {0: []}
     for k in range(1, iteration + 1):
@@ -196,6 +214,18 @@ def vintages(arm: str, iteration: int, exclude: set[int]) -> tuple[dict[int, lis
     report["n_not_nested_1_in_2"] = len(
         {final[i] for i in keep[1]} - {final[i] for i in keep[2]}
     )
+
+    if membership == "disjoint":
+        for k in range(iteration, 1, -1):
+            prev = set(keep[k - 1])
+            kept = [i for i in keep[k] if i not in prev]
+            report["vintages"][k].update({
+                "n_rows_cumulative": len(keep[k]),
+                "n_rows": len(kept),
+                "n_pairs_kept": len({final[i] for i in kept}),
+            })
+            keep[k] = kept
+
     return keep, report
 
 
@@ -424,21 +454,24 @@ def _done_keys(path: Path) -> set[tuple[str, int, int]]:
 def run_arm(arm: str, iteration: int, seeds: list[int], eval_dir: Path, out_dir: Path,
             progress_path: Path, drop_mode: str, resume: bool = True,
             only_vintages: list[int] | None = None,
-            vintage_order: list[int] | None = None) -> None:
+            vintage_order: list[int] | None = None,
+            membership: str = "cumulative") -> None:
     from agentic_redteam.retrain import _infer_probe_spec
 
     exclude, drop_report = dropped_rows(arm, iteration, drop_mode)
-    keep, report = vintages(arm, iteration, exclude)
+    keep, report = vintages(arm, iteration, exclude, membership)
     report["overlong_drop"] = drop_report
 
-    print(f"\n=== {arm} ===", flush=True)
+    print(f"\n=== {arm} ({membership}) ===", flush=True)
     print(f"  over-long drop ({drop_mode}): {drop_report}", flush=True)
     for k in sorted(report["vintages"]):
         v = report["vintages"][k]
+        cum = (f" [{v['n_rows_cumulative']} cumulative, {v['n_rows_cumulative'] - v['n_rows']}"
+               f" already in v{k - 1}]" if "n_rows_cumulative" in v else "")
         print(
             f"  vintage {k}: {v['n_rows']:4d} rows of iter{iteration} "
             f"({v['n_pairs_kept']} of {v['n_pairs_in_dump']} iter{k} pairs survive; "
-            f"{v['n_pairs_dropped']} dropped before iter{iteration})",
+            f"{v['n_pairs_dropped']} dropped before iter{iteration}){cum}",
             flush=True,
         )
     print(f"  pairs in vintage 1 but not vintage 2: {report['n_not_nested_1_in_2']}", flush=True)
@@ -545,6 +578,7 @@ def run_arm(arm: str, iteration: int, seeds: list[int], eval_dir: Path, out_dir:
                     "arm": arm,
                     "vintage": k,
                     "seed": seed,
+                    "membership": membership,
                     "drop_overlong": drop_mode,
                     "n_redteam_rows": len(rows),
                     "n_train": meta[seed]["n_train"],
@@ -695,6 +729,16 @@ def main() -> None:
         help="exclude rows whose cached activations hit the 1024-token extraction "
              "window. 'pair' (default) removes the affected pair whole.",
     )
+    ap.add_argument(
+        "--membership", choices=("cumulative", "disjoint"), default="cumulative",
+        help="cumulative (default): vintage k is every iter-3 pair whose source existed "
+             "by iteration k, so each point contains the one before it. disjoint: each "
+             "vintage keeps only what the previous one did not have (v1, v2-minus-v1, "
+             "v3-minus-v2), fitting the per-iteration increments alone. Give the disjoint "
+             "run its own --out-dir: the fits, the progress sidecar and the summary are "
+             "all keyed by (arm, vintage, seed) and would otherwise collide with the "
+             "cumulative sweep's.",
+    )
     ap.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
                     help="skip (vintage, seed) pairs already in the progress sidecar")
     ap.add_argument("--self-check", action="store_true",
@@ -718,7 +762,8 @@ def main() -> None:
     for arm in args.arm:
         run_arm(arm, args.iteration, seeds, args.eval_dir, args.out_dir, progress,
                 drop_mode=args.drop_overlong, resume=args.resume,
-                only_vintages=args.vintages, vintage_order=order)
+                only_vintages=args.vintages, vintage_order=order,
+                membership=args.membership)
 
     # Report from the SIDECAR, not from this process's return values: on a resumed run
     # the rows computed before the restart are on disk and nowhere else, and a summary
