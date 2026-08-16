@@ -55,6 +55,41 @@ import attribution_vintage as V  # noqa: E402
 
 CONDITIONS = ("v2", "v3only", "v3")
 
+# Every fitted probe is pickled here, named ``{arm}__{condition}__seed{n}.pkl``.
+#
+# The vintage sweep this is modelled on kept each fit's AUROC and dropped the probe, and
+# the first version of this script copied that. It is the wrong trade by three orders of
+# magnitude: a probe is ~13 KB (a 5376-wide linear head plus metadata) while re-deriving
+# one costs 20-130 s of GPU, so the whole 40-fit sweep is ~0.5 MB against ~1.5 h. Any
+# later question that needs the probe *object* rather than its recorded AUROC — scoring a
+# dataset that did not exist when the sweep ran, inspecting the weight vector, comparing
+# two conditions per row — otherwise has to refit the entire sweep first, which is exactly
+# what ``crossconcept_eval.py`` had to do.
+#
+# Shared with ``crossconcept_eval.py``, which fits the with-base conditions into the same
+# directory under the same naming, so either script's probes satisfy the other.
+PROBE_DIR = A.REPO / "results_instructions_gemma27b_vintage/sweep_probes"
+
+# The filename tag is NOT this script's ``condition`` verbatim. One store holds probes from
+# both sweeps, and there "v2" is ambiguous — the vintage sweep's v2 trains on the same
+# red-team rows *plus* the base data, and is a different probe. The tag says which.
+PROBE_TAG = {"v2": "v2_alone", "v3only": "v3only_alone", "v3": "v3_alone"}
+
+
+def probe_path(probe_dir: Path, arm: str, condition: str, seed: int) -> Path:
+    return probe_dir / f"{arm}__{PROBE_TAG.get(condition, condition)}__seed{seed}.pkl"
+
+
+def save_probe(probe, probe_dir: Path, arm: str, condition: str, seed: int) -> Path:
+    """Pickle one fitted probe. Refits are deterministic, so this is a cache, not state."""
+    import pickle
+
+    path = probe_path(probe_dir, arm, condition, seed)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as fh:
+        pickle.dump(probe, fh)
+    return path
+
 
 def condition_rows(keep: dict[int, list[int]], condition: str, iteration: int) -> list[int]:
     """Red-team row indices (into the iteration-``iteration`` dump) for one condition."""
@@ -158,7 +193,8 @@ def _append(path: Path, row: dict) -> None:
 
 
 def run_arm(arm: str, conditions: list[str], seeds: list[int], *, iteration: int,
-            drop_long: str, eval_dir: Path, progress: Path, resume: bool = True) -> None:
+            drop_long: str, eval_dir: Path, progress: Path, probe_dir: Path,
+            resume: bool = True) -> None:
     keep, report = V.vintages(arm, iteration, drop_long)
     rows_for = {c: condition_rows(keep, c, iteration) for c in conditions}
 
@@ -167,7 +203,12 @@ def run_arm(arm: str, conditions: list[str], seeds: list[int], *, iteration: int
         print(f"  {c:7s}: {len(rows_for[c]):4d} red-team rows "
               f"({len(rows_for[c]) // 2} pairs), no base data", flush=True)
 
-    done = _done_keys(progress) if resume else set()
+    # A recorded AUROC row without its probe on disk is a fit that has to be redone if the
+    # probe is ever wanted, so resume treats a missing pickle as unfinished. The scored row
+    # is deduped by JsonlStore-style key on append, and the refit is deterministic, so
+    # re-running one costs time and changes nothing.
+    done = {k for k in _done_keys(progress)
+            if probe_path(probe_dir, *k[:2], k[2]).exists()} if resume else set()
     todo = [(s, c) for s in seeds for c in conditions if (arm, c, s) not in done]
     if not todo:
         print("  every (condition, seed) already recorded — nothing to do", flush=True)
@@ -198,10 +239,12 @@ def run_arm(arm: str, conditions: list[str], seeds: list[int], *, iteration: int
             ) + f"  MEAN={res['mean']['pipeline']:.4f}",
             flush=True,
         )
+        saved = save_probe(probe, probe_dir, arm, c, seed)
         _append(progress, {
             "arm": arm,
             "condition": c,
             "seed": seed,
+            "probe_path": str(saved.relative_to(A.REPO)),
             "iteration": iteration,
             "drop_long": drop_long,
             "base_data": False,
@@ -230,6 +273,12 @@ def summarize(rows: list[dict], out_dir: Path) -> None:
     independent initialisations, so the sd column is the thing that decides whether a
     between-condition gap is readable at all.
     """
+    # Dedup by (arm, condition, seed), newest wins: a fit whose probe pickle went missing
+    # is re-run, which appends a second (identical) row for that seed, and counting both
+    # would report n=11 for a ten-seed sweep and shrink the sd.
+    latest = {(r["arm"], r["condition"], r["seed"]): r for r in rows}
+    rows = list(latest.values())
+
     by = defaultdict(list)
     for r in rows:
         by[(r["arm"], r["condition"], r["n_redteam_rows"])].append(r)
@@ -296,6 +345,8 @@ def main() -> None:
     ap.add_argument("--eval-dir", type=Path, default=A.EVAL_ACTIVATIONS_DIR)
     ap.add_argument("--out-dir", type=Path,
                     default=A.REPO / "results_instructions_gemma27b_vintage")
+    ap.add_argument("--probe-dir", type=Path, default=PROBE_DIR,
+                    help="where fitted probes are pickled (~13 KB each)")
     args = ap.parse_args()
 
     seeds = [args.seed + i for i in range(args.seeds)]
@@ -312,7 +363,7 @@ def main() -> None:
         for arm in args.arm:
             run_arm(arm, args.conditions, seeds, iteration=args.iteration,
                     drop_long=args.drop_long, eval_dir=args.eval_dir, progress=progress,
-                    resume=args.resume)
+                    probe_dir=args.probe_dir, resume=args.resume)
 
     # Report from the SIDECAR: on a resumed run the earlier fits are on disk and nowhere
     # else, and a summary over this process's fits alone would understate the sweep.
