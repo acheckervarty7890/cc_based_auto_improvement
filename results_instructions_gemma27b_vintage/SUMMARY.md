@@ -218,3 +218,12 @@ AGENTIC_FAST_ACTS=1 .venv_claude/bin/python scripts/vintage_holdout_success.py \
 # the HTML report + the viewer holding only the v3-only pairs
 .venv_claude/bin/python scripts/build_holdout_viewer.py
 ```
+
+## Related: the red-team data without the base data
+
+`REDTEAM_ONLY.md` refits both arms on red-team rows **alone** (base training data removed
+from the fit and from validation), ten seeds each, for the `v2` set and for the `v3only`
+set — the same rows the held-out section above scores against the v2 probes, here used as
+training data instead. It is what settles which of the two explanations offered at the end
+of that section is right for nemotron. Built by `scripts/redteam_only_fits.py` +
+`scripts/redteam_only_summary_md.py`.
