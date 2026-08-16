@@ -1,0 +1,676 @@
+<title>Off-Concept Vintage Transfer</title>
+<style>
+  :root {
+    color-scheme: light;
+    --ground:   #fcfcfb;
+    --surface:  #ffffff;
+    --ink:      #0b0b0b;
+    --muted:    #52514e;
+    --faint:    #86847e;
+    --rule:     #e3e1db;
+    --grid:     #ecebe6;
+    --chance:   #9b9992;
+    --ds:       #2a78d6;
+    --gpt:      #eb6834;
+    --bar:      rgba(11,11,11,.20);
+    --code-bg:  #f4f3ef;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground:  #131312;
+      --surface: #1a1a19;
+      --ink:     #ffffff;
+      --muted:   #c3c2b7;
+      --faint:   #918f86;
+      --rule:    #2f2f2c;
+      --grid:    #262624;
+      --chance:  #7d7b73;
+      --ds:      #3987e5;
+      --gpt:     #d95926;
+      --bar:     rgba(255,255,255,.24);
+      --code-bg: #201f1d;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground:  #131312;
+    --surface: #1a1a19;
+    --ink:     #ffffff;
+    --muted:   #c3c2b7;
+    --faint:   #918f86;
+    --rule:    #2f2f2c;
+    --grid:    #262624;
+    --chance:  #7d7b73;
+    --ds:      #3987e5;
+    --gpt:     #d95926;
+    --bar:     rgba(255,255,255,.24);
+    --code-bg: #201f1d;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.62;
+    margin: 0;
+    padding: clamp(1.75rem, 5vw, 4.5rem) clamp(1.1rem, 5vw, 2rem) 5rem;
+  }
+
+  .wrap { max-width: 62rem; margin-inline: auto; display: flex; flex-direction: column; gap: 2.75rem; }
+  .measure { max-width: 38rem; display: flex; flex-direction: column; gap: 1rem; }
+
+  h1, h2, h3 { font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif; font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: clamp(2rem, 4.6vw, 3rem); line-height: 1.1; letter-spacing: -.015em; }
+  h2 { font-size: 1.5rem; line-height: 1.22; }
+  h3 { font-size: 1.075rem; line-height: 1.3; }
+  p  { margin: 0; }
+  a  { color: inherit; }
+  strong { font-weight: 650; }
+
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+    font-size: .7rem; letter-spacing: .13em; text-transform: uppercase; color: var(--faint);
+  }
+  .lede { font-size: 1.15rem; color: var(--muted); max-width: 34rem; }
+
+  header { display: flex; flex-direction: column; gap: .9rem; }
+
+  .facts { display: flex; flex-wrap: wrap; gap: 0 2.25rem; padding-top: 1.1rem; border-top: 1px solid var(--rule); }
+  .fact { display: flex; flex-direction: column; gap: .1rem; padding: .35rem 0; }
+  .fact dt { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; font-size: .68rem; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  .fact dd { margin: 0; font-variant-numeric: tabular-nums; font-size: .95rem; }
+
+  section { display: flex; flex-direction: column; gap: 1rem; }
+
+  figure { margin: 0; display: flex; flex-direction: column; gap: 1rem; background: var(--surface); border: 1px solid var(--rule); border-radius: 3px; padding: 1.4rem clamp(.9rem, 2vw, 1.4rem); }
+  figcaption { font-size: .875rem; color: var(--muted); max-width: 40rem; }
+
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1.25rem; }
+  .panel { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+  .panel h3 { font-family: inherit; font-size: .82rem; font-weight: 650; letter-spacing: .02em; }
+  .panel .sub { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; font-size: .68rem; color: var(--faint); }
+  .panel svg { width: 100%; height: auto; display: block; overflow: visible; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: .35rem 1.5rem; align-items: center; font-size: .82rem; color: var(--muted); }
+  .key { display: inline-flex; align-items: center; gap: .45rem; }
+  .swatch { width: 16px; height: 3px; border-radius: 2px; display: inline-block; }
+  .dashkey { width: 16px; border-top: 2px dashed var(--chance); display: inline-block; }
+  .ring { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--muted); display: inline-block; }
+  .dot  { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); display: inline-block; }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .82rem; font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; font-variant-numeric: tabular-nums; }
+  caption { text-align: left; padding: .8rem 1rem .35rem; font-family: ui-sans-serif, system-ui, sans-serif; font-size: .9rem; font-weight: 650; }
+  caption .cap-note { display: block; font-weight: 400; font-size: .8rem; color: var(--muted); font-variant-numeric: normal; }
+  th, td { padding: .42rem .7rem; text-align: right; white-space: nowrap; border-top: 1px solid var(--grid); }
+  thead th { color: var(--faint); font-weight: 500; font-size: .7rem; letter-spacing: .05em; text-transform: uppercase; border-top: none; border-bottom: 1px solid var(--rule); }
+  tbody th { text-align: left; font-weight: 650; color: var(--ink); }
+  td .sd { color: var(--faint); }
+  tr.meanrow td, tr.meanrow th { border-top: 1px solid var(--rule); font-weight: 650; }
+  .dev { display: inline-block; width: 46px; height: 8px; position: relative; vertical-align: middle; }
+  .dev::before { content: ""; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: var(--rule); }
+  .dev i { position: absolute; top: 1px; height: 6px; background: var(--bar); border-radius: 1px; }
+
+  ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .55rem; }
+  li { padding-left: .15rem; }
+  code { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; font-size: .86em; background: var(--code-bg); padding: .1em .34em; border-radius: 2px; }
+  pre { margin: 0; overflow-x: auto; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 3px; padding: 1rem 1.1rem; }
+  pre code { background: none; padding: 0; font-size: .8rem; line-height: 1.75; }
+
+  .finding { display: grid; grid-template-columns: 2.1rem 1fr; gap: 0 .9rem; align-items: start; }
+  .finding .n { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace; font-size: .78rem; color: var(--faint); padding-top: .32rem; }
+  .finding .body { display: flex; flex-direction: column; gap: .7rem; max-width: 38rem; }
+
+  footer { border-top: 1px solid var(--rule); padding-top: 1.1rem; font-size: .82rem; color: var(--faint); max-width: 40rem; }
+
+  #tip {
+    position: fixed; z-index: 10; pointer-events: none; opacity: 0; transition: opacity .1s;
+    background: var(--surface); color: var(--ink); border: 1px solid var(--rule);
+    border-radius: 3px; padding: .45rem .6rem; font-size: .76rem; line-height: 1.45;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+    font-variant-numeric: tabular-nums; box-shadow: 0 4px 14px rgba(0,0,0,.13); max-width: 15rem;
+  }
+  circle.pt:focus { outline: 2px solid var(--ink); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { #tip { transition: none; } }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <span class="eyebrow">experiment9_cloud · high-stakes vintage sweep</span>
+    <h1>The red-team gains don't leave their own concept.</h1>
+    <p class="lede">The same 80 probe fits that climb 6.5 AUROC points on high-stakes sit within
+      0.09 of chance on human-harm and instruction-following, at every vintage.</p>
+    <dl class="facts">
+      <div class="fact"><dt>probe fits</dt><dd>120 — cumulative 80, disjoint 40</dd></div>
+      <div class="fact"><dt>seeds per cell</dt><dd>10, unpaired</dd></div>
+      <div class="fact"><dt>self-check vs. sweep</dt><dd>max |diff| = 0.0</dd></div>
+      <div class="fact"><dt>foreign rows</dt><dd>2,168 across 11 splits</dd></div>
+    </dl>
+  </header>
+
+  <section class="measure">
+    <h2>The question</h2>
+    <p>The vintage sweep shows that adding iteration-2 and -3 red-team pairs keeps raising
+      high-stakes AUROC — 0.868 at v0 to 0.933 at v3 on the gpt-oss arm. What that curve cannot
+      say is <em>what the probe learned</em>. A conversation written to trip a high-stakes probe
+      also has unusual register, length and topic, and a fit that improves on the high-stakes
+      splits might be picking up any of it.</p>
+    <p>If the red-team data taught the probe <strong>high-stakes</strong>, its effect should stay
+      inside high-stakes. If it taught something generic about attacker-written text, it should
+      lift other concepts' eval sets too. So the same probes were scored on two eval sets they
+      were never trained for.</p>
+  </section>
+
+  <figure>
+    <div class="panels" id="panels"></div>
+    <div class="legend">
+      <span class="key"><span class="swatch" style="background: var(--ds)"></span> deepseekv4pro</span>
+      <span class="key"><span class="swatch" style="background: var(--gpt)"></span> gptoss120b</span>
+      <span class="key"><span class="dashkey"></span> chance (0.50)</span>
+      <span class="key">whiskers = ±1 sd over 10 seeds</span>
+    </div>
+    <figcaption>Mean AUROC across each eval set's splits, on one shared scale. The two arms start
+      from the same point by construction: v0 has no red-team rows, so both arms train on identical
+      data with identical seeds and produce the same probe. Only the right-hand panel is the concept
+      these probes were trained for.</figcaption>
+  </figure>
+
+  <section class="measure">
+    <h2>What makes this comparable</h2>
+    <p><strong>Nothing was refitted.</strong> The checkpoints in <code>vintage/fits/</code> <em>are</em>
+      the probes behind the sweep's own summary, reloaded through the same path its resume uses.
+      That identity is verified, not asserted: re-scoring the high-stakes splits through this
+      script's separately-written loading and scoring code reproduces the published
+      <code>vintage_auroc.csv</code> to <strong>max |diff| = 0.0</strong> over 32 fit × split cells.</p>
+    <p><strong>The activations are interchangeable.</strong> Every blob — all three concepts — is
+      gemma-3-27b-it layer 32 under the same two loader transforms. An activation is a property of
+      the conversation and the frozen extraction model, not of the probe head that reads it. Only
+      the labels differ, and those come from the split.</p>
+    <p><strong>AUROC is measured against each split's own positive class and left unflipped.</strong>
+      0.50 means the high-stakes score carries no information about the other concept; below 0.50 is
+      a genuine anti-correlation, and flipping it would hide the sign. An off-concept AUROC is not a
+      quality score — the probe was never asked to do that job. It is comparable only across
+      vintages, which is the point: v0 fixes the entanglement the base data already carries, and
+      v1–v3 show which way red-team data moves it.</p>
+  </section>
+
+  <section>
+    <h2>Four readings</h2>
+
+    <div class="finding">
+      <span class="n">01</span>
+      <div class="body">
+        <h3>The gains do not transfer</h3>
+        <p>Every off-concept cell sits within about 0.09 of chance at every vintage, while the same
+          fits climb 6.5 points on high-stakes. Whatever the red-team pairs teach is
+          concept-specific — not a generic "attacker-written text" signal, which would have lifted
+          the foreign eval sets too.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="n">02</span>
+      <div class="body">
+        <h3>The one large cross-concept signal is inherited, not manufactured</h3>
+        <p><code>eval_ant_hh</code> is a real outlier: the high-stakes score ranks harmful-to-human
+          above not-harmful at roughly 0.84. But it is already 0.8387 ± 0.0161 at <strong>v0</strong>,
+          the fit with zero red-team rows, and stays in 0.806–0.851 across every vintage of both
+          arms. That entanglement comes from the base training set. Red-teaming neither created nor
+          meaningfully moved it, and the other three human-harm splits stay at chance throughout.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="n">03</span>
+      <div class="body">
+        <h3>The only real movement is at v1, and it decays</h3>
+        <p>Both arms perturb off-concept at vintage 1 and drift back by vintage 3 — in opposite
+          directions on the two eval sets. On instructions, deepseekv4pro goes 0.4672 → 0.5519
+          (+0.0847, 2.2σ against the pooled seed sd), almost entirely from
+          <code>bbq_substitution</code> reaching 0.7557 ± 0.0156; by v3 that split is back to 0.5010.
+          On human-harm the same arm drops 0.5864 → 0.5233 (−0.0631, 5.1σ) as
+          <code>eval_daily_dilemmas</code> falls to 0.3763, recovering to 0.4981 by v3. gptoss120b
+          shows the same shape, smaller.</p>
+        <p>The iteration-1 set is the smallest and least diverse — 228–294 rows against 562–716 at
+          v3 — so the natural reading is that a narrow early set pulls the boundary somewhere
+          idiosyncratic and later, broader vintages average it out. The data supports that; it does
+          not establish it.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="n">04</span>
+      <div class="body">
+        <h3>Neither conclusion depends on the AUROC scale</h3>
+        <p>The pipeline scale scores saturated bf16 probabilities, so rows above logit ≈ 5.5 tie at
+          1.0; the rank scale scores fp32 logits. They agree to within 0.001 on every off-concept
+          cell except human-harm v0 (0.5864 vs 0.5955). Sub-chance cells are real and reported as
+          such — <code>mm_substitution</code> bottoms out at 0.3245 ± 0.0212, meaning the
+          high-stakes score ranks instruction-<em>following</em> responses below violating ones
+          there.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="measure">
+    <h2>A second sweep: each iteration's increment, fitted alone</h2>
+    <p>The curve above is <em>cumulative</em> — v3 contains v2 contains v1 — so a later
+      vintage is both newer data and <strong>more</strong> data. That leaves its plateau
+      ambiguous: either iteration 3's finds are individually weaker, or they are redundant
+      with what the set already holds. A second sweep separates the two by fitting each
+      increment on its own: v1, then v2-minus-v1, then v3-minus-v2, everything else held
+      fixed. 40 more fits.</p>
+    <p>v1 is the same set under both memberships — nothing earlier to subtract — so its
+      fits are reused rather than recomputed. That reuse is visible in the chart below as
+      an exactly zero gap on every v1 row.</p>
+  </section>
+
+  <figure>
+    <div class="panels" id="dumbbells"></div>
+    <div class="legend">
+      <span class="key"><span class="swatch" style="background: var(--ds)"></span> deepseekv4pro</span>
+      <span class="key"><span class="swatch" style="background: var(--gpt)"></span> gptoss120b</span>
+      <span class="key"><span class="ring"></span> the cumulative set</span>
+      <span class="key"><span class="dot"></span> that iteration's increment, alone</span>
+      <span class="key"><span class="dashkey"></span> chance (0.50)</span>
+    </div>
+    <figcaption>Each row pairs one slice against the cumulative set that contains it, on a
+      single shared scale so the gulf between the trained concept and the other two stays
+      visible. Row labels carry both row counts. Gaps are quoted in pooled seed sd; only
+      ≥2σ is a result.</figcaption>
+  </figure>
+
+  <section>
+    <div class="finding">
+      <span class="n">05</span>
+      <div class="body">
+        <h3>On its own concept, it's redundancy — not decay</h3>
+        <p>Every increment alone is statistically indistinguishable from the whole
+          cumulative set containing it. gptoss120b's <strong>140-row</strong> v3-only slice
+          scores 0.9321 where the <strong>562-row</strong> v3 scores 0.9326 — 0.1σ. About
+          three quarters of the final training set can be dropped without a measurable
+          cost.</p>
+        <p>Per row the later data is the <em>better</em> data, which is the opposite of
+          what the plateau suggests: v3-only beats v1 by 3.2σ on gptoss120b using 140 rows
+          against 228, and v2-only beats v1 on both arms. So the deepseekv4pro dip at
+          cumulative v3 is a property of the mixture, not of iteration 3's conversations.</p>
+      </div>
+    </div>
+
+    <div class="finding">
+      <span class="n">06</span>
+      <div class="body">
+        <h3>Off-concept, isolating the increments changes nothing — except at v2</h3>
+        <p>Every slice fitted alone still lands near chance on both foreign eval sets, so
+          the no-transfer conclusion survives the decomposition. v3-only matches cumulative
+          v3 everywhere (0.1–1.9σ). But <strong>v2-only differs from cumulative v2 in all
+          four arm × concept cells</strong>, and consistently: iteration 2's new
+          conversations alone push the probe <em>further</em> from chance in both
+          directions — up on human-harm (+0.038 / +0.017, 2.4σ / 2.3σ), down on
+          instructions (−0.034 / −0.048, 3.7σ / 4.0σ). Mixing v1 back in pulls it toward
+          the middle, so the cumulative set's off-concept behaviour is partly two
+          increments cancelling.</p>
+        <p>That masking hides the sharpest single result in the whole analysis: gptoss120b's
+          v2-only slice drives <code>anthropic_harmless_refusal</code> to
+          <strong>0.2766 ± 0.0414</strong> — a strong anti-correlation, invisible in the
+          cumulative table.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Every split — the increments, fitted alone</h2>
+    <p class="measure" style="color: var(--muted); font-size: .92rem;">v1, v2-only and
+      v3-only per split, on all three eval sets. The high-stakes tables are the concept
+      these probes were trained for; the other two are the foreign sets. v1's row is the
+      cumulative sweep's fits, since that set is unchanged by the decomposition.</p>
+    <div id="dj-tables" style="display: flex; flex-direction: column; gap: 1.5rem;"></div>
+  </section>
+
+  <section>
+    <h2>Every split, both arms — cumulative sweep</h2>
+    <div id="tables" style="display: flex; flex-direction: column; gap: 1.5rem;"></div>
+  </section>
+
+  <section class="measure">
+    <h2>What this does not show</h2>
+    <ul>
+      <li><strong>v0 is identical across arms by construction</strong> — 0.5864 and 0.4672 are not a
+        copy-paste. v0 holds no red-team rows, so the arms only diverge from v1 on.</li>
+      <li><strong>The vintages are not strictly nested.</strong> A vintage is "every iteration-3 pair
+        whose originating success already existed at iteration N", carrying iteration 3's content,
+        because the filter refits per cycle and drops a different top percentile each time. That is
+        faithful to what the runs trained on, not an idealised add-only curve.</li>
+      <li><strong>Ten seeds, unpaired.</strong> The sd columns are the yardstick; a between-vintage
+        gap inside the seed noise is not evidence. Only gaps of ≥2σ are called out.</li>
+      <li><strong>This measures these probes, not the concepts.</strong> That high-stakes and
+        human-harm are entangled on <code>eval_ant_hh</code> is a fact about these fits and that
+        split, not a claim the two concepts coincide in general.</li>
+      <li><strong>The increments differ in size as well as in vintage.</strong> "Later data is
+        better per row" is therefore confounded with "smaller training sets behave differently
+        here". A size-matched subsample of v1 would settle it; that run has not been done.</li>
+    </ul>
+  </section>
+
+  <section class="measure">
+    <h2>Reproducing</h2>
+    <pre><code>« eval activations (published on Kaggle; needs KAGGLE_CONFIG_DIR) »
+scripts/attribution_fetch_eval.py --concept hu_harm
+scripts/attribution_fetch_eval.py --concept instructions
+
+« verify the reload path, then score — no LLM is ever loaded »
+scripts/vintage_cross_concept_eval.py --self-check --seeds 42 43
+scripts/vintage_cross_concept_eval.py --concepts hu_harm instructions
+
+« rebuild the write-up from the per-fit CSVs, scoring nothing »
+scripts/vintage_cross_concept_eval.py --from-csv
+
+« the disjoint sweep: each increment fitted alone, then scored off-concept »
+scripts/attribution_vintage.py --membership disjoint --vintages 2 3 \
+    --out-dir results_hs_gemma27b_batch_ablation/vintage_disjoint
+scripts/vintage_disjoint_summary.py
+scripts/vintage_cross_concept_eval.py --membership disjoint \
+    --fits-dir …/vintage_disjoint …/vintage</code></pre>
+  </section>
+
+  <footer>
+    Tables and per-fit CSVs: <code>results_hs_gemma27b_batch_ablation/vintage/cross_concept/</code>.
+    The instruction activation blobs are published as <code>anku7890/{slug}-gemmaevalpt</code>,
+    contrary to the instruction-run configs that say no such datasets exist — true when they were
+    written, and no longer.
+  </footer>
+</div>
+
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script>
+  const ARMS = [
+    { key: "ds",  name: "deepseekv4pro", color: "var(--ds)"  },
+    { key: "gpt", name: "gptoss120b",    color: "var(--gpt)" }
+  ];
+
+  // mean AUROC over the concept's splits, [mean, sd] per vintage v0..v3 (pipeline scale)
+  const PANELS = [
+    { id: "hu_harm", title: "human-harm", sub: "4 splits · 866 rows",
+      series: {
+        ds:  [[.5864,.0117],[.5233,.0042],[.5638,.0042],[.5715,.0062]],
+        gpt: [[.5864,.0117],[.5637,.0063],[.5730,.0056],[.5708,.0033]] } },
+    { id: "instructions", title: "instruction-following", sub: "7 splits · 1,302 rows",
+      series: {
+        ds:  [[.4672,.0360],[.5519,.0123],[.4810,.0043],[.4603,.0084]],
+        gpt: [[.4672,.0360],[.5173,.0098],[.4857,.0059],[.4885,.0038]] } },
+    { id: "hs", title: "high-stakes — own concept", sub: "4 splits · 1,908 rows", own: true,
+      series: {
+        ds:  [[.8680,.0121],[.8816,.0063],[.9147,.0054],[.8912,.0064]],
+        gpt: [[.8680,.0121],[.9018,.0084],[.9281,.0048],[.9326,.0032]] } }
+  ];
+
+  const SPLITS = {
+    hu_harm: ["eval_ai_dilemmas","eval_ant_hh","eval_balanced_refusal","eval_daily_dilemmas"],
+    instructions: ["anthropic_harmless_refusal","bbq_substitution","hc_context_drift",
+                   "hc_contradiction","mm_substitution","oig_context_drift","oig_omission"]
+  };
+  const ROWS = { ds: [0,294,542,716], gpt: [0,228,422,562] };
+
+  // [split..., mean] per vintage, as [value, sd]
+  const TABLES = {
+    hu_harm: {
+      ds: [
+        [[.5128,.0154],[.8387,.0161],[.4460,.0156],[.5482,.0319],[.5864,.0117]],
+        [[.5000,.0044],[.8057,.0197],[.4112,.0161],[.3763,.0097],[.5233,.0042]],
+        [[.4967,.0028],[.8505,.0112],[.4168,.0072],[.4910,.0040],[.5638,.0042]],
+        [[.5054,.0056],[.8332,.0107],[.4494,.0174],[.4981,.0102],[.5715,.0062]]],
+      gpt: [
+        [[.5128,.0154],[.8387,.0161],[.4460,.0156],[.5482,.0319],[.5864,.0117]],
+        [[.5020,.0044],[.8345,.0215],[.4212,.0095],[.4971,.0117],[.5637,.0063]],
+        [[.5112,.0074],[.8399,.0094],[.4298,.0089],[.5112,.0101],[.5730,.0056]],
+        [[.5052,.0081],[.8489,.0053],[.4299,.0071],[.4995,.0052],[.5708,.0033]]]
+    },
+    instructions: {
+      ds: [
+        [[.4451,.1852],[.4579,.0204],[.4396,.0294],[.4462,.0247],[.4393,.0419],[.5241,.0064],[.5180,.0078],[.4672,.0360]],
+        [[.6273,.0603],[.7557,.0156],[.5027,.0041],[.5015,.0075],[.3950,.0155],[.5182,.0170],[.5631,.0043],[.5519,.0123]],
+        [[.3918,.0234],[.5271,.0027],[.4957,.0012],[.4948,.0026],[.4292,.0085],[.5188,.0082],[.5094,.0062],[.4810,.0043]],
+        [[.4039,.0553],[.5010,.0220],[.4951,.0019],[.4892,.0062],[.3245,.0212],[.4984,.0149],[.5100,.0047],[.4603,.0084]]],
+      gpt: [
+        [[.4451,.1852],[.4579,.0204],[.4396,.0294],[.4462,.0247],[.4393,.0419],[.5241,.0064],[.5180,.0078],[.4672,.0360]],
+        [[.5657,.0530],[.5284,.0084],[.4858,.0070],[.4855,.0065],[.4542,.0111],[.5711,.0097],[.5305,.0081],[.5173,.0098]],
+        [[.4535,.0253],[.4862,.0088],[.4875,.0037],[.4853,.0051],[.4505,.0111],[.5311,.0059],[.5058,.0037],[.4857,.0059]],
+        [[.4376,.0261],[.5040,.0097],[.4957,.0015],[.4972,.0020],[.4484,.0137],[.5292,.0087],[.5073,.0060],[.4885,.0038]]]
+    }
+  };
+
+  const SVG = "http://www.w3.org/2000/svg";
+  const W = 300, H = 214, PAD = { t: 12, r: 14, b: 26, l: 34 };
+  const Y0 = 0.30, Y1 = 0.96;
+  const el = (n, a = {}) => { const e = document.createElementNS(SVG, n);
+    for (const k in a) e.setAttribute(k, a[k]); return e; };
+  const y = v => PAD.t + (H - PAD.t - PAD.b) * (1 - (v - Y0) / (Y1 - Y0));
+  const x = i => PAD.l + (W - PAD.l - PAD.r) * (i / 3);
+
+  const tip = document.getElementById("tip");
+  const showTip = (evt, html) => {
+    tip.innerHTML = html; tip.style.opacity = "1";
+    const r = tip.getBoundingClientRect();
+    const cx = evt.clientX ?? 0, cy = evt.clientY ?? 0;
+    tip.style.left = Math.min(cx + 14, innerWidth - r.width - 8) + "px";
+    tip.style.top = Math.max(8, cy - r.height - 12) + "px";
+  };
+  const hideTip = () => { tip.style.opacity = "0"; };
+
+  const panels = document.getElementById("panels");
+  for (const p of PANELS) {
+    const box = document.createElement("div");
+    box.className = "panel";
+    box.innerHTML = `<h3>${p.title}</h3><span class="sub">${p.sub}</span>`;
+    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
+      "aria-label": `${p.title}: mean AUROC by vintage for both attacker arms` });
+
+    for (let v = 0.3; v <= 0.96; v += 0.1) {
+      const yy = y(v);
+      svg.appendChild(el("line", { x1: PAD.l, x2: W - PAD.r, y1: yy, y2: yy,
+        stroke: "var(--grid)", "stroke-width": 1 }));
+      const t = el("text", { x: PAD.l - 7, y: yy + 3.4, "text-anchor": "end",
+        fill: "var(--faint)", "font-size": 8.5,
+        "font-family": "ui-monospace, Menlo, monospace" });
+      t.textContent = v.toFixed(1); svg.appendChild(t);
+    }
+    // the chance line is a reference, not a series — neutral, dashed, drawn above the grid
+    svg.appendChild(el("line", { x1: PAD.l, x2: W - PAD.r, y1: y(0.5), y2: y(0.5),
+      stroke: "var(--chance)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }));
+
+    for (let i = 0; i < 4; i++) {
+      const t = el("text", { x: x(i), y: H - 8, "text-anchor": "middle", fill: "var(--faint)",
+        "font-size": 9, "font-family": "ui-monospace, Menlo, monospace" });
+      t.textContent = "v" + i; svg.appendChild(t);
+    }
+
+    for (const arm of ARMS) {
+      const d = p.series[arm.key];
+      svg.appendChild(el("polyline", {
+        points: d.map((pt, i) => `${x(i)},${y(pt[0])}`).join(" "),
+        fill: "none", stroke: arm.color, "stroke-width": 2,
+        "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      d.forEach((pt, i) => {
+        svg.appendChild(el("line", { x1: x(i), x2: x(i), y1: y(pt[0] - pt[1]), y2: y(pt[0] + pt[1]),
+          stroke: arm.color, "stroke-width": 1.25, opacity: .75 }));
+        // 2px surface ring keeps overlapping marks separable where the arms coincide
+        const c = el("circle", { cx: x(i), cy: y(pt[0]), r: 4, fill: arm.color,
+          stroke: "var(--surface)", "stroke-width": 2, class: "pt", tabindex: "0" });
+        const label = `${arm.name}<br>${p.title} · v${i}<br>${pt[0].toFixed(4)} ± ${pt[1].toFixed(4)}`
+          + `<br>${ROWS[arm.key][i]} red-team rows`;
+        c.addEventListener("mouseenter", e => showTip(e, label));
+        c.addEventListener("mousemove",  e => showTip(e, label));
+        c.addEventListener("mouseleave", hideTip);
+        c.addEventListener("focus", e => {
+          const b = c.getBoundingClientRect();
+          showTip({ clientX: b.left + b.width / 2, clientY: b.top }, label);
+        });
+        c.addEventListener("blur", hideTip);
+        svg.appendChild(c);
+      });
+    }
+    box.appendChild(svg);
+    panels.appendChild(box);
+  }
+
+  const CONCEPT_NAME = { hu_harm: "human-harm", instructions: "instruction-following",
+                         hs: "high-stakes (own concept)" };
+
+  /* One table per (eval set, arm). `labels` names the rows, so the same renderer serves
+     the cumulative sweep (v0…v3) and the disjoint one (v1, v2-only, v3-only). */
+  function buildTable(container, { concept, armName, data, labels, rowCounts, note }) {
+    const cols = SPLITS[concept];
+    const wrap = document.createElement("div");
+    wrap.className = "tablewrap";
+    const head = cols.map(c => `<th scope="col">${c}</th>`).join("");
+    const body = data.map((row, i) => {
+      const cells = row.map((cell, j) => {
+        const dev = cell[0] - 0.5, w = Math.min(23, Math.abs(dev) * 46);
+        const bar = `<span class="dev" aria-hidden="true"><i style="${dev >= 0
+          ? `left:50%;width:${w}px`
+          : `right:50%;width:${w}px`}"></i></span>`;
+        const strong = j === row.length - 1;
+        return `<td>${strong ? "<strong>" : ""}${cell[0].toFixed(4)}${strong ? "</strong>" : ""}`
+             + ` <span class="sd">±${cell[1].toFixed(4)}</span> ${bar}</td>`;
+      }).join("");
+      return `<tr><th scope="row">${labels[i]}</th>`
+           + `<td class="sd">${rowCounts[i]}</td>${cells}</tr>`;
+    }).join("");
+    wrap.innerHTML = `<table>
+      <caption>${armName} on ${CONCEPT_NAME[concept]}
+        <span class="cap-note">${note}</span></caption>
+      <thead><tr><th scope="col">slice</th><th scope="col">rt rows</th>${head}
+        <th scope="col">mean</th></tr></thead>
+      <tbody>${body}</tbody></table>`;
+    container.appendChild(wrap);
+  }
+
+  const CUM_NOTE = "AUROC vs. each split's own positive class, mean ± sd over 10 seeds. "
+    + "Bars show distance from chance; right of the tick is above 0.50, left is below.";
+
+  const tables = document.getElementById("tables");
+  for (const concept of ["hu_harm", "instructions"]) {
+    for (const arm of ARMS) {
+      buildTable(tables, {
+        concept, armName: arm.name, data: TABLES[concept][arm.key],
+        labels: ["v0", "v1", "v2", "v3"], rowCounts: ROWS[arm.key], note: CUM_NOTE
+      });
+    }
+  }
+
+  // ---- the disjoint sweep, per split ---------------------------------------------
+  const DJ_ROWS = { ds: [294, 262, 174], gpt: [228, 214, 140] };
+  const DJ_LABELS = ["v1", "v2-only", "v3-only"];
+  const DJ = {"hu_harm":{"ds":[[[0.5,0.0044],[0.8057,0.0197],[0.4112,0.0161],[0.3763,0.0097],[0.5233,0.0042]],[[0.5721,0.0355],[0.8162,0.0096],[0.4476,0.011],[0.5701,0.0255],[0.6015,0.0155]],[[0.531,0.0079],[0.7977,0.0081],[0.4383,0.0118],[0.5145,0.01],[0.5704,0.006]]],"gpt":[[[0.502,0.0044],[0.8345,0.0215],[0.4212,0.0095],[0.4971,0.0117],[0.5637,0.0063]],[[0.5318,0.0141],[0.8233,0.0094],[0.4366,0.0115],[0.5685,0.0101],[0.59,0.0048]],[[0.538,0.01],[0.8275,0.0111],[0.4184,0.0032],[0.5116,0.0044],[0.5739,0.0034]]]},"instructions":{"ds":[[[0.6273,0.0603],[0.7557,0.0156],[0.5027,0.0041],[0.5015,0.0075],[0.395,0.0155],[0.5182,0.017],[0.5631,0.0043],[0.5519,0.0123]],[[0.2535,0.0446],[0.4691,0.0095],[0.4685,0.0082],[0.4742,0.0084],[0.4631,0.0246],[0.5162,0.0057],[0.4825,0.0074],[0.4467,0.0083]],[[0.413,0.0613],[0.4607,0.0126],[0.4851,0.0041],[0.4776,0.0055],[0.3301,0.0135],[0.5068,0.0155],[0.5215,0.0057],[0.4564,0.0095]]],"gpt":[[[0.5657,0.053],[0.5284,0.0084],[0.4858,0.007],[0.4855,0.0065],[0.4542,0.0111],[0.5711,0.0097],[0.5305,0.0081],[0.5173,0.0098]],[[0.2766,0.0414],[0.4171,0.0153],[0.4559,0.0154],[0.4656,0.0107],[0.4275,0.0201],[0.5237,0.0137],[0.4957,0.0037],[0.4374,0.0103]],[[0.5146,0.0542],[0.5013,0.0095],[0.4929,0.0031],[0.4944,0.0034],[0.4711,0.0117],[0.5774,0.0061],[0.5145,0.0055],[0.5095,0.0105]]]},"hs":{"ds":[[[0.9282,0.0142],[0.947,0.0079],[0.8857,0.0144],[0.7655,0.0141],[0.8816,0.0063]],[[0.9617,0.0016],[0.9049,0.0254],[0.944,0.0149],[0.8247,0.0091],[0.9088,0.0086]],[[0.9472,0.0051],[0.9378,0.0122],[0.9335,0.0103],[0.7698,0.0138],[0.8971,0.0067]]],"gpt":[[[0.9552,0.0067],[0.9599,0.0117],[0.9402,0.0066],[0.752,0.0213],[0.9018,0.0084]],[[0.9677,0.0027],[0.9656,0.0061],[0.9503,0.0077],[0.8145,0.0111],[0.9245,0.0048]],[[0.967,0.0031],[0.9755,0.004],[0.9538,0.0045],[0.832,0.0122],[0.9321,0.0041]]]}};
+  SPLITS.hs = ["anthropic", "mt", "mts", "toolace"];
+
+  const djTables = document.getElementById("dj-tables");
+  for (const concept of ["hs", "hu_harm", "instructions"]) {
+    for (const arm of ARMS) {
+      buildTable(djTables, {
+        concept, armName: arm.name, data: DJ[concept][arm.key],
+        labels: DJ_LABELS, rowCounts: DJ_ROWS[arm.key],
+        note: concept === "hs"
+          ? "Each slice fitted ALONE on top of the base data, scored on the concept it was "
+            + "trained for. v1 is the same set under both memberships, so its row is the "
+            + "cumulative sweep's fits."
+          : "Each slice fitted ALONE, scored off-concept. " + CUM_NOTE
+      });
+    }
+  }
+
+  // ---- increment-alone vs. the cumulative set that contains it -------------------
+  // [cumulative mean, sd, cumulative rows, alone mean, sd, alone rows, sigma]
+  const DUMB = [
+    { id: "hs", title: "high-stakes — own concept", rows: [
+      { arm: "ds",  slice: "v2", cum: [.9147,.0054,542], alone: [.9088,.0086,262], s: 0.6 },
+      { arm: "ds",  slice: "v3", cum: [.8912,.0064,716], alone: [.8971,.0067,174], s: 0.6 },
+      { arm: "gpt", slice: "v2", cum: [.9281,.0048,422], alone: [.9245,.0048,214], s: 0.5 },
+      { arm: "gpt", slice: "v3", cum: [.9326,.0032,562], alone: [.9321,.0041,140], s: 0.1 } ] },
+    { id: "hu", title: "human-harm", rows: [
+      { arm: "ds",  slice: "v2", cum: [.5638,.0042,542], alone: [.6015,.0150,262], s: 2.4 },
+      { arm: "ds",  slice: "v3", cum: [.5715,.0062,716], alone: [.5704,.0060,174], s: 0.1 },
+      { arm: "gpt", slice: "v2", cum: [.5730,.0056,422], alone: [.5900,.0050,214], s: 2.3 },
+      { arm: "gpt", slice: "v3", cum: [.5708,.0033,562], alone: [.5739,.0030,140], s: 0.6 } ] },
+    { id: "in", title: "instruction-following", rows: [
+      { arm: "ds",  slice: "v2", cum: [.4810,.0043,542], alone: [.4467,.0080,262], s: 3.7 },
+      { arm: "ds",  slice: "v3", cum: [.4603,.0084,716], alone: [.4564,.0090,174], s: 0.3 },
+      { arm: "gpt", slice: "v2", cum: [.4857,.0059,422], alone: [.4374,.0100,214], s: 4.0 },
+      { arm: "gpt", slice: "v3", cum: [.4885,.0038,562], alone: [.5095,.0100,140], s: 1.9 } ] }
+  ];
+
+  const DW = 300, DH = 168, DPAD = { t: 16, r: 30, b: 24, l: 74 };
+  const X0 = 0.40, X1 = 0.96;
+  const dx = v => DPAD.l + (DW - DPAD.l - DPAD.r) * ((v - X0) / (X1 - X0));
+  const dy = i => DPAD.t + (DH - DPAD.t - DPAD.b) * ((i + 0.5) / 4);
+  const COLOR = { ds: "var(--ds)", gpt: "var(--gpt)" };
+  const NAME  = { ds: "deepseekv4pro", gpt: "gptoss120b" };
+
+  const dumbs = document.getElementById("dumbbells");
+  for (const p of DUMB) {
+    const box = document.createElement("div");
+    box.className = "panel";
+    box.innerHTML = `<h3>${p.title}</h3><span class="sub">slice vs. the set containing it</span>`;
+    const svg = el("svg", { viewBox: `0 0 ${DW} ${DH}`, role: "img",
+      "aria-label": `${p.title}: each increment fitted alone against the cumulative set containing it` });
+
+    for (let v = 0.4; v <= 0.96; v += 0.1) {
+      svg.appendChild(el("line", { x1: dx(v), x2: dx(v), y1: DPAD.t - 5, y2: DH - DPAD.b + 2,
+        stroke: "var(--grid)", "stroke-width": 1 }));
+      const t = el("text", { x: dx(v), y: DH - DPAD.b + 13, "text-anchor": "middle",
+        fill: "var(--faint)", "font-size": 8.5,
+        "font-family": "ui-monospace, Menlo, monospace" });
+      t.textContent = v.toFixed(1); svg.appendChild(t);
+    }
+    svg.appendChild(el("line", { x1: dx(0.5), x2: dx(0.5), y1: DPAD.t - 5, y2: DH - DPAD.b + 2,
+      stroke: "var(--chance)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }));
+
+    p.rows.forEach((r, i) => {
+      const yy = dy(i), c = COLOR[r.arm];
+      const lab = el("text", { x: DPAD.l - 8, y: yy + 3.2, "text-anchor": "end",
+        fill: "var(--muted)", "font-size": 8.5,
+        "font-family": "ui-monospace, Menlo, monospace" });
+      lab.textContent = `${r.arm} ${r.slice}`; svg.appendChild(lab);
+
+      svg.appendChild(el("line", { x1: dx(r.cum[0]), x2: dx(r.alone[0]), y1: yy, y2: yy,
+        stroke: c, "stroke-width": 1.5, opacity: .45 }));
+
+      const mk = (d, filled) => {
+        const c2 = el("circle", { cx: dx(d[0]), cy: yy, r: 4.5,
+          fill: filled ? c : "var(--surface)", stroke: c, "stroke-width": 2,
+          class: "pt", tabindex: "0" });
+        const label = `${NAME[r.arm]} · ${filled ? r.slice + "-only, alone" : "cumulative " + r.slice}`
+          + `<br>${d[0].toFixed(4)} ± ${d[1].toFixed(4)}<br>${d[2]} red-team rows`
+          + `<br>gap ${(r.alone[0] - r.cum[0]) >= 0 ? "+" : ""}`
+          + `${(r.alone[0] - r.cum[0]).toFixed(4)} · ${r.s.toFixed(1)}σ`;
+        c2.addEventListener("mouseenter", e => showTip(e, label));
+        c2.addEventListener("mousemove",  e => showTip(e, label));
+        c2.addEventListener("mouseleave", hideTip);
+        c2.addEventListener("focus", () => {
+          const b = c2.getBoundingClientRect();
+          showTip({ clientX: b.left + b.width / 2, clientY: b.top }, label);
+        });
+        c2.addEventListener("blur", hideTip);
+        svg.appendChild(c2);
+      };
+      mk(r.cum, false);
+      mk(r.alone, true);
+
+      const sig = el("text", { x: DW - DPAD.r + 4, y: yy + 3.2, "text-anchor": "start",
+        fill: r.s >= 2 ? "var(--ink)" : "var(--faint)", "font-size": 8,
+        "font-weight": r.s >= 2 ? 650 : 400,
+        "font-family": "ui-monospace, Menlo, monospace" });
+      sig.textContent = r.s.toFixed(1) + "σ"; svg.appendChild(sig);
+    });
+    box.appendChild(svg);
+    dumbs.appendChild(box);
+  }
+
+  addEventListener("scroll", hideTip, { passive: true });
+</script>
