@@ -60,8 +60,39 @@ def _metrics(path: Path) -> dict[tuple[str, int], dict]:
     return out
 
 
+def _v2_pairs(path: Path) -> dict[tuple[str, str], dict]:
+    """``{(arm, source_key): record}`` of the v2 minimal-edit rewrites.
+
+    ``source_key`` is ``sha16`` of the source's canonical text **after** the config's
+    message transforms, which is exactly ``sha16(canon(dump row))`` — so this joins to
+    the dump-derived pairs without re-deriving anything. Absent file → no v2 side, and
+    the viewer simply doesn't offer it.
+    """
+    out: dict[tuple[str, str], dict] = {}
+    if not path.exists():
+        return out
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            r = json.loads(line)
+            out[(r["arm"], r["source_key"])] = r
+    return out
+
+
+def _v2_scores(path: Path) -> dict[tuple[str, str, str], dict]:
+    """``{(arm, side, source_key): record}`` from ``score_contrastive_v2.py``."""
+    out: dict[tuple[str, str, str], dict] = {}
+    if not path.exists():
+        return out
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            r = json.loads(line)
+            out[(r["arm"], r["side"], r["source_key"])] = r
+    return out
+
+
 def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict,
-              cohort: str = "notv2") -> dict:
+              cohort: str = "notv2", v2_pairs: dict | None = None,
+              v2_scores: dict | None = None) -> dict:
     ds = A.load_redteam_dataset(arm, iteration)
     pairs, stats = A.build_pairs(arm, ds)
     exclude, _ = dropped_rows(arm, iteration, drop_mode)
@@ -108,6 +139,47 @@ def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict,
             ],
         }
 
+    v2_pairs = v2_pairs or {}
+    v2_scores = v2_scores or {}
+
+    def v2_side(source_row: int | None) -> dict | None:
+        """The minimal-edit rewrite of this pair's source, if one was generated.
+
+        Its conversation comes from the regeneration output and its numbers from the
+        scoring run — the two are joined on the same ``source_key`` the viewer's pairs
+        are keyed by. ``tok`` is read off the freshly extracted blob, so an over-cap v2
+        rewrite would be visible here the same way a v1 one is.
+        """
+        if source_row is None:
+            return None
+        skey = A.sha16(A.canon(ds.inputs[source_row]))
+        rec = v2_pairs.get((arm, skey))
+        if rec is None:
+            return None
+        from tuberlens.interfaces.dataset import Message
+
+        msgs = A.apply_transforms(
+            [Message(role=m["role"], content=m["content"]) for m in rec["new_messages"]]
+        )
+        blob = A.redteam_blob_path(msgs)
+        sc = v2_scores.get((arm, "new", skey), {})
+        return {
+            "label": rec["target_label"],
+            "tok": (A.blob_width(blob) if blob.exists() else None),
+            "sim": round(rec["sim_new"], 4),
+            "sim_v1": (None if rec.get("sim_old") is None else round(rec["sim_old"], 4)),
+            "why": rec.get("explanation", ""),
+            "nw": sc.get("n_misclassified"),
+            "ns": sc.get("n_seeds"),
+            "p2": (None if sc.get("pipeline_iter2_prob") is None
+                   else round(sc["pipeline_iter2_prob"], 4)),
+            "w2": (None if sc.get("pipeline_iter2_wrong") is None
+                   else int(sc["pipeline_iter2_wrong"])),
+            "msgs": [
+                [ROLES.index(m.role) if m.role in ROLES else 1, m.content] for m in msgs
+            ],
+        }
+
     out = []
     for p in pairs:
         anchor = p.source_idx if p.source_idx is not None else p.generated_idx
@@ -126,6 +198,7 @@ def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict,
             "found": m.get("found_iteration"),
             "src": side(p.source_idx),
             "gen": side(p.generated_idx),
+            "v2": v2_side(p.source_idx),
         })
     return {"pairs": out, "n_orphan": stats["n_orphan"]}
 
@@ -141,19 +214,30 @@ def main() -> None:
     )
     ap.add_argument("--out-dir", type=Path,
                     default=A.REPO / "results_hs_gemma27b_batch_ablation/vintage")
+    ap.add_argument("--v2-dir", type=Path,
+                    default=A.REPO / "results_hs_gemma27b_batch_ablation/contrastive_v2",
+                    help="regen_cohort_contrastive.py output (the v2 conversations)")
+    ap.add_argument("--v2-scored-dir", type=Path,
+                    default=A.REPO / "results_hs_gemma27b_batch_ablation/contrastive_v2_scored",
+                    help="score_contrastive_v2.py output (the v2 numbers)")
     args = ap.parse_args()
 
     metrics = _metrics(args.out_dir / "new_sample_success.jsonl")
+    v2_pairs = _v2_pairs(args.v2_dir / "cohort_contrastive_v2.jsonl")
+    v2_scores = _v2_scores(args.v2_scored_dir / "contrastive_v2_success.jsonl")
+    print(f"v2 rewrites: {len(v2_pairs)}   v2 scored rows: {len(v2_scores)}", flush=True)
+
     payload = {"roles": ROLES, "cohort": args.cohort, "arms": {}}
     for arm in sorted(A.ARMS):
         payload["arms"][arm] = build_arm(arm, args.iteration, args.drop_overlong, metrics,
-                                         args.cohort)
+                                         args.cohort, v2_pairs, v2_scores)
         from collections import Counter
         n = payload["arms"][arm]["pairs"]
         c = Counter(p["v"] for p in n)
         print(f"{arm:14s} {len(n):4d} pair(s)  "
               + "  ".join(f"{k}={v}" for k, v in sorted(c.items()))
               + f"   [in v3 not v2 = {c['new'] + c['readd']}]"
+              + f"  v2={sum(1 for p in n if p['v2'])}"
               + f"  orphan={payload['arms'][arm]['n_orphan']}", flush=True)
 
     blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
