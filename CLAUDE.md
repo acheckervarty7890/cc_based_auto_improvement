@@ -1302,8 +1302,9 @@ four are internally paired, so the prompt-level check is the load-bearing one), 
 overlap with `data/hu_harm_llama70b_50.jsonl`. They exist to answer "what does a little
 in-distribution data buy?" without touching the eval set.
 
-Two scripts use them, both driven by `run_devsamples_kfold.sh` (launcher
-`cloud_start_devsamples.sh`, checkpointer `failsafe_commit_devsamples.sh`):
+Three scripts use them. The first two are driven by `run_devsamples_kfold.sh` (launcher
+`cloud_start_devsamples.sh`, checkpointer `failsafe_commit_devsamples.sh`), the third by
+`run_devsamples_finetune.sh`:
 
 - **`scripts/eval_kfold_cv.py`** — k-fold CV with the hu_harm eval set as **both** train
   and test, i.e. the in-distribution **ceiling**, not a comparable baseline. Two
@@ -1325,11 +1326,42 @@ Two scripts use them, both driven by `run_devsamples_kfold.sh` (launcher
   sample, so ~20% land in validation; the plan printed at startup reports the exact
   fit/val breakdown per level (N=2 → 6 fitted, N=30 → 94 fitted) and that is what the
   curve's x-axis really is.
+- **`scripts/dev_sample_finetune.py`** — the **sequential** counterpart to the above: fit
+  on base + red-team (stage 1), then continue training *that* probe on the dev rows alone
+  (stage 2, via `PytorchAdamClassifier.train(initialize_model=False)`). Stage 1 is
+  bit-identical to `dev_sample_retrain.py`'s N=0 job — verified on every seed — so the two
+  scripts' summaries are comparable row for row, which `analyze` joins into
+  `finetune_vs_mixed.csv`. Stage 1 is fitted **once per (arm, seed)** and deep-copied into
+  every N level, and its ~8 GB training tensor is released before the finetunes, so peak
+  RAM is the stage-1 assembly and the finetunes run in ~3.5 GB. Every val set a job needs
+  is a row selection out of ONE pre-merged tensor that already contains the dev val rows;
+  re-concatenating per level would cost a full extra copy alongside the stage-1 set.
+  Sequential training adds two knobs the mixed design lacks, run as a factorial:
+  `--val-modes` (what stage-2 early stopping watches — the mixed val set, or the dev val
+  rows alone; the latter does not exist at N=2, whose 2 val rows are one class, and those
+  jobs are recorded as skipped rather than silently given a different val set) and
+  `--lr-factors`. **`gradient_accumulation_steps` is clamped to the batches the stage-2 set
+  actually produces**, and that is load-bearing, not tidying: `train` steps only on
+  `(batch_idx + 1) % gas == 0` and zeroes grads each epoch, so at the pipeline's gas=4 a
+  6- or 24-row stage 2 (1–2 batches) never steps and returns the stage-1 probe unchanged —
+  a silent no-op that reads exactly like "finetuning does nothing". The script also pops
+  `WANDB_PROJECT` before importing tuberlens: `PytorchAdamClassifier.wandb_project` binds
+  `global_settings.WANDB_PROJECT` when the class body runs, so an ambient value (even `""`,
+  which is not `None`) makes every fit die on a missing API key.
 
-Both load **no model** off the caches; the one exception is `dev_sample_retrain.py`'s
+All three load **no model** off the caches; the one exception is `dev_sample_retrain.py`'s
 `extract` stage, which pushes the 120 dev conversations through gemma-3-27b once and
 writes them into the same content-addressed per-conversation cache, so every arm and
 every N level shares them.
+
+**Report these cells at three seeds or more.** Stage 1 — the pipeline's own probe, no dev
+data — has a weight-init seed sd of 0.0254 AUROC on the deepseekv4pro arm (range
+0.861–0.911) and 0.0097 on gptoss120b, so a single-seed number there is a draw from a
+±0.025 distribution. This is not academic: the 2026-08-15 single-seed run happened to draw
+the top of that range for N=0, which manufactured the "n=2 dip" it flagged as unresolved —
+at three seeds the dip is gone and the mixed curve is monotone from N=2 up. Dev samples
+also *shrink* that spread (0.0254 → 0.0009 at N=30), so the noise floor is not constant
+across the curve. See `docs/devsamples_finetune_findings.md`.
 
 `scripts/prune_stale_redteam_activations.py` deletes red-team blobs no postprocessed dump
 on the branch references — the ~105 conversations rewritten by the contrastive-pair

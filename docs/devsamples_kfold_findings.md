@@ -1,5 +1,13 @@
 # Dev samples and the eval ceiling — run of 2026-08-15
 
+> **Superseded in part by `docs/devsamples_finetune_findings.md` (2026-08-16).** Section
+> (ii)'s dose-response curve was one weight-init seed. Re-run at three seeds, the N=0
+> reference falls from 0.9112 to 0.8837 ± 0.0254 (seed 42, used here, is the top of a
+> 0.861–0.911 range) and **the "n=2 dip" flagged below as unresolved disappears** — it was
+> an inflated reference, not a dip. The direction of the conclusion holds (dev samples
+> help, ~0.93 at N=30, ~0.05 short of the ceiling); the shape at the low end does not.
+> Section (i)'s CV numbers are unaffected. The tables below are left as they were run.
+
 Two experiments on the human-harm gemma-3-27b (L32) probe, run in one pass by
 `run_devsamples_kfold.sh`:
 
