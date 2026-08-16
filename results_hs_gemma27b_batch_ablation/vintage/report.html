@@ -214,8 +214,8 @@
   .tag { font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase;
          padding: 2px 7px; border: 1px solid var(--rule); color: var(--ink-muted);
          justify-self: start; white-space: nowrap; }
-  .tag[data-v="new"] { border-color: currentColor; color: var(--arm); font-weight: 600; }
-  .tag[data-v="excl"] { border-style: dashed; }
+  .tag[data-v="new"]  { border-color: currentColor; color: var(--arm); font-weight: 600; }
+  .tag[data-v="held"] { border-style: dashed; }
   .opener { color: var(--ink-muted); overflow: hidden; text-overflow: ellipsis;
             white-space: nowrap; font-family: var(--sans); font-size: 0.85rem; }
   .meter { display: flex; align-items: center; gap: 8px; }
@@ -765,7 +765,7 @@
     </p>
     <div class="filters" id="pairfilters">
       <div class="fgroup"><span class="k">arm</span><div class="chips" data-f="arm"></div></div>
-      <div class="fgroup"><span class="k">how it entered</span><div class="chips" data-f="v"></div></div>
+      <div class="fgroup"><span class="k">provenance</span><div class="chips" data-f="v"></div></div>
       <div class="fgroup"><span class="k">hunting</span><div class="chips" data-f="et"></div></div>
       <div class="fgroup"><span class="k">transfer</span><div class="chips" data-f="out"></div></div>
       <div class="fgroup"><span class="k">v2 counterpart</span><div class="chips" data-f="cp"></div></div>
@@ -782,9 +782,12 @@
       transforms, which is also the text whose activations were extracted. Pairs already in
       vintage 2, and the over-length pairs excluded from every vintage, are not shown: this
       is the vintage-3-minus-vintage-2 cohort only, which is what the rates above measure.
-      <strong>Re-added</strong> marks a pair that existed at iteration 1, was dropped by the
-      iteration-2 filter, and came back at iteration 3 — it counts as "not in vintage 2"
-      without being new attacker work. The grey block under a counterpart is the generator's
+      <strong>New work</strong> means the attack was found while attacking
+      <code>probe_iter2</code> (54 / 73 — the headline cohort). <strong>Held back</strong>
+      means it was found earlier and then kept out of the iteration-2 dump by
+      <code>filter_dataset</code>, which refits and drops 20% at every retrain, so which
+      records it suppresses changes as the pool grows (16 / 14). Both are genuinely "in
+      vintage 3 and not in vintage 2"; only the first is new attacker work. The grey block under a counterpart is the generator's
       own account of what it changed, worth reading against the diff it actually made.
     </p>
     <p class="footnote">
@@ -820,10 +823,21 @@
       <li><strong>v3</strong> — all iteration-3 pairs.</li>
     </ul>
     <p>
-      The vintages are <em>not</em> strictly nested — 10 pairs for gptoss120b and 7 for
-      deepseekv4pro sit in v1 but not v2, because the iteration-2 filter dropped them and
-      iteration 3 took them back. That is faithful to what the runs actually trained on rather
-      than an idealised add-only curve.
+      The vintages are <em>not</em> strictly nested, because <code>filter_dataset</code>
+      refits a bag-of-words classifier on the whole accumulated success pool at every retrain
+      and drops the most confidently-classified 20% — it kept exactly 80% at each of the three
+      cycles here, but <em>which</em> 20% it drops moves as the pool grows. So 10 pairs for
+      gptoss120b and 7 for deepseekv4pro sit in v1 but not v2, and a further 6 and 7 were
+      suppressed at both earlier retrains and admitted only at iteration 3. That is faithful
+      to what the runs actually trained on rather than an idealised add-only curve.
+    </p>
+    <p class="footnote">
+      A consequence worth stating plainly, since it looks like a contradiction: a pair can be
+      "in vintage 3 and not in vintage 2" while its attack was found at iteration 0. Vintage
+      membership tracks which <em>dump</em> a pair appears in, not when it was found. Of the
+      70 and 87 pairs in that cohort, only <strong>54</strong> and <strong>73</strong> are new
+      attacker work; the rest are older successes the filter had been holding back. The
+      headline transfer rate is computed on the new work alone.
     </p>
     <hr>
     <p>
@@ -1059,16 +1073,21 @@ const HIST = {
   const PD = JSON.parse(document.getElementById("pairdata").textContent);
   const ROLES = PD.roles;
   const ARMCOLOR = { gptoss120b: "var(--teal)", deepseekv4pro: "var(--rust)" };
-  const VLABEL = { v1: "iter 1", readd: "re-added", v2: "iter 2", new: "iter 3",
-                   excl: "dropped" };
+  // Tagged by PROVENANCE — the iteration the attack was found in — not by which
+  // vintage set the row lands in. Those differ: filter_dataset refits every cycle and
+  // drops 20%, so a success found at iteration 0 can be suppressed from the iteration-1
+  // and -2 dumps and reappear at iteration 3. Keying the tag on set membership labelled
+  // 16 gptoss120b and 14 deepseekv4pro such rows "new at iter 3" when they were not new
+  // attacker work, and made the viewer disagree with the 54 / 73 headline cohort.
+  const VLABEL = { new: "new work", held: "held back" };
   const VTITLE = {
-    v1: "source success present at iteration 1 and still at iteration 2",
-    readd: "present at iteration 1, dropped by the iteration-2 filter, back at iteration 3 "
-           + "— counts as 'not in v2' for the transfer measurement",
-    v2: "first present at iteration 2",
-    new: "added at iteration 3 — new attacker work",
-    excl: "over the 1024-token extraction window; excluded from every vintage",
+    new: "found while attacking probe_iter2 — new attacker work, and the cohort the "
+         + "headline rate is computed over",
+    held: "found at an earlier iteration, then kept out of the iteration-2 dump by "
+          + "filter_dataset (which refits and drops 20% every retrain) and admitted at "
+          + "iteration 3 — in v3 and not in v2, but not new work",
   };
+  const vtag = p => (p.found === 2 ? "new" : "held");
   const ETLABEL = { fp: "false pos", fn: "false neg" };
 
   const rows = [];
@@ -1091,7 +1110,7 @@ const HIST = {
   const state = { arm: "all", v: "all", et: "all", out: "all", cp: "all", q: "" };
   const OPTS = {
     arm: [["all", "both"], ["gptoss120b", "gptoss120b"], ["deepseekv4pro", "deepseekv4pro"]],
-    v:   [["all", "any"], ["new", "new at iter 3"], ["readd", "re-added"]],
+    v:   [["all", "any"], ["new", "new work"], ["held", "held back by the filter"]],
     et:  [["all", "either"], ["fp", "false pos"], ["fn", "false neg"]],
     out: [["all", "any"], ["ten", "beat all 10"], ["some", "split"], ["zero", "beat none"]],
     // The 20-odd pairs whose v2 rewrite fools any probe are the interesting ones: a
@@ -1130,7 +1149,7 @@ const HIST = {
     // The payload is already restricted to vintage 3 minus vintage 2, so the two values
     // here are "new attacker work" and "dropped by the iteration-2 filter, then taken
     // back". See vintage_pair_export.py --cohort.
-    if (state.v !== "all" && p.v !== state.v) return false;
+    if (state.v !== "all" && vtag(p) !== state.v) return false;
     if (state.et !== "all" && p.et !== state.et) return false;
     if (state.out !== "all") {
       const s = p.src;
@@ -1328,7 +1347,8 @@ const HIST = {
     const sum = document.createElement("summary");
     sum.innerHTML =
       `<span class="pid">${p.arm.slice(0, 8)}·${String(p.id).padStart(3, "0")}</span>`
-      + `<span class="tag" data-v="${p.v}" title="${VTITLE[p.v]}">${VLABEL[p.v]}</span>`
+      + `<span class="tag" data-v="${vtag(p)}" title="${VTITLE[vtag(p)]}">`
+      + `${VLABEL[vtag(p)]}</span>`
       + `<span class="pid">${p.et ? ETLABEL[p.et] : "—"}</span>`
       + `<span class="opener"></span>`
       + `<span class="meter" title="attacker source vs the ten v2-vintage probes">`
