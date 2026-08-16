@@ -1,0 +1,421 @@
+
+====================================================================================================
+MLP post-readout cosine geometry — 18 fits, seeds [42, 43, 44]
+====================================================================================================
+
+Refit check (mean eval AUROC, pipeline scale) — should match arch_sweep
+  deepseekv4pro   attention_then_mlp   0.7695 +/- 0.0128  seeds [42, 43, 44]
+  deepseekv4pro   mean_then_mlp        0.7597 +/- 0.0083  seeds [42, 43, 44]
+  deepseekv4pro   mlp_then_softmax     0.8848 +/- 0.0189  seeds [42, 43, 44]
+  gptoss120b      attention_then_mlp   0.7723 +/- 0.0045  seeds [42, 43, 44]
+  gptoss120b      mean_then_mlp        0.7586 +/- 0.0090  seeds [42, 43, 44]
+  gptoss120b      mlp_then_softmax     0.8792 +/- 0.0201  seeds [42, 43, 44]
+
+----------------------------------------------------------------------------------------------------
+POST-READOUT centroid cosine distance — centered
+----------------------------------------------------------------------------------------------------
+
+  deepseekv4pro / attention_then_mlp   (n: v2=706, v3new=172, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.3070+/-0.065     1.6503+/-0.045     1.4550+/-0.229     1.6854+/-0.061     1.9261+/-0.024
+    v3new                  0.3070+/-0.065                 .     1.6841+/-0.063     1.0853+/-0.155     1.6362+/-0.094     1.6756+/-0.061
+    ai_dilemmas            1.6503+/-0.045     1.6841+/-0.063                 .     0.9839+/-0.161     0.9194+/-0.145     0.2725+/-0.023
+    ant_hh                 1.4550+/-0.229     1.0853+/-0.155     0.9839+/-0.161                 .     0.6790+/-0.153     0.7953+/-0.316
+    balanced_refusal       1.6854+/-0.061     1.6362+/-0.094     0.9194+/-0.145     0.6790+/-0.153                 .     0.4936+/-0.087
+    daily_dilemmas         1.9261+/-0.024     1.6756+/-0.061     0.2725+/-0.023     0.7953+/-0.316     0.4936+/-0.087                 .
+
+  deepseekv4pro / mean_then_mlp   (n: v2=706, v3new=172, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.2920+/-0.109     1.6730+/-0.088     1.2974+/-0.220     1.7712+/-0.062     1.9024+/-0.064
+    v3new                  0.2920+/-0.109                 .     1.5916+/-0.024     1.0952+/-0.115     1.7637+/-0.123     1.6357+/-0.129
+    ai_dilemmas            1.6730+/-0.088     1.5916+/-0.024                 .     1.1277+/-0.143     0.8075+/-0.130     0.2092+/-0.107
+    ant_hh                 1.2974+/-0.220     1.0952+/-0.115     1.1277+/-0.143                 .     0.6225+/-0.310     1.0384+/-0.104
+    balanced_refusal       1.7712+/-0.062     1.7637+/-0.123     0.8075+/-0.130     0.6225+/-0.310                 .     0.4782+/-0.230
+    daily_dilemmas         1.9024+/-0.064     1.6357+/-0.129     0.2092+/-0.107     1.0384+/-0.104     0.4782+/-0.230                 .
+
+  deepseekv4pro / mlp_then_softmax   (n: v2=706, v3new=172, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.2451+/-0.019     1.9029+/-0.055     1.5954+/-0.266     1.9489+/-0.012     1.8273+/-0.131
+    v3new                  0.2451+/-0.019                 .     1.8369+/-0.034     1.3719+/-0.124     1.8062+/-0.030     1.7616+/-0.044
+    ai_dilemmas            1.9029+/-0.055     1.8369+/-0.034                 .     0.6308+/-0.373     0.1578+/-0.104     0.2263+/-0.094
+    ant_hh                 1.5954+/-0.266     1.3719+/-0.124     0.6308+/-0.373                 .     0.4701+/-0.164     0.5865+/-0.323
+    balanced_refusal       1.9489+/-0.012     1.8062+/-0.030     0.1578+/-0.104     0.4701+/-0.164                 .     0.2720+/-0.072
+    daily_dilemmas         1.8273+/-0.131     1.7616+/-0.044     0.2263+/-0.094     0.5865+/-0.323     0.2720+/-0.072                 .
+
+  gptoss120b / attention_then_mlp   (n: v2=546, v3new=232, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.4965+/-0.177     1.8804+/-0.034     1.4340+/-0.179     1.6638+/-0.106     1.8219+/-0.058
+    v3new                  0.4965+/-0.177                 .     1.4544+/-0.194     1.4170+/-0.232     1.8417+/-0.009     1.3624+/-0.333
+    ai_dilemmas            1.8804+/-0.034     1.4544+/-0.194                 .     0.7275+/-0.224     0.5922+/-0.160     0.2142+/-0.014
+    ant_hh                 1.4340+/-0.179     1.4170+/-0.232     0.7275+/-0.224                 .     0.3872+/-0.279     1.1075+/-0.241
+    balanced_refusal       1.6638+/-0.106     1.8417+/-0.009     0.5922+/-0.160     0.3872+/-0.279                 .     0.6347+/-0.273
+    daily_dilemmas         1.8219+/-0.058     1.3624+/-0.333     0.2142+/-0.014     1.1075+/-0.241     0.6347+/-0.273                 .
+
+  gptoss120b / mean_then_mlp   (n: v2=546, v3new=232, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.3791+/-0.328     1.6456+/-0.176     1.1447+/-0.339     1.6698+/-0.288     1.8921+/-0.041
+    v3new                  0.3791+/-0.328                 .     1.3366+/-0.512     1.4964+/-0.235     1.8951+/-0.041     1.4311+/-0.515
+    ai_dilemmas            1.6456+/-0.176     1.3366+/-0.512                 .     0.8945+/-0.237     0.8688+/-0.535     0.3891+/-0.148
+    ant_hh                 1.1447+/-0.339     1.4964+/-0.235     0.8945+/-0.237                 .     0.6142+/-0.255     1.1945+/-0.409
+    balanced_refusal       1.6698+/-0.288     1.8951+/-0.041     0.8688+/-0.535     0.6142+/-0.255                 .     0.5544+/-0.438
+    daily_dilemmas         1.8921+/-0.041     1.4311+/-0.515     0.3891+/-0.148     1.1945+/-0.409     0.5544+/-0.438                 .
+
+  gptoss120b / mlp_then_softmax   (n: v2=546, v3new=232, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.3480+/-0.205     1.9446+/-0.019     1.1428+/-0.602     1.9283+/-0.042     1.5748+/-0.326
+    v3new                  0.3480+/-0.205                 .     1.6778+/-0.276     1.3807+/-0.381     1.7605+/-0.174     1.6397+/-0.143
+    ai_dilemmas            1.9446+/-0.019     1.6778+/-0.276                 .     0.9226+/-0.663     0.0946+/-0.063     0.5325+/-0.438
+    ant_hh                 1.1428+/-0.602     1.3807+/-0.381     0.9226+/-0.663                 .     0.9153+/-0.712     0.5903+/-0.124
+    balanced_refusal       1.9283+/-0.042     1.7605+/-0.174     0.0946+/-0.063     0.9153+/-0.712                 .     0.5812+/-0.402
+    daily_dilemmas         1.5748+/-0.326     1.6397+/-0.143     0.5325+/-0.438     0.5903+/-0.124     0.5812+/-0.402                 .
+
+----------------------------------------------------------------------------------------------------
+POST-READOUT centroid cosine distance — raw
+----------------------------------------------------------------------------------------------------
+
+  deepseekv4pro / attention_then_mlp   (n: v2=706, v3new=172, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.0091+/-0.002     0.1476+/-0.037     0.0425+/-0.012     0.0485+/-0.014     0.1060+/-0.017
+    v3new                  0.0091+/-0.002                 .     0.1917+/-0.061     0.0614+/-0.020     0.0690+/-0.027     0.1310+/-0.034
+    ai_dilemmas            0.1476+/-0.037     0.1917+/-0.061                 .     0.1041+/-0.009     0.0949+/-0.016     0.0410+/-0.010
+    ant_hh                 0.0425+/-0.012     0.0614+/-0.020     0.1041+/-0.009                 .     0.0145+/-0.003     0.0523+/-0.014
+    balanced_refusal       0.0485+/-0.014     0.0690+/-0.027     0.0949+/-0.016     0.0145+/-0.003                 .     0.0319+/-0.002
+    daily_dilemmas         0.1060+/-0.017     0.1310+/-0.034     0.0410+/-0.010     0.0523+/-0.014     0.0319+/-0.002                 .
+
+  deepseekv4pro / mean_then_mlp   (n: v2=706, v3new=172, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.0125+/-0.008     0.1138+/-0.047     0.0376+/-0.018     0.0534+/-0.020     0.1039+/-0.036
+    v3new                  0.0125+/-0.008                 .     0.1364+/-0.074     0.0566+/-0.035     0.0737+/-0.041     0.1135+/-0.051
+    ai_dilemmas            0.1138+/-0.047     0.1364+/-0.074                 .     0.0844+/-0.062     0.0678+/-0.049     0.0221+/-0.016
+    ant_hh                 0.0376+/-0.018     0.0566+/-0.035     0.0844+/-0.062                 .     0.0081+/-0.004     0.0560+/-0.028
+    balanced_refusal       0.0534+/-0.020     0.0737+/-0.041     0.0678+/-0.049     0.0081+/-0.004                 .     0.0368+/-0.022
+    daily_dilemmas         0.1039+/-0.036     0.1135+/-0.051     0.0221+/-0.016     0.0560+/-0.028     0.0368+/-0.022                 .
+
+  deepseekv4pro / mlp_then_softmax   (n: v2=706, v3new=172, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.0213+/-0.009     0.2643+/-0.145     0.0276+/-0.007     0.0849+/-0.039     0.0820+/-0.042
+    v3new                  0.0213+/-0.009                 .     0.3322+/-0.128     0.0537+/-0.020     0.1251+/-0.054     0.1196+/-0.043
+    ai_dilemmas            0.2643+/-0.145     0.3322+/-0.128                 .     0.2099+/-0.159     0.0959+/-0.074     0.0990+/-0.063
+    ant_hh                 0.0276+/-0.007     0.0537+/-0.020     0.2099+/-0.159                 .     0.0479+/-0.032     0.0455+/-0.038
+    balanced_refusal       0.0849+/-0.039     0.1251+/-0.054     0.0959+/-0.074     0.0479+/-0.032                 .     0.0246+/-0.007
+    daily_dilemmas         0.0820+/-0.042     0.1196+/-0.043     0.0990+/-0.063     0.0455+/-0.038     0.0246+/-0.007                 .
+
+  gptoss120b / attention_then_mlp   (n: v2=546, v3new=232, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.0128+/-0.004     0.1817+/-0.074     0.0704+/-0.008     0.0589+/-0.003     0.1452+/-0.049
+    v3new                  0.0128+/-0.004                 .     0.1870+/-0.082     0.0785+/-0.013     0.0679+/-0.005     0.1439+/-0.061
+    ai_dilemmas            0.1817+/-0.074     0.1870+/-0.082                 .     0.0998+/-0.058     0.0668+/-0.040     0.0487+/-0.023
+    ant_hh                 0.0704+/-0.008     0.0785+/-0.013     0.0998+/-0.058                 .     0.0196+/-0.013     0.1212+/-0.057
+    balanced_refusal       0.0589+/-0.003     0.0679+/-0.005     0.0668+/-0.040     0.0196+/-0.013                 .     0.0524+/-0.019
+    daily_dilemmas         0.1452+/-0.049     0.1439+/-0.061     0.0487+/-0.023     0.1212+/-0.057     0.0524+/-0.019                 .
+
+  gptoss120b / mean_then_mlp   (n: v2=546, v3new=232, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.0104+/-0.007     0.0913+/-0.079     0.0428+/-0.038     0.0617+/-0.063     0.1312+/-0.117
+    v3new                  0.0104+/-0.007                 .     0.1179+/-0.108     0.0662+/-0.060     0.0850+/-0.091     0.1514+/-0.153
+    ai_dilemmas            0.0913+/-0.079     0.1179+/-0.108                 .     0.0355+/-0.027     0.0190+/-0.014     0.0319+/-0.016
+    ant_hh                 0.0428+/-0.038     0.0662+/-0.060     0.0355+/-0.027                 .     0.0146+/-0.009     0.0668+/-0.039
+    balanced_refusal       0.0617+/-0.063     0.0850+/-0.091     0.0190+/-0.014     0.0146+/-0.009                 .     0.0233+/-0.012
+    daily_dilemmas         0.1312+/-0.117     0.1514+/-0.153     0.0319+/-0.016     0.0668+/-0.039     0.0233+/-0.012                 .
+
+  gptoss120b / mlp_then_softmax   (n: v2=546, v3new=232, ai_dilemmas=136, ant_hh=134, balanced_refusal=400, daily_dilemmas=196)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.0158+/-0.001     0.1011+/-0.048     0.0185+/-0.009     0.0516+/-0.021     0.0614+/-0.041
+    v3new                  0.0158+/-0.001                 .     0.1207+/-0.048     0.0371+/-0.005     0.0721+/-0.014     0.0787+/-0.030
+    ai_dilemmas            0.1011+/-0.048     0.1207+/-0.048                 .     0.0778+/-0.013     0.0306+/-0.007     0.0463+/-0.016
+    ant_hh                 0.0185+/-0.009     0.0371+/-0.005     0.0778+/-0.013                 .     0.0354+/-0.008     0.0342+/-0.021
+    balanced_refusal       0.0516+/-0.021     0.0721+/-0.014     0.0306+/-0.007     0.0354+/-0.008                 .     0.0343+/-0.018
+    daily_dilemmas         0.0614+/-0.041     0.0787+/-0.030     0.0463+/-0.016     0.0342+/-0.021     0.0343+/-0.018                 .
+
+----------------------------------------------------------------------------------------------------
+CLASS AXIS vs DOMAIN AXIS (raw, as multiples of each axis's own permutation null)
+----------------------------------------------------------------------------------------------------
+  arm             architecture                     domain          class(rt)        class(eval)  dom/class
+  deepseekv4pro   attention_then_mlp      0.0640 ( 78.2x)    0.7382 (335.9x)    0.1582 (178.9x)       0.30
+  deepseekv4pro   mean_then_mlp           0.0612 ( 84.1x)    0.6329 (326.6x)    0.1127 (155.6x)       0.35
+  deepseekv4pro   mlp_then_softmax        0.0878 ( 94.7x)    0.6526 (388.2x)    0.2961 (212.6x)       0.32
+  gptoss120b      attention_then_mlp      0.0764 ( 87.4x)    0.7004 (312.9x)    0.1371 (170.6x)       0.36
+  gptoss120b      mean_then_mlp           0.0748 (147.6x)    0.5069 (348.7x)    0.0779 (183.7x)       0.55
+  gptoss120b      mlp_then_softmax        0.0435 ( 44.3x)    0.7464 (354.2x)    0.4645 (263.4x)       0.14
+  domain = red-team rows vs eval rows; class = positive vs negative rows inside each pool.
+  Ratio > 1 in the last column means source separates the space more than the label does.
+
+----------------------------------------------------------------------------------------------------
+HARD CORE: distance to the red-team training centroid, core rows vs their own splits
+----------------------------------------------------------------------------------------------------
+  core = 31 rows (balanced rule, eight families); per split: ai_dilemmas=0, ant_hh=21, balanced_refusal=7, daily_dilemmas=3
+
+  arm             architecture              core   non-core       gap   null sd       z       p
+  deepseekv4pro   attention_then_mlp      0.1602     0.1772   -0.0170    0.0043    -1.3   0.642
+  deepseekv4pro   mean_then_mlp           0.1462     0.1569   -0.0106    0.0054    -0.9   0.848
+  deepseekv4pro   mlp_then_softmax        0.2632     0.2580   +0.0053    0.0137     0.1   0.989
+  gptoss120b      attention_then_mlp      0.1615     0.1859   -0.0244    0.0066    -1.6   0.380
+  gptoss120b      mean_then_mlp           0.1227     0.1383   -0.0156    0.0066    -1.3   0.656
+  gptoss120b      mlp_then_softmax        0.3030     0.2852   +0.0179    0.0089     0.7   0.984
+  gap = core minus non-core; the null reshuffles core membership WITHIN each split.
+  p is two-sided and the worst over seeds.
+
+----------------------------------------------------------------------------------------------------
+PERMUTATION NULL (centered, 500 draws per pair per seed)
+----------------------------------------------------------------------------------------------------
+
+  deepseekv4pro / attention_then_mlp
+    pair                                             n   observed      null   ratio         z   p_max
+    ai_dilemmas | daily_dilemmas               136v196     0.2725    0.0054    50.8      47.5   0.000
+    ai_dilemmas | ant_hh                       136v134     0.9839    0.0289    34.1      35.6   0.000
+    ant_hh | daily_dilemmas                    134v196     0.7953    0.0368    21.6      20.0   0.000
+    ai_dilemmas | balanced_refusal             136v400     0.9194    0.0581    15.8      14.4   0.000
+    v3new | ai_dilemmas                        172v136     1.6841    0.1158    14.5      15.8   0.000
+    balanced_refusal | daily_dilemmas          400v196     0.4936    0.0372    13.3      11.3   0.000
+    v3new | daily_dilemmas                     172v196     1.6756    0.1482    11.3      13.5   0.000
+    v2 | balanced_refusal                      706v400     1.6854    0.1859     9.1       8.8   0.000
+    v3new | balanced_refusal                   172v400     1.6362    0.1833     8.9       8.3   0.000
+    v2 | ant_hh                                706v134     1.4550    0.1692     8.6       9.3   0.000
+    v3new | ant_hh                             172v134     1.0853    0.1356     8.0       7.7   0.000
+    ant_hh | balanced_refusal                  134v400     0.6790    0.0875     7.8       6.6   0.002
+    v2 | ai_dilemmas                           706v136     1.6503    0.2205     7.5       8.4   0.000
+    v2 | daily_dilemmas                        706v196     1.9261    0.2959     6.5       7.4   0.000
+    v2 | v3new                                 706v172     0.3070    0.0974     3.2       2.2   0.050
+
+  deepseekv4pro / mean_then_mlp
+    pair                                             n   observed      null   ratio         z   p_max
+    ai_dilemmas | daily_dilemmas               136v196     0.2092    0.0048    43.2      42.2   0.000
+    ant_hh | daily_dilemmas                    134v196     1.0384    0.0340    30.5      31.0   0.000
+    ai_dilemmas | ant_hh                       136v134     1.1277    0.0472    23.9      24.9   0.000
+    ai_dilemmas | balanced_refusal             136v400     0.8075    0.0406    19.9      17.9   0.000
+    balanced_refusal | daily_dilemmas          400v196     0.4782    0.0250    19.1      16.8   0.000
+    v3new | daily_dilemmas                     172v196     1.6357    0.1019    16.1      19.0   0.000
+    v3new | ai_dilemmas                        172v136     1.5916    0.1132    14.1      15.6   0.000
+    v3new | balanced_refusal                   172v400     1.7637    0.1463    12.1      12.0   0.000
+    ant_hh | balanced_refusal                  134v400     0.6225    0.0542    11.5       9.4   0.002
+    v2 | ai_dilemmas                           706v136     1.6730    0.1715     9.8      11.0   0.000
+    v2 | ant_hh                                706v134     1.2974    0.1358     9.6      10.1   0.000
+    v2 | balanced_refusal                      706v400     1.7712    0.1939     9.1       9.5   0.000
+    v3new | ant_hh                             172v134     1.0952    0.1261     8.7       8.7   0.000
+    v2 | daily_dilemmas                        706v196     1.9024    0.2438     7.8       8.9   0.000
+    v2 | v3new                                 706v172     0.2920    0.0779     3.7       2.8   0.052
+
+  deepseekv4pro / mlp_then_softmax
+    pair                                             n   observed      null   ratio         z   p_max
+    ai_dilemmas | ant_hh                       136v134     0.6308    0.0142    44.3      56.3   0.000
+    ant_hh | balanced_refusal                  134v400     0.4701    0.0225    20.9      21.0   0.002
+    ai_dilemmas | daily_dilemmas               136v196     0.2263    0.0117    19.4      20.2   0.004
+    v2 | daily_dilemmas                        706v196     1.8273    0.0918    19.9      17.7   0.000
+    v2 | ant_hh                                706v134     1.5954    0.0823    19.4      16.5   0.000
+    ai_dilemmas | balanced_refusal             136v400     0.1578    0.0089    17.8      21.2   0.000
+    balanced_refusal | daily_dilemmas          400v196     0.2720    0.0159    17.1      16.0   0.000
+    v3new | balanced_refusal                   172v400     1.8062    0.1063    17.0      14.3   0.000
+    v3new | ant_hh                             172v134     1.3719    0.1253    11.0      12.1   0.000
+    v2 | ai_dilemmas                           706v136     1.9029    0.1584    12.0      10.1   0.000
+    v3new | ai_dilemmas                        172v136     1.8369    0.1920     9.6      12.4   0.000
+    ant_hh | daily_dilemmas                    134v196     0.5865    0.0570    10.3       8.2   0.018
+    v2 | balanced_refusal                      706v400     1.9489    0.2186     8.9       9.1   0.000
+    v3new | daily_dilemmas                     172v196     1.7616    0.2450     7.2       8.1   0.000
+    v2 | v3new                                 706v172     0.2451    0.0425     5.8       4.6   0.018
+
+  gptoss120b / attention_then_mlp
+    pair                                             n   observed      null   ratio         z   p_max
+    ai_dilemmas | daily_dilemmas               136v196     0.2142    0.0039    54.5      48.7   0.000
+    ant_hh | daily_dilemmas                    134v196     1.1075    0.0291    38.1      35.9   0.000
+    ai_dilemmas | ant_hh                       136v134     0.7275    0.0224    32.5      29.0   0.000
+    balanced_refusal | daily_dilemmas          400v196     0.6347    0.0318    19.9      18.0   0.000
+    v3new | daily_dilemmas                     232v196     1.3624    0.0778    17.5      21.8   0.000
+    ai_dilemmas | balanced_refusal             136v400     0.5922    0.0385    15.4      13.6   0.000
+    v2 | balanced_refusal                      546v400     1.6638    0.1185    14.0      12.6   0.000
+    v2 | ant_hh                                546v134     1.4340    0.1106    13.0      12.0   0.000
+    v3new | ai_dilemmas                        232v136     1.4544    0.1170    12.4      14.4   0.000
+    v2 | daily_dilemmas                        546v196     1.8219    0.1618    11.3       9.8   0.000
+    v2 | ai_dilemmas                           546v136     1.8804    0.1950     9.6       9.6   0.000
+    v2 | v3new                                 546v232     0.4965    0.0582     8.5       7.0   0.004
+    v3new | ant_hh                             232v134     1.4170    0.1896     7.5       8.2   0.000
+    ant_hh | balanced_refusal                  134v400     0.3872    0.0598     6.5       4.8   0.014
+    v3new | balanced_refusal                   232v400     1.8417    0.3913     4.7       5.9   0.000
+
+  gptoss120b / mean_then_mlp
+    pair                                             n   observed      null   ratio         z   p_max
+    ai_dilemmas | daily_dilemmas               136v196     0.3891    0.0047    82.5      84.5   0.000
+    ant_hh | daily_dilemmas                    134v196     1.1945    0.0310    38.6      42.4   0.000
+    v3new | daily_dilemmas                     232v196     1.4311    0.0742    19.3      30.3   0.000
+    balanced_refusal | daily_dilemmas          400v196     0.5544    0.0228    24.3      22.4   0.000
+    ai_dilemmas | balanced_refusal             136v400     0.8688    0.0479    18.1      18.8   0.000
+    ai_dilemmas | ant_hh                       136v134     0.8945    0.0539    16.6      17.7   0.000
+    v3new | ai_dilemmas                        232v136     1.3366    0.0898    14.9      19.3   0.000
+    v3new | ant_hh                             232v134     1.4964    0.1271    11.8      15.8   0.000
+    ant_hh | balanced_refusal                  134v400     0.6142    0.0536    11.5       9.9   0.000
+    v2 | ant_hh                                546v134     1.1447    0.1329     8.6      10.7   0.044
+    v2 | ai_dilemmas                           546v136     1.6456    0.1896     8.7      11.1   0.000
+    v2 | balanced_refusal                      546v400     1.6698    0.1850     9.0       8.9   0.000
+    v2 | daily_dilemmas                        546v196     1.8921    0.3463     5.5       7.1   0.000
+    v3new | balanced_refusal                   232v400     1.8951    0.2918     6.5       7.1   0.000
+    v2 | v3new                                 546v232     0.3791    0.0758     5.0       4.0   0.038
+
+  gptoss120b / mlp_then_softmax
+    pair                                             n   observed      null   ratio         z   p_max
+    balanced_refusal | daily_dilemmas          400v196     0.5812    0.0364    16.0      12.7   0.000
+    ai_dilemmas | ant_hh                       136v134     0.9226    0.0593    15.6      13.9   0.000
+    ai_dilemmas | daily_dilemmas               136v196     0.5325    0.0421    12.7      13.2   0.002
+    ant_hh | balanced_refusal                  134v400     0.9153    0.0600    15.2      10.1   0.002
+    v2 | daily_dilemmas                        546v196     1.5748    0.1019    15.5      11.2   0.000
+    v2 | ant_hh                                546v134     1.1428    0.0917    12.5       9.3   0.032
+    v3new | balanced_refusal                   232v400     1.7605    0.1639    10.7       8.2   0.000
+    v2 | ai_dilemmas                           546v136     1.9446    0.2512     7.7       6.6   0.000
+    ant_hh | daily_dilemmas                    134v196     0.5903    0.1168     5.1       5.6   0.030
+    v3new | ant_hh                             232v134     1.3807    0.1939     7.1       6.4   0.010
+    v3new | ai_dilemmas                        232v136     1.6778    0.3126     5.4       6.7   0.000
+    ai_dilemmas | balanced_refusal             136v400     0.0946    0.0124     7.6       4.7   0.028
+    v2 | v3new                                 546v232     0.3480    0.0583     6.0       4.4   0.016
+    v3new | daily_dilemmas                     232v196     1.6397    0.3044     5.4       5.3   0.000
+    v2 | balanced_refusal                      546v400     1.9283    0.4016     4.8       4.8   0.000
+
+  ratio = observed / null mean, i.e. how many times further apart the two groups sit than
+  two random halves of the same cloud at those sample sizes. p is the WORST over seeds.
+
+----------------------------------------------------------------------------------------------------
+Which vintage sits closer to each eval split? (centered)
+----------------------------------------------------------------------------------------------------
+  deepseekv4pro   attention_then_mlp   ai_dilemmas=v2   (-0.0338) ant_hh=v3new(+0.3697) balanced_refusal=v3new(+0.0492) daily_dilemmas=v3new(+0.2505)
+  deepseekv4pro   mean_then_mlp        ai_dilemmas=v3new(+0.0814) ant_hh=v3new(+0.2022) balanced_refusal=v3new(+0.0076) daily_dilemmas=v3new(+0.2667)
+  deepseekv4pro   mlp_then_softmax     ai_dilemmas=v3new(+0.0660) ant_hh=v3new(+0.2234) balanced_refusal=v3new(+0.1428) daily_dilemmas=v3new(+0.0657)
+  gptoss120b      attention_then_mlp   ai_dilemmas=v3new(+0.4261) ant_hh=v3new(+0.0170) balanced_refusal=v2   (-0.1779) daily_dilemmas=v3new(+0.4595)
+  gptoss120b      mean_then_mlp        ai_dilemmas=v3new(+0.3090) ant_hh=v2   (-0.3517) balanced_refusal=v2   (-0.2254) daily_dilemmas=v3new(+0.4610)
+  gptoss120b      mlp_then_softmax     ai_dilemmas=v3new(+0.2668) ant_hh=v2   (-0.2379) balanced_refusal=v3new(+0.1678) daily_dilemmas=v2   (-0.0650)
+  (sign is d(v2,split) - d(v3new,split); positive means v3new sits closer)
+
+----------------------------------------------------------------------------------------------------
+POST-READOUT centroid cosine distance — centered, pos rows
+----------------------------------------------------------------------------------------------------
+
+  deepseekv4pro / attention_then_mlp   (n: v2=353, v3new=86, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.9070+/-0.205     1.7040+/-0.039     1.7359+/-0.086     1.8802+/-0.074     1.8784+/-0.035
+    v3new                  0.9070+/-0.205                 .     1.4567+/-0.211     0.9427+/-0.207     0.9678+/-0.228     1.3554+/-0.204
+    ai_dilemmas            1.7040+/-0.039     1.4567+/-0.211                 .     0.8939+/-0.094     0.6675+/-0.109     0.1043+/-0.013
+    ant_hh                 1.7359+/-0.086     0.9427+/-0.207     0.8939+/-0.094                 .     0.0580+/-0.003     0.6131+/-0.190
+    balanced_refusal       1.8802+/-0.074     0.9678+/-0.228     0.6675+/-0.109     0.0580+/-0.003                 .     0.4239+/-0.186
+    daily_dilemmas         1.8784+/-0.035     1.3554+/-0.204     0.1043+/-0.013     0.6131+/-0.190     0.4239+/-0.186                 .
+
+  deepseekv4pro / mean_then_mlp   (n: v2=353, v3new=86, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.6699+/-0.059     1.8237+/-0.082     1.7163+/-0.096     1.8843+/-0.035     1.8733+/-0.033
+    v3new                  0.6699+/-0.059                 .     1.4059+/-0.206     1.2747+/-0.105     1.2429+/-0.015     1.4906+/-0.087
+    ai_dilemmas            1.8237+/-0.082     1.4059+/-0.206                 .     0.7440+/-0.054     0.4822+/-0.097     0.0853+/-0.041
+    ant_hh                 1.7163+/-0.096     1.2747+/-0.105     0.7440+/-0.054                 .     0.0740+/-0.028     0.6276+/-0.167
+    balanced_refusal       1.8843+/-0.035     1.2429+/-0.015     0.4822+/-0.097     0.0740+/-0.028                 .     0.4309+/-0.100
+    daily_dilemmas         1.8733+/-0.033     1.4906+/-0.087     0.0853+/-0.041     0.6276+/-0.167     0.4309+/-0.100                 .
+
+  deepseekv4pro / mlp_then_softmax   (n: v2=353, v3new=86, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.2331+/-0.100     1.9292+/-0.032     1.9581+/-0.017     1.9866+/-0.006     1.7665+/-0.107
+    v3new                  0.2331+/-0.100                 .     1.8740+/-0.013     1.7674+/-0.086     1.7919+/-0.093     1.7285+/-0.087
+    ai_dilemmas            1.9292+/-0.032     1.8740+/-0.013                 .     0.1494+/-0.081     0.0833+/-0.047     0.2715+/-0.033
+    ant_hh                 1.9581+/-0.017     1.7674+/-0.086     0.1494+/-0.081                 .     0.0180+/-0.013     0.3290+/-0.145
+    balanced_refusal       1.9866+/-0.006     1.7919+/-0.093     0.0833+/-0.047     0.0180+/-0.013                 .     0.3058+/-0.136
+    daily_dilemmas         1.7665+/-0.107     1.7285+/-0.087     0.2715+/-0.033     0.3290+/-0.145     0.3058+/-0.136                 .
+
+  gptoss120b / attention_then_mlp   (n: v2=273, v3new=116, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.8898+/-0.404     1.9062+/-0.018     0.9756+/-0.251     1.7230+/-0.149     1.9554+/-0.006
+    v3new                  0.8898+/-0.404                 .     1.1415+/-0.371     1.3837+/-0.202     1.3785+/-0.213     1.2139+/-0.408
+    ai_dilemmas            1.9062+/-0.018     1.1415+/-0.371                 .     1.3676+/-0.202     0.5628+/-0.188     0.0419+/-0.015
+    ant_hh                 0.9756+/-0.251     1.3837+/-0.202     1.3676+/-0.202                 .     0.3711+/-0.047     1.2109+/-0.218
+    balanced_refusal       1.7230+/-0.149     1.3785+/-0.213     0.5628+/-0.188     0.3711+/-0.047                 .     0.4317+/-0.160
+    daily_dilemmas         1.9554+/-0.006     1.2139+/-0.408     0.0419+/-0.015     1.2109+/-0.218     0.4317+/-0.160                 .
+
+  gptoss120b / mean_then_mlp   (n: v2=273, v3new=116, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.7575+/-0.376     1.9130+/-0.058     1.2368+/-0.118     1.8584+/-0.017     1.9765+/-0.009
+    v3new                  0.7575+/-0.376                 .     1.2152+/-0.448     1.5003+/-0.236     1.4921+/-0.243     1.3613+/-0.393
+    ai_dilemmas            1.9130+/-0.058     1.2152+/-0.448                 .     1.0977+/-0.162     0.3616+/-0.117     0.0652+/-0.032
+    ant_hh                 1.2368+/-0.118     1.5003+/-0.236     1.0977+/-0.162                 .     0.3493+/-0.055     0.8214+/-0.132
+    balanced_refusal       1.8584+/-0.017     1.4921+/-0.243     0.3616+/-0.117     0.3493+/-0.055                 .     0.1769+/-0.066
+    daily_dilemmas         1.9765+/-0.009     1.3613+/-0.393     0.0652+/-0.032     0.8214+/-0.132     0.1769+/-0.066                 .
+
+  gptoss120b / mlp_then_softmax   (n: v2=273, v3new=116, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.4214+/-0.420     1.9649+/-0.019     1.9110+/-0.034     1.9707+/-0.007     1.3568+/-0.576
+    v3new                  0.4214+/-0.420                 .     1.5997+/-0.462     1.7128+/-0.319     1.6546+/-0.403     1.5298+/-0.274
+    ai_dilemmas            1.9649+/-0.019     1.5997+/-0.462                 .     0.1272+/-0.078     0.0369+/-0.020     0.7486+/-0.673
+    ant_hh                 1.9110+/-0.034     1.7128+/-0.319     0.1272+/-0.078                 .     0.0532+/-0.041     0.7207+/-0.505
+    balanced_refusal       1.9707+/-0.007     1.6546+/-0.403     0.0369+/-0.020     0.0532+/-0.041                 .     0.7643+/-0.619
+    daily_dilemmas         1.3568+/-0.576     1.5298+/-0.274     0.7486+/-0.673     0.7207+/-0.505     0.7643+/-0.619                 .
+
+----------------------------------------------------------------------------------------------------
+POST-READOUT centroid cosine distance — centered, neg rows
+----------------------------------------------------------------------------------------------------
+
+  deepseekv4pro / attention_then_mlp   (n: v2=353, v3new=86, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.2041+/-0.029     1.9271+/-0.007     1.7876+/-0.082     1.6292+/-0.081     1.9620+/-0.001
+    v3new                  0.2041+/-0.029                 .     1.6365+/-0.035     1.4915+/-0.136     1.8753+/-0.036     1.7305+/-0.013
+    ai_dilemmas            1.9271+/-0.007     1.6365+/-0.035                 .     0.2801+/-0.061     0.6139+/-0.103     0.0872+/-0.009
+    ant_hh                 1.7876+/-0.082     1.4915+/-0.136     0.2801+/-0.061                 .     0.7750+/-0.172     0.1970+/-0.101
+    balanced_refusal       1.6292+/-0.081     1.8753+/-0.036     0.6139+/-0.103     0.7750+/-0.172                 .     0.5122+/-0.065
+    daily_dilemmas         1.9620+/-0.001     1.7305+/-0.013     0.0872+/-0.009     0.1970+/-0.101     0.5122+/-0.065                 .
+
+  deepseekv4pro / mean_then_mlp   (n: v2=353, v3new=86, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.1951+/-0.087     1.8961+/-0.011     1.6358+/-0.134     1.6996+/-0.071     1.9537+/-0.026
+    v3new                  0.1951+/-0.087                 .     1.5751+/-0.082     1.4173+/-0.151     1.9273+/-0.017     1.6697+/-0.156
+    ai_dilemmas            1.8961+/-0.011     1.5751+/-0.082                 .     0.3925+/-0.033     0.6230+/-0.036     0.0802+/-0.018
+    ant_hh                 1.6358+/-0.134     1.4173+/-0.151     0.3925+/-0.033                 .     0.7747+/-0.229     0.4063+/-0.109
+    balanced_refusal       1.6996+/-0.071     1.9273+/-0.017     0.6230+/-0.036     0.7747+/-0.229                 .     0.4803+/-0.159
+    daily_dilemmas         1.9537+/-0.026     1.6697+/-0.156     0.0802+/-0.018     0.4063+/-0.109     0.4803+/-0.159                 .
+
+  deepseekv4pro / mlp_then_softmax   (n: v2=353, v3new=86, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.1637+/-0.061     1.8917+/-0.093     1.5235+/-0.320     1.8563+/-0.088     1.8304+/-0.166
+    v3new                  0.1637+/-0.061                 .     1.8239+/-0.070     1.3501+/-0.353     1.8797+/-0.118     1.7104+/-0.131
+    ai_dilemmas            1.8917+/-0.093     1.8239+/-0.070                 .     0.6375+/-0.383     0.2913+/-0.231     0.1558+/-0.110
+    ant_hh                 1.5235+/-0.320     1.3501+/-0.353     0.6375+/-0.383                 .     0.7410+/-0.463     0.7692+/-0.490
+    balanced_refusal       1.8563+/-0.088     1.8797+/-0.118     0.2913+/-0.231     0.7410+/-0.463                 .     0.3480+/-0.262
+    daily_dilemmas         1.8304+/-0.166     1.7104+/-0.131     0.1558+/-0.110     0.7692+/-0.490     0.3480+/-0.262                 .
+
+  gptoss120b / attention_then_mlp   (n: v2=273, v3new=116, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.2321+/-0.024     1.9548+/-0.012     1.9467+/-0.025     1.8359+/-0.053     1.9368+/-0.017
+    v3new                  0.2321+/-0.024                 .     1.7168+/-0.004     1.6296+/-0.090     1.9188+/-0.007     1.7534+/-0.097
+    ai_dilemmas            1.9548+/-0.012     1.7168+/-0.004                 .     0.0920+/-0.020     0.2916+/-0.045     0.0864+/-0.016
+    ant_hh                 1.9467+/-0.025     1.6296+/-0.090     0.0920+/-0.020                 .     0.2914+/-0.118     0.1656+/-0.070
+    balanced_refusal       1.8359+/-0.053     1.9188+/-0.007     0.2916+/-0.045     0.2914+/-0.118                 .     0.2571+/-0.066
+    daily_dilemmas         1.9368+/-0.017     1.7534+/-0.097     0.0864+/-0.016     0.1656+/-0.070     0.2571+/-0.066                 .
+
+  gptoss120b / mean_then_mlp   (n: v2=273, v3new=116, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.2243+/-0.022     1.8679+/-0.050     1.8435+/-0.071     1.7116+/-0.079     1.8801+/-0.078
+    v3new                  0.2243+/-0.022                 .     1.4859+/-0.091     1.4342+/-0.064     1.9214+/-0.058     1.6953+/-0.221
+    ai_dilemmas            1.8679+/-0.050     1.4859+/-0.091                 .     0.1020+/-0.079     0.6675+/-0.115     0.1885+/-0.016
+    ant_hh                 1.8435+/-0.071     1.4342+/-0.064     0.1020+/-0.079                 .     0.7202+/-0.195     0.2263+/-0.022
+    balanced_refusal       1.7116+/-0.079     1.9214+/-0.058     0.6675+/-0.115     0.7202+/-0.195                 .     0.4745+/-0.266
+    daily_dilemmas         1.8801+/-0.078     1.6953+/-0.221     0.1885+/-0.016     0.2263+/-0.022     0.4745+/-0.266                 .
+
+  gptoss120b / mlp_then_softmax   (n: v2=273, v3new=116, ai_dilemmas=68, ant_hh=67, balanced_refusal=200, daily_dilemmas=98)
+                                      v2             v3new       ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    v2                                 .     0.2946+/-0.032     1.9295+/-0.023     1.5142+/-0.137     1.7894+/-0.124     1.8611+/-0.017
+    v3new                  0.2946+/-0.032                 .     1.7423+/-0.081     1.1793+/-0.236     1.8836+/-0.045     1.7679+/-0.085
+    ai_dilemmas            1.9295+/-0.023     1.7423+/-0.081                 .     0.6299+/-0.185     0.2398+/-0.147     0.1514+/-0.027
+    ant_hh                 1.5142+/-0.137     1.1793+/-0.236     0.6299+/-0.185                 .     0.9277+/-0.337     0.7816+/-0.206
+    balanced_refusal       1.7894+/-0.124     1.8836+/-0.045     0.2398+/-0.147     0.9277+/-0.337                 .     0.2418+/-0.188
+    daily_dilemmas         1.8611+/-0.017     1.7679+/-0.085     0.1514+/-0.027     0.7816+/-0.206     0.2418+/-0.188                 .
+
+----------------------------------------------------------------------------------------------------
+IN-SAMPLE CONTROL: red-team rows on the validation side only (no gradient)
+----------------------------------------------------------------------------------------------------
+  deepseekv4pro   attention_then_mlp   v2val|v3newval=0.3963  ai_dilemmas=1.6785  ant_hh=1.4845  balanced_refusal=1.6824  daily_dilemmas=1.8833
+  deepseekv4pro   mean_then_mlp        v2val|v3newval=0.3415  ai_dilemmas=1.7026  ant_hh=1.3482  balanced_refusal=1.7618  daily_dilemmas=1.8623
+  deepseekv4pro   mlp_then_softmax     v2val|v3newval=0.2558  ai_dilemmas=1.8899  ant_hh=1.6194  balanced_refusal=1.9389  daily_dilemmas=1.8317
+  gptoss120b      attention_then_mlp   v2val|v3newval=0.6366  ai_dilemmas=1.6999  ant_hh=1.0104  balanced_refusal=1.5207  daily_dilemmas=1.9349
+  gptoss120b      mean_then_mlp        v2val|v3newval=0.4545  ai_dilemmas=1.3906  ant_hh=0.7868  balanced_refusal=1.6010  daily_dilemmas=1.9311
+  gptoss120b      mlp_then_softmax     v2val|v3newval=0.4566  ai_dilemmas=1.8788  ant_hh=0.9070  balanced_refusal=1.9147  daily_dilemmas=1.4457
+  (distances from the v2 VALIDATION rows, which the fit never took a gradient step on)
+
+----------------------------------------------------------------------------------------------------
+PRE-READOUT (5376-d pooled MLP input), raw — control
+----------------------------------------------------------------------------------------------------
+  deepseekv4pro   attention_then_mlp   v2|v3new=0.0055  v2|ai_dilemmas=0.0475  v2|ant_hh=0.0333  v2|balanced_refusal=0.0385  v2|daily_dilemmas=0.0394
+  deepseekv4pro   mean_then_mlp        v2|v3new=0.0056  v2|ai_dilemmas=0.0439  v2|ant_hh=0.0347  v2|balanced_refusal=0.0413  v2|daily_dilemmas=0.0371
+  deepseekv4pro   mlp_then_softmax     v2|v3new=0.0114  v2|ai_dilemmas=0.1336  v2|ant_hh=0.0440  v2|balanced_refusal=0.0579  v2|daily_dilemmas=0.1127
+  gptoss120b      attention_then_mlp   v2|v3new=0.0066  v2|ai_dilemmas=0.0529  v2|ant_hh=0.0319  v2|balanced_refusal=0.0367  v2|daily_dilemmas=0.0427
+  gptoss120b      mean_then_mlp        v2|v3new=0.0067  v2|ai_dilemmas=0.0512  v2|ant_hh=0.0336  v2|balanced_refusal=0.0409  v2|daily_dilemmas=0.0418
+  gptoss120b      mlp_then_softmax     v2|v3new=0.0084  v2|ai_dilemmas=0.0651  v2|ant_hh=0.0357  v2|balanced_refusal=0.0333  v2|daily_dilemmas=0.0651
+
+wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation/arch_sweep/readout_cosine.json

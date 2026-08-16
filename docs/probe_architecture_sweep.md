@@ -1,33 +1,39 @@
 # Does a different probe architecture reach the eval rows red-teaming cannot?
 
-*Run: 2026-08-15. Code: `scripts/arch_sweep.py`, `scripts/nonlinear_ceiling.py`,
-`src/agentic_redteam/probe_architectures.py`, checks in
+*Run: 2026-08-15/16. Code: `scripts/arch_sweep.py`, `scripts/nonlinear_ceiling.py`,
+`scripts/mlp_readout_cosine.py`, `src/agentic_redteam/probe_architectures.py`, checks in
 `scripts/test_probe_architectures.py`. Raw output:
 `results_hu_harm_gemma27b_batch_ablation/arch_sweep/` (progress sidecar `arch_progress.jsonl`,
-`arch_sweep.json`, `nonlinear_ceiling.json`), logs `logs/arch_sweep.log`,
-`logs/nonlinear_ceiling.log`.*
+`arch_sweep.json`, `nonlinear_ceiling.json`, `readout_cosine.json`, per-row readout vectors
+under `readout_reps/`), logs `logs/arch_sweep.log`, `logs/nonlinear_ceiling.log`,
+`logs/mlp_readout_cosine.log`.*
 
-> **Status: §1 and §4 complete; §2 complete at 2 of 5 seeds; §§3, 5, 6 pending.**
-> §1 (ceiling and transfer, both arms) is finished. §4 — the residual control that decides
-> whether the `eval_ant_hh` effect is real or a generalisation trade-off — has run on 32
-> fits (2 seeds × 8 architectures × 2 arms) and **resolves in favour of a real pooling
-> effect**; three more seeds will tighten it but are unlikely to move the sign or the
-> grouping. §2 and §2b hold the per-architecture tables; read them together with §4, which
-> supersedes §2's tentative single-seed reading.
+> **Status: §§1–5 and §7 complete (80 + 18 fits, 5 seeds × 8 architectures × 2 arms, plus
+> the readout-geometry run). §6 (capacity/regularisation sensitivity) is the one section
+> never run.** Three follow-ups remain queued at the end of this document; the temperature
+> sweep is the one worth doing first.
 >
-> One caution that applies throughout: **`eval_ant_hh` is by far the noisiest split** —
-> the same architecture moves 0.045 on it between two seeds while its mean AUROC moves
-> 0.0007 — so no single-seed `ant_hh` number should be quoted, in either direction.
+> Two cautions that apply throughout:
+> - **`eval_ant_hh` is by far the noisiest split** — the same architecture moves 0.045 on
+>   it between two seeds while its mean AUROC moves 0.0007 — so no single-seed `ant_hh`
+>   number should be quoted, in either direction.
+> - **Conclusion 3 reverses a claim made earlier in this document.** The best-epoch fix was
+>   provisionally worth +0.02 AUROC on a cross-run comparison; the one-boolean control in
+>   §5 says it *costs* 0.019 and 0.009. §7 likewise supersedes a mid-run reading of its own
+>   table that came off a broken metric. Where an early and a late statement disagree, the
+>   later one is the measurement.
 >
 > **To check on it or pick it up:**
 > ```bash
-> .venv_claude/bin/python scripts/arch_sweep.py --summarize-only   # read partial results
-> tail -f logs/arch_sweep.log                                      # watch fits land
+> .venv_claude/bin/python scripts/arch_sweep.py --summarize-only          # §§2-5 tables
+> .venv_claude/bin/python scripts/mlp_readout_cosine.py --summarize-only  # §7 tables
+> tail -f logs/arch_sweep.log                                             # watch fits land
 > nohup bash run_arch_sweep.sh 42 43 44 45 46 >> logs/arch_sweep.log 2>&1 &   # (re)start
 > nohup bash failsafe_commit_arch.sh > logs/failsafe_arch.out 2>&1 &          # 30-min pushes
 > ```
-> Run `--summarize-only` **only while the sweep is idle** — see the warning in
-> `run_arch_sweep.sh`. Everything resumes at
+> Run any `--summarize-only` **only while the fits are idle** — see the warning in
+> `run_arch_sweep.sh`; two of this run's three OOM kills were caused by a read-only-sounding
+> job landing on an assembly memory peak. Everything resumes at
 > `(arm, architecture, seed, variant, legacy)` granularity, so a restart costs at most the
 > fit that was in flight.
 >
@@ -738,6 +744,138 @@ stopping honest. Until then, tuberlens' bug is load-bearing.
 
 ### 6. Sensitivity to capacity and regularisation
 
+### 7. Where v2, v3new and the eval splits sit *inside* the MLP readout
+
+*Run 2026-08-16. Code: `scripts/mlp_readout_cosine.py`. 18 fits (3 MLP architectures × 3
+seeds × 2 arms) off cached activations. Raw output:
+`results_hu_harm_gemma27b_batch_ablation/arch_sweep/readout_cosine.json`, per-row vectors
+in `arch_sweep/readout_reps/*.npz`, full report `logs/mlp_readout_cosine_report.log`.*
+
+Everything above measures the *decision* — right/wrong, AUROC. This measures the
+**representation**, which is a question only the MLP heads can be asked: each is
+`Linear(5376→64) → GELU → Linear(64→1)`, so there is a 64-d vector between the readout and
+the final projection. `linear_then_softmax` and the closed-form heads read out straight to
+a scalar and have no such space.
+
+**What "after the readout" is, precisely.** The 64-d vector entering the last linear layer.
+The sequence logit is *exactly* `W₂·h + b₂` for it, so cosine geometry there is the
+geometry the decision is made in. For `mean_then_mlp` and `attention_then_mlp` that vector
+is immediate (the MLP runs once, on the pooled input). For `mlp_then_softmax` the MLP runs
+**per token**, so `h` is the head's own softmax-weighted pool of the per-token hidden
+states — exact, not an analogy, because the last layer is linear and the weights sum to
+one: `Σₜ wₜ(W₂hₜ + b₂) = W₂(Σₜ wₜhₜ) + b₂`. Asserted numerically (`--self-test`) and again
+end-to-end: the 18 refits reproduce §2b's AUROCs (0.8792/0.8848 `mlp_then_softmax`,
+0.7586/0.7597 `mean_then_mlp`, 0.7723/0.7695 `attention_then_mlp`), so these are the same
+probes measured above.
+
+#### Two metric traps, both hit before the numbers below were trusted
+
+Recorded because each produced a *plausible-looking* table that was pure artefact:
+
+- **Within-group spread is not a yardstick here.** In 64 dimensions a row's cosine distance
+  to its own group's centroid is ≈0.97 whatever the data says — the centroid averages many
+  near-orthogonal vectors, so the number measures dimensionality. Replaced throughout by a
+  **permutation null**: pool two groups, re-split at the same two sizes, recompute. That
+  also absorbs the effect that would otherwise be read as signal — a centroid's sampling
+  noise goes as `1/√n`, so a 134-row eval split sits further from everything than a 546-row
+  vintage for that reason alone.
+- **Pairwise centring is degenerate.** Centre two groups on their own pooled mean and that
+  mean is zero, so `n_a·c_a = −n_b·c_b`: the centroids are exactly antiparallel and *every*
+  pair scores cosine distance 2.0000 regardless of the data. The first version of this
+  script printed exactly that, for all 15 pairs. The fix is a **fixed** centring vector —
+  the grand mean over the six groups, each row counted once, computed once and never
+  recomputed, including inside the permutation loop. (The same trap caught the
+  class-vs-domain comparison below, whose two halves *are* the two halves the centring
+  vector is built from; that one is therefore measured raw.)
+
+  A consequence to keep in mind reading the centred table: six centroids summing to zero
+  pushes typical pairwise values above 1. Levels are not directly interpretable; the
+  **ordering** is, and it agrees with the raw metric.
+
+#### The four findings
+
+**(a) `v2` and `v3new` are one cloud.** The tightest training-side pair in every block —
+0.245–0.497 centred, 0.009–0.021 raw — and the *weakest* separation of all 15 pairs in
+four of six blocks (permutation ratio 3.2–8.5× against 5–83× elsewhere). The two vintages
+are not different regions of the readout's space. This is the geometric counterpart of
+`heldout_v3_vs_v2_overlap.md`'s finding 3, that swapping the vintage moves the error set
+about as much as a reseed does.
+
+**(b) Red-team and eval are a real but *secondary* axis.** Pooled red-team vs pooled eval
+is 44–148× its null, so it is not noise — but at 0.14–0.55× the **class** axis measured the
+same way, it is the smaller structure by a factor of 2–7. That was worth checking rather
+than assuming: a readout whose dominant axis was "which corpus is this" would be spending
+its 64 dimensions on something the concept does not need. It is not. It is mostly a class
+detector, with a corpus component underneath.
+
+| arm / architecture | domain axis (raw, ×null) | class axis, red-team | class axis, eval | domain/class |
+|---|---|---|---|---|
+| deepseek / `attention_then_mlp` | 0.0640 (78×) | 0.7382 (336×) | 0.1582 (179×) | 0.30 |
+| deepseek / `mean_then_mlp` | 0.0612 (84×) | 0.6329 (327×) | 0.1127 (156×) | 0.35 |
+| deepseek / `mlp_then_softmax` | 0.0878 (95×) | 0.6526 (388×) | 0.2961 (213×) | 0.32 |
+| gptoss / `attention_then_mlp` | 0.0764 (87×) | 0.7004 (313×) | 0.1371 (171×) | 0.36 |
+| gptoss / `mean_then_mlp` | 0.0748 (148×) | 0.5069 (349×) | 0.0779 (184×) | 0.55 |
+| gptoss / `mlp_then_softmax` | 0.0435 (44×) | 0.7464 (354×) | 0.4645 (263×) | 0.14 |
+
+**(c) `eval_ant_hh` is the eval split *closest* to the training data** — 6/6 blocks under
+the centred metric, 5/6 under raw (gptoss/`attention_then_mlp` puts `balanced_refusal`
+marginally closer). Centred distance from `v2`:
+
+| arm / architecture | `ant_hh` | `ai_dilemmas` | `balanced_refusal` | `daily_dilemmas` | (`v3new`) |
+|---|---|---|---|---|---|
+| deepseek / `attention_then_mlp` | **1.455** | 1.650 | 1.685 | 1.926 | 0.307 |
+| deepseek / `mean_then_mlp` | **1.297** | 1.673 | 1.771 | 1.902 | 0.292 |
+| deepseek / `mlp_then_softmax` | **1.595** | 1.903 | 1.949 | 1.827 | 0.245 |
+| gptoss / `attention_then_mlp` | **1.434** | 1.880 | 1.664 | 1.822 | 0.497 |
+| gptoss / `mean_then_mlp` | **1.145** | 1.646 | 1.670 | 1.892 | 0.379 |
+| gptoss / `mlp_then_softmax` | **1.143** | 1.945 | 1.928 | 1.575 | 0.348 |
+
+So the split that holds two thirds of the hard core is the one the readout places nearest
+what it trained on — the opposite of what a distribution-shift account of that residue
+predicts. (An earlier reading of this table, quoted mid-run off the pre-fix metric, had
+`ant_hh` at or *below* the `v2`↔`v3new` distance. That was the pairwise-centring artefact.
+It is the nearest eval split, but still 3–4× further than the vintage gap.)
+
+Held-out red-team rows behave like training rows, not like eval rows: `v2_val`↔`v3new_val`
+is 0.256–0.637 while `v2_val`↔eval stays at 0.787–1.935. The structure is a property of the
+data sources, not of memorising the rows that got gradient.
+
+**(d) The hard-core rows are not further away — at all.** The sharpest form of the
+question, since `load_hard_core` identifies the 31 rows by `(split, idx_in_split)` and the
+saved vectors are in split order, so they join positionally. Each row's raw cosine distance
+to the red-team training centroid, core vs the non-core rows **of the same splits** (the
+null reshuffles core membership within each split, so the comparison is not just recovering
+finding (c) — the core is 21 `ant_hh`, 7 `balanced_refusal`, 3 `daily_dilemmas`, 0
+`ai_dilemmas`):
+
+| arm / architecture | core | non-core | gap | z | worst p |
+|---|---|---|---|---|---|
+| deepseek / `attention_then_mlp` | 0.1602 | 0.1772 | −0.0170 | −1.3 | 0.642 |
+| deepseek / `mean_then_mlp` | 0.1462 | 0.1569 | −0.0106 | −0.9 | 0.848 |
+| deepseek / `mlp_then_softmax` | 0.2632 | 0.2580 | +0.0053 | 0.1 | 0.989 |
+| gptoss / `attention_then_mlp` | 0.1615 | 0.1859 | −0.0244 | −1.6 | 0.380 |
+| gptoss / `mean_then_mlp` | 0.1227 | 0.1383 | −0.0156 | −1.3 | 0.656 |
+| gptoss / `mlp_then_softmax` | 0.3030 | 0.2852 | +0.0179 | 0.7 | 0.984 |
+
+No effect anywhere, and four of six point the *other* way (core rows marginally closer).
+**The 31 unreachable rows are not outside the region the probe covers. They fail inside
+it.** Combined with §1's zero ceiling headroom, that removes the two easiest explanations
+for the residue — it is neither a capacity limit nor a coverage gap.
+
+#### Two smaller observations
+
+- **Which vintage sits closer to eval is arm-dependent.** On deepseek `v3new` is closer on
+  11 of 12 (split × architecture) cells; on gptoss only 7 of 12. Consistent in direction
+  with `heldout_v3_vs_v2_overlap.md` finding 5 (per row the newer vintage is the better
+  training data) but too weak, and too arm-split, to carry on its own.
+- **The readout does not create the domain gap; `mlp_then_softmax` shrinks it.** Relative
+  to the `v2`↔`v3new` baseline, `v2`↔`ant_hh` is 3.9–6.2× at the pre-readout pooled input
+  and 1.2–5.5× after it — with the two lowest post-readout values (1.30, 1.17) belonging to
+  `mlp_then_softmax` on both arms, which is also the best-performing of the three heads by
+  0.11 AUROC. Suggestive of the pooling story in §4 and conclusion 2, not independent
+  evidence for it: pre- and post-readout live in spaces of different dimension, so only the
+  ratios are comparable and only loosely.
+
 ## What this means for the retraining loop
 
 *The readout-axis conclusions below are complete and supported by §1. Anything about
@@ -805,6 +943,18 @@ pooling waits on §§2-4.*
    the probe's concept description is the cheapest next step — an eval-side question, not
    a probe-side one.
 
+6. **The residue is not a coverage gap either, so read the 21 conversations.** §7 measures
+   where those rows sit *inside* a trained readout, and they are not outliers: their
+   distance to the red-team training centroid is indistinguishable from their own splits'
+   (|z| ≤ 1.6, worst p 0.38–0.99, four of six arms/architectures pointing the wrong way),
+   and `eval_ant_hh` as a whole is the eval split the readout places **closest** to the
+   training data. Together with §1's zero ceiling headroom that rules out both easy
+   explanations — not too little capacity, not too far from the training distribution.
+   The rows are misclassified inside a region the probe covers and can represent, which is
+   what a **label or concept-boundary** disagreement looks like. That makes conclusion 5's
+   "read the 21 conversations" the single highest-value next action in this whole
+   investigation, ahead of any further probe-side work including the queued follow-ups.
+
 ## Reproducing
 
 ```bash
@@ -819,6 +969,12 @@ nohup bash failsafe_commit_arch.sh > logs/failsafe_arch.out 2>&1 &   # 30-min ch
 .venv_claude/bin/python scripts/nonlinear_ceiling.py
 .venv_claude/bin/python scripts/nonlinear_ceiling.py --group-by-prompt   # correct CV for
                                                     # high-capacity families; see §1's caveat
+
+# the readout geometry — DONE, results in §7. 18 fits (~2 h); resumes per (arm, arch, seed)
+.venv_claude/bin/python scripts/mlp_readout_cosine.py --self-test        # seconds, synthetic
+nohup .venv_claude/bin/python scripts/mlp_readout_cosine.py > logs/mlp_readout_cosine.log 2>&1 &
+.venv_claude/bin/python scripts/mlp_readout_cosine.py --summarize-only   # all §7 tables,
+                                          # recomputed from readout_reps/*.npz, no refits
 
 # seconds, no cached activations needed
 .venv_claude/bin/python scripts/test_probe_architectures.py

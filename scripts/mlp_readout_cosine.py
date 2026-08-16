@@ -708,6 +708,141 @@ def print_pre_readout(rows: list[dict]) -> None:
         print(f"  {arm:15s} {arch:20s} " + "  ".join(cells))
 
 
+def print_class_vs_domain(fits: list[dict]) -> dict:
+    """How big is the class axis next to the red-team/eval domain axis, same space?
+
+    Every distance in the tables above is between two groups that differ in *source*. That
+    only becomes interpretable next to the separation the readout is actually trained to
+    produce, which is between the two **classes**. So: pool all red-team rows and all eval
+    rows and measure the domain axis; measure the class axis inside each of those two
+    pools; and compare.
+
+    A domain axis at or above the class axis means the readout encodes "which corpus is
+    this" about as strongly as "is this harmful" — spending its 64 dimensions on something
+    the concept does not need.
+
+    **Measured raw, not centered, and reported as a ratio to each axis's own permutation
+    null.** The fixed centring vector is the grand mean of the red-team and eval rows
+    together, i.e. of exactly the two halves this section compares — so in the centred
+    space those two centroids are the degenerate antiparallel pair again and the domain
+    axis reads 2.0000 by construction. Raw cosine has no such constraint, and dividing each
+    axis by its own null puts a 6-token domain gap and a 64-dimension class gap on one
+    scale: "how many sampling-noise units apart".
+    """
+    print(f"\n{'-' * 100}\nCLASS AXIS vs DOMAIN AXIS (raw, as multiples of each axis's "
+          f"own permutation null)\n{'-' * 100}")
+    print(f"  {'arm':15s} {'architecture':20s} {'domain':>18s} {'class(rt)':>18s} "
+          f"{'class(eval)':>18s} {'dom/class':>10s}")
+    out = {}
+    for (arm, arch), group in sorted(_by_arm_arch(fits).items()):
+        rows_ = {"domain": [], "class_rt": [], "class_eval": []}
+        for f in group:
+            rt = np.concatenate([f["reps"][g] for g in ("v2", "v3new")])
+            rt_y = np.concatenate([f["labels"][g] for g in ("v2", "v3new")])
+            ev = np.concatenate([f["reps"][g] for g in EVAL_KEYS])
+            ev_y = np.concatenate([f["labels"][g] for g in EVAL_KEYS])
+            rows_["domain"].append(permutation_null(rt, ev, None, 200, f["seed"]))
+            rows_["class_rt"].append(
+                permutation_null(rt[rt_y], rt[~rt_y], None, 200, f["seed"]))
+            rows_["class_eval"].append(
+                permutation_null(ev[ev_y], ev[~ev_y], None, 200, f["seed"]))
+        cells, ratios = {}, {}
+        for k, vals in rows_.items():
+            obs, _ = _mean_sd([v["obs"] for v in vals])
+            nul, _ = _mean_sd([v["null_mean"] for v in vals])
+            ratios[k] = obs / nul if nul else float("nan")
+            cells[k] = f"{obs:.4f} ({ratios[k]:5.1f}x)"
+        mean_class = (ratios["class_rt"] + ratios["class_eval"]) / 2
+        print(f"  {arm:15s} {arch:20s} {cells['domain']:>18s} {cells['class_rt']:>18s} "
+              f"{cells['class_eval']:>18s} "
+              f"{ratios['domain'] / mean_class if mean_class else float('nan'):10.2f}")
+        out[f"{arm}|{arch}"] = {k: {"obs": _mean_sd([v['obs'] for v in vals])[0],
+                                    "ratio": ratios[k]} for k, vals in rows_.items()}
+    print("  domain = red-team rows vs eval rows; class = positive vs negative rows inside "
+          "each pool.\n  Ratio > 1 in the last column means source separates the space more "
+          "than the label does.")
+    return out
+
+
+def print_hard_core_geometry(fits: list[dict], n_perm: int = 2000) -> dict:
+    """Do the 31 unreachable rows sit further from the training data than their neighbours?
+
+    The split-level tables answer this only by proxy. This asks it of the rows themselves:
+    ``arch_sweep.load_hard_core`` identifies them by ``(split, idx_in_split)``, and the
+    saved vectors are stored in split order, so the two join positionally with no content
+    hashing (the four hu_ha splits hold 866 rows but only 825 distinct conversations, which
+    is why a content join over-counts — see that function).
+
+    Metric: each row's raw cosine distance to the **red-team training centroid**, averaged
+    over core rows and over the non-core rows of the same splits. The null shuffles which
+    rows are "core" within each split, so it holds the split mix fixed — the core is two
+    thirds ``eval_ant_hh``, and ``eval_ant_hh`` sits closest to the training data anyway,
+    so an unconditioned comparison would recover that split effect and nothing else.
+
+    A positive gap would mean the residue is rows the readout places outside the region it
+    was trained on. A gap of zero means they fail *inside* it, and distance-to-training is
+    not the reason they are unreachable.
+    """
+    from arch_sweep import load_hard_core
+
+    cores, info = load_hard_core()
+    core = cores.get("balanced", set())
+    if not core:
+        print("\n(no hard-core tag dumps found — skipping the hard-core geometry)")
+        return {}
+
+    print(f"\n{'-' * 100}\nHARD CORE: distance to the red-team training centroid, "
+          f"core rows vs their own splits\n{'-' * 100}")
+    print(f"  core = {len(core)} rows (balanced rule, eight families); "
+          f"per split: "
+          + ", ".join(f"{s}={sum(1 for x in core if x[0] == f'eval_{s}')}"
+                      for s in EVAL_KEYS))
+    print(f"\n  {'arm':15s} {'architecture':20s} {'core':>9s} {'non-core':>10s} "
+          f"{'gap':>9s} {'null sd':>9s} {'z':>7s} {'p':>7s}")
+    out = {}
+    for (arm, arch), group in sorted(_by_arm_arch(fits).items()):
+        gaps, zs, ps, cs, ns = [], [], [], [], []
+        for f in group:
+            rt_c = np.concatenate([f["reps"][g] for g in ("v2", "v3new")]).mean(0)
+            d, is_core, split_id = [], [], []
+            for si, s in enumerate(EVAL_KEYS):
+                v = f["reps"][s]
+                d.append(1.0 - _unit(v) @ _unit(rt_c))
+                is_core.append(np.array([(f"eval_{s}", i) in core for i in range(len(v))]))
+                split_id.append(np.full(len(v), si))
+            d = np.concatenate(d)
+            is_core = np.concatenate(is_core)
+            split_id = np.concatenate(split_id)
+            obs = float(d[is_core].mean() - d[~is_core].mean())
+            rng = np.random.default_rng(f["seed"])
+            null = np.empty(n_perm)
+            for k in range(n_perm):
+                perm = np.zeros(len(d), dtype=bool)
+                for si in range(len(EVAL_KEYS)):
+                    m = split_id == si
+                    n_c = int(is_core[m].sum())
+                    if n_c:
+                        pick = rng.choice(np.flatnonzero(m), n_c, replace=False)
+                        perm[pick] = True
+                null[k] = d[perm].mean() - d[~perm].mean()
+            sd = float(null.std(ddof=1))
+            gaps.append(obs)
+            zs.append(obs / sd if sd else float("nan"))
+            ps.append(float((np.abs(null) >= abs(obs)).mean()))
+            cs.append(float(d[is_core].mean()))
+            ns.append(float(d[~is_core].mean()))
+        g, gsd = _mean_sd(gaps)
+        print(f"  {arm:15s} {arch:20s} {_mean_sd(cs)[0]:9.4f} {_mean_sd(ns)[0]:10.4f} "
+              f"{g:+9.4f} {gsd:9.4f} {_mean_sd(zs)[0]:7.1f} {max(ps):7.3f}")
+        out[f"{arm}|{arch}"] = {
+            "core_mean": _mean_sd(cs)[0], "noncore_mean": _mean_sd(ns)[0],
+            "gap": g, "gap_sd_over_seeds": gsd, "z": _mean_sd(zs)[0], "p_max": max(ps),
+        }
+    print("  gap = core minus non-core; the null reshuffles core membership WITHIN each "
+          "split.\n  p is two-sided and the worst over seeds.")
+    return {"core_size": len(core), "info": info, "per_fit": out}
+
+
 def print_refit_check(rows: list[dict]) -> None:
     print("\nRefit check (mean eval AUROC, pipeline scale) — should match arch_sweep")
     by = defaultdict(list)
@@ -733,6 +868,8 @@ def print_report(rows: list[dict], n_perm: int = 500) -> dict:
     out = {}
     out["matrix_centered"] = print_matrix(fits, centered=True)
     out["matrix_raw"] = print_matrix(fits, centered=False)
+    out["class_vs_domain"] = print_class_vs_domain(fits)
+    out["hard_core"] = print_hard_core_geometry(fits)
     if n_perm:
         out["null_centered"] = print_null_table(fits, centered=True, n_perm=n_perm)
     print_vintage_comparison(fits, centered=True)
