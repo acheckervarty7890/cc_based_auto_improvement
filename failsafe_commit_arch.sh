@@ -62,12 +62,14 @@ TARGET_BRANCH="${TARGET_BRANCH:-experiment11_cloud}"
 PAYLOAD_CODE=(
     scripts/arch_sweep.py
     scripts/nonlinear_ceiling.py
+    scripts/mlp_readout_cosine.py
     scripts/test_probe_architectures.py
     scripts/attribution_refit.py
     src/agentic_redteam/probe_architectures.py
     failsafe_commit_arch.sh
     logs/arch_sweep.log
     logs/nonlinear_ceiling.log
+    logs/mlp_readout_cosine.log
 )
 
 mkdir -p logs "$ODIR"
