@@ -601,29 +601,29 @@ them.
 
 ### 4. Pooling vs. non-linearity — the effect survives the trade-off control
 
-**Three of five seeds, both arms: 49 fits, n = 6-7 per architecture.**
+**All five seeds, both arms: 80 fits, n = 10 per architecture.**
 `print_tradeoff_test` regresses `eval_ant_hh` AUROC on the mean of the *other three*
 splits across every fit (so `ant_hh` is not on both axes) and reports each architecture's
 residual — how much better it does on the hard split than its overall performance
 predicts.
 
-| architecture | pooling | readout | residual | verdict | *(at 2 seeds)* |
-|---|---|---|---|---|---|
-| `pre_mean` | mean | linear | **+0.0474 ± 0.0061** | **above** | *+0.0487* |
-| `mean_then_mlp` | mean | MLP | **+0.0393 ± 0.0142** | **above** | *+0.0395* |
-| `attention` | attn query | linear | **+0.0363 ± 0.0135** | **above** | *+0.0403* |
-| `attention_then_mlp` | attn query | MLP | +0.0210 ± 0.0246 | on the line | *+0.0169* |
-| `mlp_then_softmax` | **softmax** | MLP | −0.0055 ± 0.0224 | on the line | *−0.0058* |
-| `lda_shrinkage` | mean | closed form | −0.0123 ± 0.0527 | on the line | *−0.0133* |
-| `linear_then_softmax` | **softmax** | linear | **−0.0396 ± 0.0211** | **below** | *−0.0449* |
-| `difference_of_means` | mean | closed form | −0.0801 ± 0.0185 | below | *−0.0815* |
+| architecture | pooling | readout | residual (5 seeds) | verdict | *2 seeds* | *3 seeds* |
+|---|---|---|---|---|---|---|
+| `pre_mean` | mean | linear | **+0.0487 ± 0.0061** | **above** | *+0.0487* | *+0.0474* |
+| `mean_then_mlp` | mean | MLP | **+0.0440 ± 0.0158** | **above** | *+0.0395* | *+0.0393* |
+| `attention` | attn query | linear | **+0.0349 ± 0.0122** | **above** | *+0.0403* | *+0.0363* |
+| `attention_then_mlp` | attn query | MLP | +0.0188 ± 0.0263 | on the line | *+0.0169* | *+0.0210* |
+| `mlp_then_softmax` | **softmax** | MLP | −0.0114 ± 0.0236 | on the line | *−0.0058* | *−0.0055* |
+| `lda_shrinkage` | mean | closed form | −0.0129 ± 0.0502 | on the line | *−0.0133* | *−0.0123* |
+| `linear_then_softmax` | **softmax** | linear | **−0.0411 ± 0.0194** | **below** | *−0.0449* | *−0.0396* |
+| `difference_of_means` | mean | closed form | −0.0809 ± 0.0177 | below | *−0.0815* | *−0.0801* |
 
-**The estimates are stable.** Adding a third seed — 50% more data — moved every residual
-by less than 0.005 and tightened most of the standard deviations, with the ordering
-unchanged. That is worth stating explicitly given how much the raw `ant_hh` numbers move
-between seeds (§2b): the *residual* is a far better-behaved quantity than the split score
-it is computed from, because regressing out overall performance removes the seed-to-seed
-variation that swamps the raw delta.
+**The estimates never moved.** The last three columns are the same quantity at 2, 3 and 5
+seeds: no residual shifted by more than 0.005 across the whole run, and the ordering was
+fixed from the first pair of seeds. That is worth stating given how much the raw `ant_hh`
+numbers move between seeds (§2b): the *residual* is a far better-behaved quantity than the
+split score it is computed from, because regressing out overall performance removes the
+seed-to-seed variation that swamps the raw delta.
 
 **The `ant_hh` effect is not the generalisation trade-off.** §2 raised that as the
 alternative explanation and this is the control for it: after regressing out overall
@@ -634,11 +634,11 @@ specifically bad at it — worse than its own accuracy on the other three splits
 **And the axis is pooling, not readout.** Ordering the six Adam-trained heads by residual
 groups them perfectly by pooling and not at all by readout:
 
-| pooling | residuals (3 seeds) |
+| pooling | residuals (5 seeds) |
 |---|---|
-| mean | **+0.0474**, **+0.0393** |
-| decoupled attention query | **+0.0363**, +0.0210 |
-| softmax over own logits | −0.0055, **−0.0396** |
+| mean | **+0.0487**, **+0.0440** |
+| decoupled attention query | **+0.0349**, +0.0188 |
+| softmax over own logits | −0.0114, **−0.0411** |
 
 Both mean-pooled heads are above, both softmax-pooled heads are at or below, and the two
 attention-pooled ones are in between — while the linear/MLP readout distinction cuts
@@ -666,7 +666,60 @@ run and says otherwise. §2's text is left as written, with this section as its 
 because the sequence — single-seed impression, explicit alternative hypothesis, purpose-built
 control, reversal — is the part worth keeping.
 
-### 5. What the best-epoch fix was worth
+### 4b. The deployed head is the *least stable* architecture, by a factor of 39
+
+Reading the five-seed spreads rather than the means turns up something the mean AUROC
+table hides. Mean AUROC across seeds, deepseekv4pro:
+
+| architecture | mean AUROC | **sd across seeds** | best epochs chosen |
+|---|---|---|---|
+| `linear_then_softmax` | 0.8748 | **± 0.0543** | 36, 44, **5**, 50, 12 |
+| `mlp_then_softmax` | 0.8544 | ± 0.0625 | 17, 17, 21, **4**, 20 |
+| `attention` | 0.8146 | ± 0.0024 | 38, 23, 13, 33, 72 |
+| `pre_mean` | 0.7749 | **± 0.0014** | 3, 6, 19, 17, 5 |
+
+The per-seed values make the mechanism plain. `linear_then_softmax` scores
+**0.9112, 0.9105, 0.7836, 0.9029, 0.8656** — and the 0.7836 is the seed where early
+stopping picked **epoch 5**, while the 0.91s picked 36-50. A **0.13 AUROC swing decided by
+which epoch the validation set happened to favour.** `mlp_then_softmax` shows the same
+pattern (its worst seed, 0.7457, is the one that stopped at epoch 4).
+
+The stable architectures are stable for the opposite reason: `pre_mean`'s best epoch ranges
+3 to 19 and its AUROC moves by 0.0035 in total. Its fit is converged almost immediately,
+so the epoch choice does not matter. `attention` likewise, over an even wider epoch range
+(13-72).
+
+**So the deployed head buys its ~0.1 of extra mean AUROC with a 39x larger seed variance**,
+and that variance is not intrinsic randomness — it is sensitivity to a single discrete
+choice made by a ~180-row validation split that both arms nearly saturate (val AUROC 0.994
+and 1.000, §1). A probe whose deployed quality swings 0.13 on the seed is a different kind
+of problem from one that is 0.1 worse on average, and neither the committed comparison CSVs
+nor the vintage sweep would have shown it, because both report single-seed numbers.
+
+**This complicates the best-epoch fix rather than vindicating it** — see §5.
+
+### 5. What the best-epoch fix was worth — and whether it is even an improvement
+
+*Running: `--architectures linear_then_softmax --legacy-best-epoch`, 10 fits.*
+
+§4b makes this question sharper than it was when the fix went in. The fix makes the
+trainer do what its code says — restore the epoch validation selected — and the
+single-seed estimate suggested that was worth ~+0.02 AUROC (0.9112 against the committed
+0.8880). But §4b shows the deployed head's score is **dominated** by which epoch gets
+selected, and §1 shows the validation split is nearly saturated on both arms (AUROC 0.994
+and 1.000).
+
+Put together, those say the fix **couples the probe tightly to a signal that may not
+deserve it.** On the seed where validation peaked at epoch 5, restoring epoch 5 is
+*faithful* and gives 0.7836; simply training on to epoch 55, as the unfixed code
+accidentally did, might well have given more. The fix is unambiguously correct as code —
+`load_state_dict` should restore what it claims to — but "correct" and "better probe" come
+apart when the selection signal is this weak.
+
+That makes the legacy control worth more than a footnote, and it is why it was promoted
+ahead of the temperature sweep: it decides whether conclusion 3 should read *"apply this
+fix"* or *"apply this fix **and** fix the validation split first, because the fix
+amplifies whatever that split tells you."*
 
 ### 6. Sensitivity to capacity and regularisation
 
