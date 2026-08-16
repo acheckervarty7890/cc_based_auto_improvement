@@ -72,14 +72,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import attribution_lib as A
-from attribution_vintage import (
-    _blob,
-    _load_fitted,
-    _source_keys,
-    dropped_rows,
-    fit_path,
-    vintages,
-)
+from attribution_vintage import _blob, _load_fitted, dropped_rows, fit_path, vintages
 
 EMBED_DIM = 5376
 THRESHOLD = 0.5  # config default probe.threshold; see ProbeJudge.evaluate
@@ -230,20 +223,21 @@ def analyse_arm(arm: str, iteration: int, seeds: list[int], out_dir: Path,
     new_rows = sorted(v3 - v2)
     seen_rows = sorted(v2)
 
-    # Rows the over-long filter removed that ALSO belong to the added cohort. They are
-    # not part of the sweep's v3, so they are scored and reported apart rather than
-    # folded into the headline — the v2 probes never saw them either way. Membership is
-    # tested against the iteration-2 DUMP, not against ``v2``: ``v2`` has already had the
-    # over-long rows removed, so an excluded row would trivially look "new" against it.
-    iter2_sources = set(_source_keys(arm, 2, gen2src))
-    dropped_new = sorted(i for i in exclude if src_keys[i] not in iter2_sources)
+    # Rows the over-long filter removed. They are in no vintage, so they are scored and
+    # reported apart rather than folded into the headline — the v2 probes never saw them.
+    # Scoring them anyway makes the three cohorts a **partition** of the iteration-3 dump
+    # (v2 + new + excluded = every row), which is what lets the conversation viewer show
+    # every pair with a real measurement rather than a hole.
+    dropped_rows_all = sorted(exclude)
 
     print(f"\n=== {arm} ===", flush=True)
     print(f"  over-long drop ({drop_mode}): {drop_report['n_dropped']} row(s)", flush=True)
     print(f"  vintage 2: {len(seen_rows)} rows   vintage 3: {len(v3)} rows", flush=True)
     print(f"  NEW in v3 (scored): {len(new_rows)} rows "
           f"= {len({src_keys[i] for i in new_rows})} pair(s); "
-          f"{len(dropped_new)} further row(s) excluded as over-long", flush=True)
+          f"{len(dropped_rows_all)} further row(s) excluded as over-long", flush=True)
+    assert len(seen_rows) + len(new_rows) + len(dropped_rows_all) == len(redteam.inputs), \
+        "cohorts must partition the iteration-3 dump"
 
     prov = provenance(arm)
     ref = A.load_probe(A.ARMS[arm] / f"probe_iter{iteration}.pkl")
@@ -258,8 +252,8 @@ def analyse_arm(arm: str, iteration: int, seeds: list[int], out_dir: Path,
     probes["pipeline_iter2"] = A.load_probe(A.ARMS[arm] / "probe_iter2.pkl")
 
     cohorts = {"new_in_v3": new_rows}
-    if dropped_new:
-        cohorts["new_in_v3_overlong"] = dropped_new
+    if dropped_rows_all:
+        cohorts["overlong_excluded"] = dropped_rows_all
     if include_seen:
         cohorts["in_v2_train"] = seen_rows
 
