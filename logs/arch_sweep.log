@@ -687,3 +687,126 @@ wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablati
      ai_dilemmas    acc=0.912 auc=0.9573  ant_hh         acc=0.642 auc=0.7408  balanced_refusal acc=0.840 auc=0.8725  daily_dilemmas acc=0.934 auc=0.9682
   seed 46 attention_then_mlp           fit  315.3s score 14.6s params=  349570 best_epoch=4
      ai_dilemmas    acc=0.544 auc=0.6372  ant_hh         acc=0.672 auc=0.7807  balanced_refusal acc=0.738 auc=0.8531  daily_dilemmas acc=0.719 auc=0.8175
+  seed 46 mean_then_mlp                fit  290.1s score 16.0s params=  344193 best_epoch=2
+     ai_dilemmas    acc=0.544 auc=0.6011  ant_hh         acc=0.701 auc=0.8024  balanced_refusal acc=0.752 auc=0.8622  daily_dilemmas acc=0.704 auc=0.7805
+  seed 46 pre_mean                     fit  308.9s score 14.9s params=    5377 best_epoch=4
+     ai_dilemmas    acc=0.588 auc=0.6174  ant_hh         acc=0.687 auc=0.7824  balanced_refusal acc=0.820 auc=0.9059  daily_dilemmas acc=0.638 auc=0.7297
+  seed 46 difference_of_means          fit    6.5s score 15.7s params=    5377 best_epoch=None
+     ai_dilemmas    acc=0.500 auc=0.5467  ant_hh         acc=0.634 auc=0.6378  balanced_refusal acc=0.605 auc=0.6594  daily_dilemmas acc=0.658 auc=0.7372
+  seed 46 lda_shrinkage                fit   36.2s score 19.6s params=    5377 best_epoch=None
+     ai_dilemmas    acc=0.588 auc=0.5948  ant_hh         acc=0.649 auc=0.6556  balanced_refusal acc=0.757 auc=0.7805  daily_dilemmas acc=0.694 auc=0.7353
+
+
+########## architecture sweep — 866 eval rows ##########
+  hard core (balanced): 31 rows wrong under all 8 heldout probe families; raw: 71
+
+=== deepseekv4pro — decision rule: raw ===
+architecture                params            AUROC         accuracy   core recovered  always wrong
+linear_then_softmax           5377 0.8748+/-0.0543 0.7684+/-0.0319     4.6+/-5.4/71            97
+attention                    10754 0.8146+/-0.0024 0.7395+/-0.0031    36.0+/-0.7/71           205
+mlp_then_softmax            344193 0.8544+/-0.0625 0.7464+/-0.0407     2.2+/-2.3/71           145
+attention_then_mlp          349570 0.7736+/-0.0107 0.7203+/-0.0153    36.8+/-4.1/71           192
+mean_then_mlp               344193 0.7601+/-0.0069 0.7044+/-0.0070    36.6+/-3.1/71           197
+pre_mean                      5377 0.7749+/-0.0014 0.7035+/-0.0088    38.8+/-4.8/71           203
+difference_of_means           5377 0.6462+/-0.0000 0.6478+/-0.0000    43.0+/-0.0/71           305
+lda_shrinkage                 5377 0.6603+/-0.0000 0.6663+/-0.0000    31.0+/-0.0/71           289
+
+=== deepseekv4pro — decision rule: balanced ===
+architecture                params            AUROC         accuracy   core recovered  always wrong
+linear_then_softmax           5377 0.8748+/-0.0543 0.8383+/-0.0485     0.8+/-1.3/31            44
+attention                    10754 0.8146+/-0.0024 0.7630+/-0.0026    12.0+/-0.7/31           179
+mlp_then_softmax            344193 0.8544+/-0.0625 0.8018+/-0.0410     2.6+/-3.8/31            45
+attention_then_mlp          349570 0.7736+/-0.0107 0.7501+/-0.0070    12.2+/-0.4/31           169
+mean_then_mlp               344193 0.7601+/-0.0069 0.7178+/-0.0103    12.8+/-0.8/31           179
+pre_mean                      5377 0.7749+/-0.0014 0.7219+/-0.0042    12.6+/-0.5/31           195
+difference_of_means           5377 0.6462+/-0.0000 0.6628+/-0.0000    14.0+/-0.0/31           292
+lda_shrinkage                 5377 0.6603+/-0.0000 0.6928+/-0.0000    15.0+/-0.0/31           266
+
+--- deepseekv4pro: per-split AUROC (balanced-rule fits, pipeline scale) ---
+architecture                   ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+linear_then_softmax      0.8819+/-0.155 0.7329+/-0.021 0.9172+/-0.024 0.9670+/-0.037
+attention                0.6878+/-0.006 0.7761+/-0.005 0.9068+/-0.006 0.8875+/-0.004
+mlp_then_softmax         0.8546+/-0.163 0.7580+/-0.025 0.8570+/-0.016 0.9480+/-0.081
+attention_then_mlp       0.6146+/-0.032 0.7394+/-0.016 0.8806+/-0.013 0.8600+/-0.010
+mean_then_mlp            0.6161+/-0.012 0.7657+/-0.014 0.8679+/-0.014 0.7908+/-0.014
+pre_mean                 0.6314+/-0.005 0.7819+/-0.006 0.8808+/-0.007 0.8057+/-0.008
+difference_of_means      0.5571+/-0.000 0.6072+/-0.000 0.7305+/-0.000 0.6901+/-0.000
+lda_shrinkage            0.5229+/-0.000 0.7336+/-0.000 0.7623+/-0.000 0.6224+/-0.000
+
+=== gptoss120b — decision rule: raw ===
+architecture                params            AUROC         accuracy   core recovered  always wrong
+linear_then_softmax           5377 0.8988+/-0.0117 0.8344+/-0.0234     6.0+/-4.4/71            83
+attention                    10754 0.7895+/-0.0081 0.7259+/-0.0121    20.8+/-7.3/71           150
+mlp_then_softmax            344193 0.8808+/-0.0143 0.8242+/-0.0358     7.0+/-3.7/71            92
+attention_then_mlp          349570 0.7739+/-0.0042 0.7095+/-0.0167   23.0+/-12.6/71           115
+mean_then_mlp               344193 0.7586+/-0.0067 0.7055+/-0.0095    27.0+/-7.6/71           143
+pre_mean                      5377 0.7667+/-0.0074 0.7217+/-0.0033    18.0+/-4.2/71           162
+difference_of_means           5377 0.6453+/-0.0000 0.6051+/-0.0000    41.0+/-0.0/71           342
+lda_shrinkage                 5377 0.6916+/-0.0000 0.6998+/-0.0000    41.0+/-0.0/71           260
+
+=== gptoss120b — decision rule: balanced ===
+architecture                params            AUROC         accuracy   core recovered  always wrong
+linear_then_softmax           5377 0.8988+/-0.0117 0.8443+/-0.0173     1.4+/-1.5/31            68
+attention                    10754 0.7895+/-0.0081 0.7497+/-0.0109     8.0+/-1.9/31           164
+mlp_then_softmax            344193 0.8808+/-0.0143 0.8171+/-0.0218     1.0+/-1.2/31            93
+attention_then_mlp          349570 0.7739+/-0.0042 0.7307+/-0.0060     7.8+/-2.5/31           154
+mean_then_mlp               344193 0.7586+/-0.0067 0.7256+/-0.0094     8.2+/-1.5/31           173
+pre_mean                      5377 0.7667+/-0.0074 0.7339+/-0.0103     9.6+/-0.5/31           179
+difference_of_means           5377 0.6453+/-0.0000 0.6536+/-0.0000    13.0+/-0.0/31           300
+lda_shrinkage                 5377 0.6916+/-0.0000 0.7229+/-0.0000     8.0+/-0.0/31           240
+
+--- gptoss120b: per-split AUROC (balanced-rule fits, pipeline scale) ---
+architecture                   ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+linear_then_softmax      0.9519+/-0.037 0.7369+/-0.014 0.9343+/-0.011 0.9720+/-0.013
+attention                0.6523+/-0.016 0.7805+/-0.011 0.9073+/-0.014 0.8181+/-0.017
+mlp_then_softmax         0.9235+/-0.044 0.7544+/-0.023 0.8919+/-0.030 0.9536+/-0.020
+attention_then_mlp       0.6450+/-0.008 0.7697+/-0.020 0.8798+/-0.022 0.8010+/-0.015
+mean_then_mlp            0.6160+/-0.010 0.7808+/-0.014 0.8846+/-0.017 0.7531+/-0.026
+pre_mean                 0.6240+/-0.007 0.7804+/-0.007 0.9139+/-0.006 0.7487+/-0.018
+difference_of_means      0.5467+/-0.000 0.6378+/-0.000 0.6594+/-0.000 0.7372+/-0.000
+lda_shrinkage            0.5948+/-0.000 0.6556+/-0.000 0.7805+/-0.000 0.7353+/-0.000
+
+=== cross-arm (raw): rows wrong under BOTH attacker arms ===
+architecture              wrong both arms  old core still wrong  old core recovered
+linear_then_softmax                   111                    67                   4
+attention                             134                    32                  39
+mlp_then_softmax                      107                    63                   8
+attention_then_mlp                    139                    27                  44
+mean_then_mlp                         164                    27                  44
+pre_mean                              130                    32                  39
+difference_of_means                   233                    26                  45
+lda_shrinkage                         135                    18                  53
+
+=== cross-arm (balanced): rows wrong under BOTH attacker arms ===
+architecture              wrong both arms  old core still wrong  old core recovered
+linear_then_softmax                    68                    31                   0
+attention                             147                    19                  12
+mlp_then_softmax                      105                    30                   1
+attention_then_mlp                    153                    18                  13
+mean_then_mlp                         160                    18                  13
+pre_mean                              167                    18                  13
+difference_of_means                   254                    16                  15
+lda_shrinkage                         121                    15                  16
+
+
+########## is the eval_ant_hh gain real, or the trade-off? ##########
+  ant_hh = +0.256 x (mean of other 3 splits) + 0.536   [n=80 fits, residual rmse 0.0485]
+  Slope is positive: over this range the splits move together rather than
+  trading off. Note the fit spans architectures of very different overall
+  quality, and a weak family that is bad EVERYWHERE (difference_of_means)
+  anchors the low end and pulls the slope positive, which can mask a
+  trade-off operating among the stronger heads. Read the residuals.
+
+  residual = how much better on ant_hh than overall performance predicts
+architecture                       residual    n   verdict
+linear_then_softmax         -0.0411+/-0.0194   10   below
+attention                   +0.0349+/-0.0122   10   ABOVE the line
+mlp_then_softmax            -0.0114+/-0.0236   10   on the line
+attention_then_mlp          +0.0188+/-0.0263   10   on the line
+mean_then_mlp               +0.0440+/-0.0158   10   ABOVE the line
+pre_mean                    +0.0487+/-0.0061   10   ABOVE the line
+difference_of_means         -0.0809+/-0.0177   10   below
+lda_shrinkage               -0.0129+/-0.0502   10   on the line
+
+wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation/arch_sweep/arch_sweep.json
+>>> all seeds done 2026-08-16T02:14:15+00:00
