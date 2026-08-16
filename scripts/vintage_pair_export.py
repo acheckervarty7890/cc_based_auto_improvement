@@ -163,7 +163,14 @@ def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict,
         )
         blob = A.redteam_blob_path(msgs)
         sc = v2_scores.get((arm, "new", skey), {})
+        # A rewrite that changed NOTHING is the one outcome a minimal-edit prompt can
+        # produce that is worse than the old lookalike: the training set would then
+        # carry the same conversation twice under opposite labels. It happens when the
+        # generator disagrees with the source's judge label and says so instead of
+        # editing. Flagged here so the viewer can badge and filter it, and so it can
+        # never be quietly folded into a retrain.
         return {
+            "same": A.canon(msgs) == A.canon(ds.inputs[source_row]),
             "label": rec["target_label"],
             "tok": (A.blob_width(blob) if blob.exists() else None),
             "sim": round(rec["sim_new"], 4),
@@ -238,6 +245,7 @@ def main() -> None:
               + "  ".join(f"{k}={v}" for k, v in sorted(c.items()))
               + f"   [in v3 not v2 = {c['new'] + c['readd']}]"
               + f"  v2={sum(1 for p in n if p['v2'])}"
+              + f"  UNCHANGED={sum(1 for p in n if p['v2'] and p['v2']['same'])}"
               + f"  orphan={payload['arms'][arm]['n_orphan']}", flush=True)
 
     blob = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
