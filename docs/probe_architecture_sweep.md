@@ -876,6 +876,113 @@ for the residue — it is neither a capacity limit nor a coverage gap.
   evidence for it: pre- and post-readout live in spaces of different dimension, so only the
   ratios are comparable and only loosely.
 
+### 8. Pooling by token *position* instead of token content
+
+Every head above pools by **content** — `pre_mean` uniformly, `linear_then_softmax` by each
+token's own logit, `attention` by a learned query. §8 adds the axis none of them touch:
+`TokenPool` learns one weight per token *index*, so the whole sequence collapses to a single
+activation vector that the deployed `LinearThenSoftmax` then reads out. Mean pooling is the
+special case with those weights frozen at `1/L` (checked to 1e-16 in
+`test_probe_architectures.py`, test 6), which is what makes `pre_mean` the right thing to
+read the result against. Two variants: `token_linear_then_softmax` (one `Linear(1024→1)`
+over positions, 6 402 params) and `token_mlp_then_softmax` (`Linear(1024→64) → GELU →
+Linear(64→1)`, 71 042 params).
+
+It is run against the three **red-team vintages** rather than at full data only, because a
+head with a learned pooling map is exactly the kind of thing that could be bought with data
+rather than with architecture. `scripts/token_pool_vintage.py`; vintage `k` is
+`attribution_vintage`'s definition unchanged.
+
+**Scope, and it is much narrower than every other section here.** The run was cut short
+deliberately once the direction was clear: **one arm** (`deepseekv4pro`), 20 fits, two seeds
+at vintage 1 and **one seed** at vintages 2 and 3 for the token heads. Every other section
+in this document reports two arms at five seeds. Treat §8 as a screen, not a result.
+
+| architecture | v1 (368 rt rows) | v2 (706) | v3 (878) |
+|---|---|---|---|
+| `linear_then_softmax` | 0.7462 ± 0.0253 | 0.7813 ± 0.0104 | **0.9108 ± 0.0005** |
+| `pre_mean` | 0.7522 ± 0.0068 | 0.7773 ± 0.0002 | 0.7755 ± 0.0006 |
+| `token_linear_then_softmax` | 0.6715 ± 0.0480 | 0.5273 | 0.5670 |
+| `token_mlp_then_softmax` | 0.6592 ± 0.0775 | 0.6041 | 0.5859 |
+
+**(a) Positional pooling loses, and loses harder as data grows.** Paired by
+arm/vintage/seed, both token heads are below both baselines at every vintage: −0.075 to
+−0.093 at v1, widening to −0.32 to −0.34 against the deployed head at v3. Per split at v3
+the failure is near-total — `token_linear` scores 0.5216 / 0.5496 / 0.7303 / 0.4664, i.e.
+chance on three splits and *below* chance on `daily_dilemmas`.
+
+**(b) Only the deployed head converts the extra red-team data.** Over v1→v3 it gains
+**+0.165** while `pre_mean` gains +0.023 and both token heads *lose* ground. This is the
+one part of §8 that does not depend on the new architectures at all, and it sharpens §4:
+whatever iterations 2 and 3 of red-teaming added is legible to logit-weighted softmax
+pooling and to essentially nothing else tested.
+
+**(c) The length confound is real, and points the opposite way from the prediction.** These
+heads sum over positions without dividing by length, so the a-priori worry was that their
+logits would ride on conversation length. Measured — Spearman(logit, n_tokens) within each
+split, averaged — it is **`pre_mean`**, the length-*normalised* head, that correlates most
+with length (+0.308), against +0.141 and +0.175 for the un-normalised token heads and
++0.055 for the deployed head. The correlation a probe is entitled to exploit,
+Spearman(n_tokens, label), is +0.088. So `pre_mean` is the head reading length at 3.5× its
+warrant, and the token heads' failure needs a different explanation; the `--normalize`
+control arm was not needed and was not run.
+
+**(d) The one genuinely interesting number: `token_mlp_then_softmax` recovers 26 of the 31
+hard-core rows.** Against 0.5 for the deployed head, 12.5 for `pre_mean` and 11.0 for
+`token_linear`. Chance under the balanced rule is 15.5 ± 2.8, so 26 is ~3.8 sd out, and
+recovery lines up almost perfectly *inversely* with overall AUROC across the four heads —
+the signature of a metric measuring "differs from the deployed head" rather than
+"understands the concept". That was the first hypothesis and it does **not** survive
+checking:
+
+| architecture | rank corr. with deployed | AUROC on the 31 core rows | AUROC elsewhere |
+|---|---|---|---|
+| `linear_then_softmax` | +1.000 | 0.0000 | 0.9558 |
+| `pre_mean` | +0.554 | 0.2905 | 0.8227 |
+| `token_linear_then_softmax` | +0.204 | 0.2167 | 0.6346 |
+| `token_mlp_then_softmax` | +0.050 | **0.7905** | 0.5737 |
+
+An inverted copy of the deployed head would score ~0.09 overall, not 0.586. `token_mlp` is
+instead nearly **orthogonal** to it (+0.050), and — uniquely among everything measured in
+this document — it ranks the hard core *better than it ranks anything else*: 0.79 on the 31
+rows against 0.57 on the other 835. Every other head does the reverse. Note the core is 21
+positives / 10 negatives and sits 21 / 7 / 3 / 0 across `ant_hh` /
+`balanced_refusal` / `daily_dilemmas` / `ai_dilemmas`.
+
+Two reasons to hold this loosely. It is **one fit** — the seed replication was cut, and
+§8's own vintage-1 numbers show the token heads are the noisiest heads here (±0.048 to
+±0.078 across two seeds, roughly double the baselines). And the core is **selection-biased
+by construction**: it was defined by the errors of the linear family, so a head that is
+merely mildly anti-dependent with that family *in the tails* would inflate on it even at
+overall rank correlation ≈ 0. The cheap confirmation is two more fits —
+`token_mlp_then_softmax` at vintage 3, seeds 43 and 44, ~18 minutes — and until they exist
+this is a lead, not a finding.
+
+**Two things checked and rejected along the way.** The v1→v2 collapse is *not* an artefact
+of the merged training tensor's width changing between vintages, which would have left the
+later position weights untrained at v1 — the three vintages have max widths 1012 / 1024 /
+1024 and median ~300 throughout. And the fixed 1024-wide position map is exact against the
+narrower tensors it meets (base 84, eval splits 121 / 144 / 288 / 859), because
+`TokenPool` slices `weight[:, :S]` rather than padding, which is identical *given* right
+padding and exact zeros at pad positions — verified on every blob in the repo via
+`--check-padding`, not assumed.
+
+**A structural ceiling worth stating.** Because the blobs are right-padded, index `s` means
+"the s-th token from the start", and the last real token of a conversation sits at a
+different index in every row (median 300, max 1024). A positional map can therefore learn
+*ignore the opening turns* but cannot point at the assistant's reply — which, for an
+assistant-centric concept, is where the label lives. Two of the four eval splits are only
+121 and 144 tokens wide, so on those the head is scored using only position weights trained
+on conversation openings. An **end-aligned** variant (per-row gather instead of a fixed
+index) is the version of this idea that has not been tested, and §8 does not bear on it.
+
+**One incidental finding.** `pre_mean` and `linear_then_mean` are the **same probe under
+two names**: mean-pooling commutes with a linear map (`w·mean(hₜ) + b = mean(w·hₜ + b)`),
+`LinearThenAgg` zeroes per-token logits at pad positions so the bias term lines up too, and
+the two ship byte-identical default hyperparameters. Given the same weights their outputs
+agree to 1.1e-16. Same duplication as `lda` / `difference_of_means` (§ Design). No sweep
+here lists both, but one that did would report a single estimator twice.
+
 ## What this means for the retraining loop
 
 *The readout-axis conclusions below are complete and supported by §1. Anything about
@@ -955,6 +1062,22 @@ pooling waits on §§2-4.*
    "read the 21 conversations" the single highest-value next action in this whole
    investigation, ahead of any further probe-side work including the queued follow-ups.
 
+7. **Pooling by position is a dead end, but one near-orthogonal head ranks the residue.**
+   §8 replaces content-based pooling with a learned map over token indices and it fails
+   plainly — below both baselines at every vintage, widening to −0.34 AUROC at full data,
+   and getting *worse* as red-team data grows. Two by-products matter more than the
+   architecture verdict. First, `pre_mean` — not the un-normalised token heads — is the
+   head whose logit tracks conversation length hardest (+0.308 against a +0.088 warrant),
+   which is worth knowing wherever mean pooling is used as a neutral baseline. Second, and
+   the only lead §8 produces: `token_mlp_then_softmax` is nearly orthogonal to the deployed
+   head (rank correlation +0.050) and ranks the 31 hard-core rows at **0.79 AUROC while
+   managing 0.57 on the other 835** — the first thing measured here that is *better* on the
+   residue than on ordinary rows, and the reverse of every other head. If it replicates
+   (two fits, ~18 min), it says the residue is reachable by a **different** representation
+   rather than a better one, which is a different claim from conclusions 1 and 6 and does
+   not contradict either. On one fit, from the worst-performing head in the sweep, against
+   a selection-biased metric, it is a lead and nothing more.
+
 ## Reproducing
 
 ```bash
@@ -996,6 +1119,18 @@ them after the main sweep finishes**, not alongside it.
 # 3. Quantifies what the best-epoch fix is worth, which conclusion 3 rests on.
 #    Currently a single-seed estimate.
 .venv_claude/bin/python scripts/arch_sweep.py --legacy-best-epoch
+```
+
+```bash
+# §8 — positional pooling across the three red-team vintages. 20 fits as run (one arm,
+# cut short); the full grid would be 72. Resumes per (arm, vintage, arch, seed, variant).
+.venv_claude/bin/python scripts/token_pool_vintage.py
+.venv_claude/bin/python scripts/token_pool_vintage.py --summarize-only
+.venv_claude/bin/python scripts/token_pool_vintage.py --check-padding   # seconds
+
+# the one open lead from §8: does token_mlp's 0.79 AUROC on the hard core replicate?
+.venv_claude/bin/python scripts/token_pool_vintage.py --arm deepseekv4pro \
+    --vintages 3 --seeds 43 44 --architectures token_mlp_then_softmax
 ```
 
 ```bash

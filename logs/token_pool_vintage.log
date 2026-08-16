@@ -54,3 +54,63 @@
   seed 43 v2 pre_mean                       fit  630.6s score 17.5s params=   5377 best_epoch=47  MEAN=0.7774
      ai_dilemmas    acc=0.500 auc=0.6287  ant_hh         acc=0.709 auc=0.8055  balanced_refusal acc=0.790 auc=0.8934  daily_dilemmas acc=0.714 auc=0.7821
   [vintage 3] train=747 val=181 (built in 27s)
+  seed 43 v3 linear_then_softmax            fit  768.6s score 23.3s params=   5377 best_epoch=44  MEAN=0.9105
+     ai_dilemmas    acc=0.588 auc=0.9782  ant_hh         acc=0.716 auc=0.7601  balanced_refusal acc=0.752 auc=0.9126  daily_dilemmas acc=0.893 auc=0.9911
+  seed 43 v3 pre_mean                       fit  444.7s score 19.5s params=   5377 best_epoch=6  MEAN=0.7759
+     ai_dilemmas    acc=0.507 auc=0.6386  ant_hh         acc=0.701 auc=0.7782  balanced_refusal acc=0.792 auc=0.8908  daily_dilemmas acc=0.709 auc=0.7960
+
+
+########## eval AUROC by vintage x architecture ##########
+
+  deepseekv4pro
+    architecture                             vintage 1           vintage 2           vintage 3
+    linear_then_softmax            0.7462+/-0.0253 (2) 0.7813+/-0.0104 (2) 0.9108+/-0.0005 (2)
+    pre_mean                       0.7522+/-0.0068 (2) 0.7773+/-0.0002 (2) 0.7755+/-0.0006 (2)
+    token_linear_then_softmax      0.6715+/-0.0480 (2) 0.5273+/-0.0000 (1) 0.5670+/-0.0000 (1)
+    token_mlp_then_softmax         0.6592+/-0.0775 (2) 0.6041+/-0.0000 (1) 0.5859+/-0.0000 (1)
+
+
+########## paired deltas vs. the two baselines (same arm/vintage/seed) ##########
+  positive = the token-pooled head scores higher on mean eval AUROC
+
+  deepseekv4pro
+    contrast                                                          vintage 1          vintage 2          vintage 3
+    token_linear_then_softmax  -  pre_mean                     -0.0807+/-0.0413   -0.2498+/-0.0000   -0.2082+/-0.0000
+    token_linear_then_softmax  -  linear_then_softmax          -0.0747+/-0.0734   -0.2467+/-0.0000   -0.3442+/-0.0000
+    token_mlp_then_softmax  -  pre_mean                        -0.0930+/-0.0842   -0.1730+/-0.0000   -0.1893+/-0.0000
+    token_mlp_then_softmax  -  linear_then_softmax             -0.0871+/-0.0522   -0.1699+/-0.0000   -0.3253+/-0.0000
+
+
+########## per-split AUROC at vintage 3 ##########
+
+  deepseekv4pro
+    architecture                         ai_dilemmas            ant_hh  balanced_refusal    daily_dilemmas
+    linear_then_softmax            0.9834+/-0.007 0.7375+/-0.032 0.9331+/-0.029 0.9895+/-0.002
+    pre_mean                       0.6317+/-0.010 0.7763+/-0.003 0.8866+/-0.006 0.8075+/-0.016
+    token_linear_then_softmax      0.5216+/-0.000 0.5496+/-0.000 0.7303+/-0.000 0.4664+/-0.000
+    token_mlp_then_softmax         0.5055+/-0.000 0.6960+/-0.000 0.5754+/-0.000 0.5665+/-0.000
+
+
+########## does the logit just track conversation length? ##########
+  Spearman(logit, n_tokens) within each split, averaged over splits and seeds.
+  The last column is Spearman(n_tokens, label) — the correlation a probe is
+  entitled to exploit; a head far above it is reading length, not the concept.
+
+  deepseekv4pro   [length vs. label: +0.088]
+    linear_then_softmax            +0.055+/-0.049
+    pre_mean                       +0.308+/-0.029
+    token_linear_then_softmax      +0.141+/-0.000
+    token_mlp_then_softmax         +0.175+/-0.000
+
+
+########## hard-core recovery — 31 rows, balanced rule ##########
+
+  deepseekv4pro
+    linear_then_softmax              0.5+/-0.7 of 31
+    pre_mean                        12.5+/-0.7 of 31
+    token_linear_then_softmax       11.0+/-0.0 of 31
+    token_mlp_then_softmax          26.0+/-0.0 of 31
+
+  (heldout four-way cores: {'four_way_with_base': 37, 'four_way_no_base': 38, 'eight_family_core': 31})
+
+wrote /workspace/cc_based_auto_improvement/results_hu_harm_gemma27b_batch_ablation/token_pool/token_pool.json
