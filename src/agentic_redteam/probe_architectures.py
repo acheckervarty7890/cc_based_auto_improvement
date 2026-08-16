@@ -33,6 +33,19 @@ they are not equally promising:
   is already linearly extractable and capacity is *not* the binding constraint. These
   heads are therefore expected to buy little, and are here to establish that rather than
   to assume it. ``scripts/nonlinear_ceiling.py`` measures the same thing directly.
+- **Positional pooling** — :class:`TokenPool` and the two heads built on it
+  (``token_linear_then_softmax``, ``token_mlp_then_softmax``) weight each token by
+  *where it is*, not by what it says. Every other head here pools by content; mean
+  pooling is the special case of this one with the weights frozen at ``1/L``. It is a
+  separate axis because "which positions carry the label" is a hypothesis the
+  content-based heads cannot express and the fixed mean cannot learn. Note what it can
+  and cannot reach: the blobs are **right**-padded, so index ``s`` is "the s-th token
+  from the start" and the map can learn e.g. *the opening turns do not matter* — but it
+  cannot align to the **end** of a conversation, which is where an assistant-centric
+  label actually lives, because the last real token sits at a different index in every
+  row (median 300, max 1024). End-alignment would need a per-row gather, and is the
+  obvious follow-up if position turns out to carry anything at all.
+  ``scripts/token_pool_vintage.py`` runs it across the three red-team vintages.
 
 Capacity is deliberately small. Both arms already fit their training sets perfectly
 (train accuracy 1.0000, ~600-900 rows in 5376 dimensions — ``attribution_findings.md``),
@@ -78,6 +91,114 @@ def _head_kwargs(kwargs: dict[str, Any]) -> tuple[int, float]:
         int(kwargs.get("hidden_dim", DEFAULT_HIDDEN_DIM)),
         float(kwargs.get("dropout", DEFAULT_DROPOUT)),
     )
+
+
+# --- learned pooling over the TOKEN axis ---------------------------------------------
+
+#: Width the token axis is treated as. ``get_activations`` truncates at 1024
+#: (``tuberlens/model.py:433``), so every blob this repo holds is at most this wide and a
+#: fixed-size map over token positions is well defined.
+DEFAULT_MAX_TOKENS = 1024
+
+#: Hidden width of the token-axis MLP. Deliberately the same 64 as the embedding-axis
+#: readout, so ``token_mlp_then_softmax`` differs from ``token_linear_then_softmax`` by
+#: the non-linearity and nothing else.
+DEFAULT_TOKEN_HIDDEN_DIM = 64
+
+#: How many pooled vectors the token map produces. 1 is the design being tested — the
+#: whole sequence collapses to one activation vector, and the softmax pooling downstream
+#: is then a no-op over a length-1 sequence. >1 leaves the downstream head a real pooling
+#: job over learned slots; it exists so that variant is one flag away rather than a
+#: rewrite.
+DEFAULT_N_SLOTS = 1
+
+
+def _token_pool_kwargs(kwargs: dict[str, Any]) -> tuple[int, int, int]:
+    return (
+        int(kwargs.get("max_tokens", DEFAULT_MAX_TOKENS)),
+        int(kwargs.get("token_hidden_dim", DEFAULT_TOKEN_HIDDEN_DIM)),
+        int(kwargs.get("n_slots", DEFAULT_N_SLOTS)),
+    )
+
+
+class TokenPool(nn.Module):
+    """Reduce ``[B, S, E]`` to ``[B, R, E]`` with a learned map over token *positions*.
+
+    The contrast with every pooling head already here: ``pre_mean`` / ``mean_then_mlp``
+    average the token axis with fixed uniform weights, ``linear_then_softmax`` weights
+    each token by its own logit, and ``attention`` weights it by a learned query — all
+    three are functions of a token's **content**. This one is a function of its
+    **position**: weight ``w[r, s]`` multiplies whatever sits at index ``s``, and the
+    same weight applies to every conversation. Mean pooling is the special case
+    ``w = 1/L``.
+
+    Three properties are load-bearing and were each checked rather than assumed:
+
+    - **Right padding.** Every activation blob in this repo is right-padded — real tokens
+      occupy indices ``0..L-1``, so index ``s`` means "the s-th token of the
+      conversation" for every row. (Verified across all four eval blobs, both base blobs
+      and the per-conversation red-team cache: no row has a leading mask zero.)
+    - **Slicing the weight is exactly zero-padding the input.** Blobs arrive at whatever
+      width their extraction produced — 84 for the base split, 121/144/288/859 for the
+      four eval splits, 1024 for the merged red-team set — so a fixed 1024-wide map has
+      to be reconciled with the tensor in hand. Materialising ``F.pad(x, ...)`` out to
+      1024 would copy a ``[B, 1024, 5376]`` tensor per forward (352 MB at batch 16, fp32)
+      to multiply the added columns by weights and get zero. Taking ``weight[:, :S]``
+      instead is the identical function at no cost, *because* padding is on the right and
+      the contribution of a zero column is zero. Both layers of the MLP variant stay
+      exact under this, since a zero pre-activation contribution passes through the sum
+      before the GELU, not after it.
+    - **Pad positions hold exact zeros.** ``get_activations`` zero-pads,
+      ``_concatenate_consuming`` zero-fills, and ``attribution_refit._attach_redteam``
+      builds from ``torch.zeros`` — measured ``max|activation|`` at masked positions is
+      0.0 across every blob. So ``mask`` never has to be applied here, which is what
+      keeps the forward allocation-free. ``scripts/token_pool_vintage.py --self-test``
+      re-checks the invariant on the real tensors rather than trusting this comment.
+
+    What this head does **not** do is normalise by length: ``pre_mean`` divides by the
+    token count, this does not, so a longer conversation contributes a larger pooled
+    vector. That is inherent to "a linear layer over the token dimension" and is left in
+    rather than quietly corrected — ``n_slots``-style, the length-normalised variant is
+    available as ``normalize=True`` so the difference can be measured instead of argued.
+    """
+
+    def __init__(
+        self,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        n_slots: int = DEFAULT_N_SLOTS,
+        hidden_dim: int | None = None,
+        normalize: bool = False,
+    ):
+        super().__init__()
+        self.max_tokens = max_tokens
+        self.n_slots = n_slots
+        self.normalize = normalize
+        if hidden_dim is None:
+            self.first = nn.Linear(max_tokens, n_slots)
+            self.rest: nn.Module | None = None
+        else:
+            self.first = nn.Linear(max_tokens, hidden_dim)
+            self.rest = nn.Sequential(nn.GELU(), nn.Linear(hidden_dim, n_slots))
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        seq = x.shape[1]
+        if seq > self.max_tokens:
+            # Unreachable at the 1024-token extraction cap, but a silent wrong answer if
+            # it ever were reached, so it is truncated rather than assumed away.
+            x = x[:, : self.max_tokens]
+            seq = self.max_tokens
+        # [B, E, R'] — the token axis is contracted away, the embedding axis is carried
+        # through untouched, and `first.bias` broadcasts over the trailing slot axis.
+        h = torch.einsum("bse,os->beo", x, self.first.weight[:, :seq])
+        if self.normalize:
+            # Before the bias, not after: the bias is a per-slot constant, not part of
+            # the weighted sum, so dividing it by the length would make the head's
+            # offset depend on how long the conversation happened to be.
+            h = h / mask.sum(dim=1).clamp(min=1).to(h.dtype)[:, None, None]
+        h = h + self.first.bias
+        if self.rest is not None:
+            h = self.rest(h)
+        return h.transpose(1, 2)
 
 
 _MODULE_CLASSES: dict[str, type[nn.Module]] | None = None
@@ -147,10 +268,63 @@ def new_module_classes() -> dict[str, type[nn.Module]]:
             h, d = _head_kwargs(kw)
             self.classifier = _mlp_head(embed_dim, h, d)
 
+    class _TokenPoolThenSoftmax(LinearThenSoftmax):
+        """Pool the token axis by learned position weights, then the deployed head.
+
+        ``LinearThenSoftmax`` is reached through ``super().forward`` on the pooled
+        ``[B, R, E]`` tensor with an all-ones mask, so the readout and the aggregation
+        are byte-identical to the baseline's and the only change is what produced the
+        sequence they see. At the default ``n_slots=1`` that aggregation is a softmax
+        over one element — weight 1.0 — so the sequence logit reduces exactly to
+        ``w . pooled + b``. That degeneracy is the design, not an oversight: the request
+        was to replace mean pooling with a learned map over token positions and then read
+        out, and keeping the real ``LinearThenSoftmax`` in the path is what makes
+        ``n_slots > 1`` a one-flag change rather than a different class.
+        """
+
+        #: Subclass switch: whether the token map has a hidden layer. Its *width* comes
+        #: from the ``token_hidden_dim`` hyperparameter either way, so a sensitivity run
+        #: varies one knob rather than editing a class.
+        use_token_hidden: bool = False
+
+        def __init__(self, embed_dim: int, **kw: Any):
+            super().__init__(embed_dim, **kw)
+            max_tokens, h_tok, n_slots = _token_pool_kwargs(kw)
+            self.token_pool = TokenPool(
+                max_tokens,
+                n_slots,
+                hidden_dim=h_tok if self.use_token_hidden else None,
+                normalize=bool(kw.get("normalize", False)),
+            )
+
+        def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+            pooled = self.token_pool(x, mask)
+            pooled_mask = torch.ones(
+                pooled.shape[:2], dtype=torch.bool, device=pooled.device
+            )
+            return super().forward(pooled, pooled_mask)
+
+    class TokenLinearThenSoftmax(_TokenPoolThenSoftmax):
+        """One learned weight per token position, then the deployed readout."""
+
+        use_token_hidden = False
+
+    class TokenMLPThenSoftmax(_TokenPoolThenSoftmax):
+        """``Linear -> GELU -> Linear`` over the token axis, then the deployed readout.
+
+        The token-axis counterpart of ``mlp_then_softmax``: the same non-linearity, moved
+        from the embedding axis to the position axis. It can express "attend to the tail
+        only when the head is quiet", which the single-layer version cannot.
+        """
+
+        use_token_hidden = True
+
     _MODULE_CLASSES = {
         "mlp_then_softmax": MLPThenSoftmax,
         "mean_then_mlp": MeanThenMLP,
         "attention_then_mlp": AttentionThenMLP,
+        "token_linear_then_softmax": TokenLinearThenSoftmax,
+        "token_mlp_then_softmax": TokenMLPThenSoftmax,
     }
     return _MODULE_CLASSES
 
@@ -160,10 +334,28 @@ def new_module_classes() -> dict[str, type[nn.Module]]:
 #: Architectures defined here, and the stock architecture each inherits its training
 #: hyperparameters from. Inheriting rather than choosing fresh ones is what makes the
 #: head-to-head an architecture comparison instead of a hyperparameter comparison.
-NEW_ARCHITECTURES: dict[str, str] = {
+MLP_READOUT_ARCHITECTURES: dict[str, str] = {
     "mlp_then_softmax": "linear_then_softmax",
     "mean_then_mlp": "pre_mean",
     "attention_then_mlp": "attention",
+}
+
+
+#: Heads that replace mean pooling with a learned map over token **positions** (see
+#: :class:`TokenPool`). Both inherit ``linear_then_softmax``'s optimizer settings — not
+#: ``pre_mean``'s — because what follows the pool *is* ``LinearThenSoftmax``, and because
+#: the two stock heads ship identical settings anyway (batch 16 / accumulation 4 /
+#: final_lr 1e-4), so the choice costs nothing and keeps the head-to-head against the
+#: deployed baseline a change of architecture alone.
+TOKEN_POOL_ARCHITECTURES: dict[str, str] = {
+    "token_linear_then_softmax": "linear_then_softmax",
+    "token_mlp_then_softmax": "linear_then_softmax",
+}
+
+
+NEW_ARCHITECTURES: dict[str, str] = {
+    **MLP_READOUT_ARCHITECTURES,
+    **TOKEN_POOL_ARCHITECTURES,
 }
 
 
@@ -183,6 +375,14 @@ def default_hyperparams(arch: str) -> dict[str, Any]:
     """Default training args for any architecture name, stock or new."""
     from tuberlens.interfaces.probes import ProbeType
 
+    if arch in TOKEN_POOL_ARCHITECTURES:
+        base = ProbeType(TOKEN_POOL_ARCHITECTURES[arch]).default_hyperparams.copy()
+        base["max_tokens"] = DEFAULT_MAX_TOKENS
+        base["n_slots"] = DEFAULT_N_SLOTS
+        base["normalize"] = False
+        if arch == "token_mlp_then_softmax":
+            base["token_hidden_dim"] = DEFAULT_TOKEN_HIDDEN_DIM
+        return base
     if arch in NEW_ARCHITECTURES:
         base = ProbeType(NEW_ARCHITECTURES[arch]).default_hyperparams.copy()
         base["hidden_dim"] = DEFAULT_HIDDEN_DIM

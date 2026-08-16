@@ -43,9 +43,14 @@
 #   nohup bash failsafe_commit_arch.sh > logs/failsafe_arch.out 2>&1 &
 #
 #   INTERVAL=1800       seconds between polls (default 1800 = 30 min)
-#   ODIR=...            results dir to watch
+#   ODIR=...            results dir(s) to watch — SPACE-SEPARATED for more than one.
+#                       One poller covering every sweep, rather than one process per
+#                       sweep: concurrent instances would race on .git/index.lock and
+#                       each other's push, which is a checkpointer failing at exactly
+#                       the moment it is needed.
 #   TAG=...             commit-subject tag AND the logs/failsafe_<TAG>.out it commits
-#   TOTAL=...           denominator shown in the commit subject (default 80)
+#   TOTAL=...           denominator shown in the commit subject (default 152 = the
+#                       80-fit architecture sweep plus the 72-fit token-pool sweep)
 #   TARGET_BRANCH=...   remote branch to push to (default experiment11_cloud)
 #   NO_PUSH=1           commit locally only
 
@@ -53,9 +58,10 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
 INTERVAL="${INTERVAL:-1800}"
-ODIR="${ODIR:-results_hu_harm_gemma27b_batch_ablation/arch_sweep}"
+ODIR="${ODIR:-results_hu_harm_gemma27b_batch_ablation/arch_sweep results_hu_harm_gemma27b_batch_ablation/token_pool}"
+read -ra ODIRS <<< "$ODIR"
 TAG="${TAG:-arch}"
-TOTAL="${TOTAL:-80}"
+TOTAL="${TOTAL:-152}"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 TARGET_BRANCH="${TARGET_BRANCH:-experiment11_cloud}"
 
@@ -63,6 +69,7 @@ PAYLOAD_CODE=(
     scripts/arch_sweep.py
     scripts/nonlinear_ceiling.py
     scripts/mlp_readout_cosine.py
+    scripts/token_pool_vintage.py
     scripts/test_probe_architectures.py
     scripts/attribution_refit.py
     src/agentic_redteam/probe_architectures.py
@@ -70,9 +77,10 @@ PAYLOAD_CODE=(
     logs/arch_sweep.log
     logs/nonlinear_ceiling.log
     logs/mlp_readout_cosine.log
+    logs/token_pool_vintage.log
 )
 
-mkdir -p logs "$ODIR"
+mkdir -p logs "${ODIRS[@]}"
 
 say() { echo ">>> $(date -Is)  $*"; }
 
@@ -91,19 +99,34 @@ stage() {
     return 0
 }
 
-# One row per finished (arm, architecture, seed) fit. The redirection itself fails when
-# the sidecar does not exist yet (the first minutes of a run), so guard on the file
-# rather than letting bash write to stderr each poll.
+# One row per finished fit, summed over every watched sweep's sidecar. Globbed rather
+# than named, so adding a sweep to ODIR needs no change here; a sidecar that does not
+# exist yet (the first minutes of a run) simply contributes nothing, which is why the
+# glob is guarded rather than fed straight to wc.
 n_fits() {
-    local p="$ODIR/arch_progress.jsonl"
-    [ -f "$p" ] && wc -l < "$p" || echo 0
+    local d p total=0
+    for d in "${ODIRS[@]}"; do
+        for p in "$d"/*_progress.jsonl; do
+            [ -f "$p" ] && total=$(( total + $(wc -l < "$p") ))
+        done
+    done
+    echo "$total"
+}
+
+# Every file under every watched dir, plus the payload. An unmatched glob expands to
+# itself, which `stage`'s existence guard drops.
+payload_paths() {
+    local d
+    for d in "${ODIRS[@]}"; do
+        printf '%s\n' "$d"/*
+    done
+    printf '%s\n' "${PAYLOAD_CODE[@]}"
 }
 
 snapshot() {  # $1 = commit subject suffix
     local f n
-    for f in "$ODIR"/* "${PAYLOAD_CODE[@]}" "logs/failsafe_${TAG}.out"; do
-        stage "$f"
-    done
+    while IFS= read -r f; do stage "$f"; done < <(payload_paths)
+    stage "logs/failsafe_${TAG}.out"
     if git diff --cached --quiet; then
         return 1
     fi
@@ -123,7 +146,8 @@ finish() {
 }
 trap finish INT TERM
 
-say "watching $ODIR, committing on '$BRANCH', pushing to origin/$TARGET_BRANCH, every ${INTERVAL}s (NO_PUSH=${NO_PUSH:-unset})"
+say "watching ${#ODIRS[@]} dir(s): ${ODIRS[*]}"
+say "committing on '$BRANCH', pushing to origin/$TARGET_BRANCH, every ${INTERVAL}s (NO_PUSH=${NO_PUSH:-unset})"
 
 # Refuse to run at all unless the push can only fast-forward the target. A checkpointer
 # that force-pushes is worse than none: these commits land unattended every 30 min, and
@@ -145,9 +169,9 @@ fi
 
 # Self-test in minute one: the previous failure mode in this repo was a checkpointer
 # that protected nothing and said so to no one.
-for f in "$ODIR"/* "${PAYLOAD_CODE[@]}"; do stage "$f"; done
+while IFS= read -r f; do stage "$f"; done < <(payload_paths)
 staged=$(git diff --cached --name-only | wc -l)
-on_disk=$(ls -1d "$ODIR"/* "${PAYLOAD_CODE[@]}" 2>/dev/null | wc -l)
+on_disk=$(while IFS= read -r f; do [ -e "$f" ] && echo "$f"; done < <(payload_paths) | wc -l)
 if [ "$on_disk" -eq 0 ]; then
     say "FATAL: nothing matching the payload globs exists yet — wrong cwd, or the run never started."
     exit 1
@@ -157,7 +181,7 @@ say "self-test: $on_disk payload file(s) on disk, $staged staged, $(n_fits) fit(
 last=""
 while true; do
     stamp=$(n_fits)
-    changed=$(find "$ODIR" -maxdepth 1 -newermt "-${INTERVAL} seconds" 2>/dev/null \
+    changed=$(find "${ODIRS[@]}" -maxdepth 1 -newermt "-${INTERVAL} seconds" 2>/dev/null \
                   | sort | tr '\n' ' ')
     if [ -n "$changed" ] || [ "$stamp" != "$last" ]; then
         if snapshot "checkpoint"; then

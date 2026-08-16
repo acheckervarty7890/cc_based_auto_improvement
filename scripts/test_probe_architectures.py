@@ -5,7 +5,7 @@ run on any box before committing a sweep to hours of fits.
 
     .venv_claude/bin/python scripts/test_probe_architectures.py
 
-Three things are checked:
+What is checked:
 
 1. **Every architecture builds, trains and scores.** Shape and finiteness of the logits,
    plus the parameter count, which is the cheapest way to notice that a "non-linear" head
@@ -283,6 +283,78 @@ def test_lda_pooling_chunk_is_exact() -> list[str]:
     return failures
 
 
+def test_token_pool_is_exact() -> list[str]:
+    """The token-axis pool must not depend on how wide the tensor it was handed is.
+
+    ``TokenPool`` holds a fixed 1024-wide map over token positions, but the blobs it runs
+    on arrive at whatever width their extraction produced — 84 for the base split,
+    121/144/288/859 for the four eval splits, 1024 for the merged red-team set. It
+    reconciles the two by slicing ``weight[:, :S]`` rather than padding the input out to
+    1024, which is exact **only because** padding is on the right and pad positions hold
+    exact zeros. If either assumption broke, a probe would score differently on a split
+    purely because that split's blob is narrower — a bug that produces plausible numbers
+    and no error, and one no other test here would catch.
+
+    Also checks the identity the whole head rests on: at ``n_slots=1`` the downstream
+    softmax pools a length-1 sequence, so the sequence logit is exactly
+    ``w . pooled + b``.
+    """
+    import torch.nn.functional as F
+
+    from agentic_redteam.probe_architectures import (
+        TokenPool,
+        default_hyperparams,
+        new_module_classes,
+    )
+
+    print("\n--- 6. token-axis pooling is width-invariant and reads out exactly ---")
+    torch.manual_seed(0)
+    max_tokens, embed, n, seq = 32, 16, 5, 20
+    x = torch.randn(n, seq, embed, dtype=torch.double)
+    lengths = torch.tensor([3, 7, seq, 1, 12])
+    mask = torch.arange(seq)[None, :] < lengths[:, None]
+    x = x.masked_fill(~mask.unsqueeze(-1), 0.0)  # the invariant the real blobs satisfy
+
+    classes = new_module_classes()
+    failures = []
+    for arch in ("token_linear_then_softmax", "token_mlp_then_softmax"):
+        hp = {**default_hyperparams(arch), "max_tokens": max_tokens,
+              "token_hidden_dim": 8}
+        model = classes[arch](embed, **hp).double()
+
+        narrow = model(x, mask)
+        wide = model(F.pad(x, (0, 0, 0, max_tokens - seq)),
+                     F.pad(mask, (0, max_tokens - seq)))
+        pooled = model.token_pool(x, mask)
+        manual = model.linear(pooled).squeeze(-1).squeeze(-1)
+
+        d_width = (narrow - wide).abs().max().item()
+        d_read = (narrow - manual).abs().max().item()
+        print(f"  {arch:26s} width-invariance {d_width:.3e}  readout {d_read:.3e}  "
+              f"pooled={tuple(pooled.shape)}")
+        if d_width > 0:
+            failures.append(f"{arch}: slicing the token weights is not zero-padding "
+                            f"(max|diff| {d_width:.3e})")
+        if d_read > 0:
+            failures.append(f"{arch}: the sequence logit is not w.pooled + b "
+                            f"(max|diff| {d_read:.3e})")
+
+    # Mean pooling is this head with the weights frozen uniform and normalize on; if that
+    # does not hold, the "learned generalisation of pre_mean" framing is wrong.
+    pool = TokenPool(max_tokens, 1, hidden_dim=None, normalize=True).double()
+    with torch.no_grad():
+        pool.first.weight.fill_(1.0)
+        pool.first.bias.zero_()
+    expected = x.sum(1) / lengths[:, None]
+    d_mean = (pool(x, mask).squeeze(1) - expected).abs().max().item()
+    print(f"  uniform weights + normalize == mean pooling: {d_mean:.3e}")
+    if d_mean > 1e-12:
+        failures.append(f"uniform TokenPool is not mean pooling (max|diff| {d_mean:.3e})")
+    if not failures:
+        print("  ok")
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
     failures += test_every_architecture_trains()
@@ -290,6 +362,7 @@ def main() -> int:
     failures += test_tuberlens_lda_is_difference_of_means()
     failures += test_hyperparam_override_reaches_the_trainer()
     failures += test_lda_pooling_chunk_is_exact()
+    failures += test_token_pool_is_exact()
 
     print()
     if failures:
