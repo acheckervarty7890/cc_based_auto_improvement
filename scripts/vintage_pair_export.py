@@ -1,15 +1,19 @@
-"""Export every iteration-3 red-team pair — both conversations — into ``report.html``.
+"""Export the transfer cohort's red-team pairs — both conversations — into ``report.html``.
 
 The sweep and the transfer analysis both report *rates*. This makes the underlying
 conversations readable: for each pair, the attacker-written success and the LLM-written
 opposite-class counterpart side by side, tagged with the vintage it entered at, the error
 the attacker was hunting, and how many of the ten v2-vintage probes it defeated.
 
+By default only the **vintage 3 minus vintage 2** pairs are exported — the 157 pairs the
+transfer section is about — not all 659 in the iteration-3 dump. ``--cohort all`` exports
+everything, at roughly four times the page weight.
+
 Why it is embedded rather than written alongside
 ------------------------------------------------
 A published artifact is one self-contained file under a strict CSP — it cannot fetch a
-sibling JSON. The whole iteration-3 dump is ~1.4 MB of conversation text across both
-arms, which is well inside the size budget, so the payload is inlined into a
+sibling JSON. The cohort is ~0.35 MB of conversation text across both arms (the whole
+dump would be ~1.5 MB), well inside the size budget, so the payload is inlined into a
 ``<script type="application/json">`` block between markers in ``report.html`` and the
 page's own code renders from it.
 
@@ -56,7 +60,8 @@ def _metrics(path: Path) -> dict[tuple[str, int], dict]:
     return out
 
 
-def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict) -> dict:
+def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict,
+              cohort: str = "notv2") -> dict:
     ds = A.load_redteam_dataset(arm, iteration)
     pairs, stats = A.build_pairs(arm, ds)
     exclude, _ = dropped_rows(arm, iteration, drop_mode)
@@ -106,6 +111,12 @@ def build_arm(arm: str, iteration: int, drop_mode: str, metrics: dict) -> dict:
     out = []
     for p in pairs:
         anchor = p.source_idx if p.source_idx is not None else p.generated_idx
+        # ``notv2`` (the default) keeps exactly the transfer cohort — vintage 3 minus
+        # vintage 2 — which is what every number in the section above is computed over.
+        # Exporting all 659 pairs instead would quadruple the page for material the
+        # section does not discuss.
+        if cohort == "notv2" and vintage_of(anchor) not in ("new", "readd"):
+            continue
         m = metrics.get((arm, anchor), {})
         out.append({
             "id": p.pair_id,
@@ -123,14 +134,20 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--iteration", type=int, default=3)
     ap.add_argument("--drop-overlong", choices=("none", "row", "pair"), default="pair")
+    ap.add_argument(
+        "--cohort", choices=("notv2", "all"), default="notv2",
+        help="notv2 (default) exports only the vintage-3-minus-vintage-2 pairs, i.e. the "
+             "cohort the transfer section measures. 'all' exports every iteration-3 pair.",
+    )
     ap.add_argument("--out-dir", type=Path,
                     default=A.REPO / "results_hs_gemma27b_batch_ablation/vintage")
     args = ap.parse_args()
 
     metrics = _metrics(args.out_dir / "new_sample_success.jsonl")
-    payload = {"roles": ROLES, "arms": {}}
+    payload = {"roles": ROLES, "cohort": args.cohort, "arms": {}}
     for arm in sorted(A.ARMS):
-        payload["arms"][arm] = build_arm(arm, args.iteration, args.drop_overlong, metrics)
+        payload["arms"][arm] = build_arm(arm, args.iteration, args.drop_overlong, metrics,
+                                         args.cohort)
         from collections import Counter
         n = payload["arms"][arm]["pairs"]
         c = Counter(p["v"] for p in n)
