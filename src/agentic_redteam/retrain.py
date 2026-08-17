@@ -14,6 +14,12 @@ from typing import TYPE_CHECKING, Any, Iterable
 
 import torch
 
+from agentic_redteam.ensemble import (
+    DETERMINISTIC_ARCHS,
+    MAX_ENSEMBLE_SIZE,
+    EnsembleProbe,
+    ensemble_size as probe_ensemble_size,
+)
 from agentic_redteam.persistence import AttemptRecord, JsonlStore
 from agentic_redteam.token_budget import TokenBudget
 
@@ -23,6 +29,47 @@ if TYPE_CHECKING:
 # Default fresh probe architecture, mirroring tuberlens' collate_train_evaluate.py.
 # Used when a retrain is asked for a fresh architecture without naming a specific one.
 DEFAULT_FRESH_PROBE_ARCH = "linear_then_softmax"
+
+
+def _resolve_ensemble_seeds(seed: int, n: int) -> list[int]:
+    """Training seeds for an ``n``-member deep ensemble anchored at ``seed``.
+
+    Member 0 keeps the run's own ``seed``, so ``n == 1`` reproduces the
+    single-probe path exactly and an ensemble's first member is the probe that
+    would have been trained anyway. Later members walk ``seed + i``, which is all
+    that separates them: they see identical activations, identical split and
+    identical hyperparameters, and differ only in weight init and batch order.
+
+    The ``seed`` used for the train/val split is deliberately *not* varied — that
+    would give each member a different validation set (so early stopping would
+    select against different data) and, worse, a different base-activation cache
+    key, turning one cached extraction into ``n``.
+    """
+    if n < 1:
+        raise ValueError(f"ensemble_size must be >= 1; got {n}")
+    if n > MAX_ENSEMBLE_SIZE:
+        raise ValueError(
+            f"ensemble_size must be <= {MAX_ENSEMBLE_SIZE}; got {n}"
+        )
+    return [seed + i for i in range(n)]
+
+
+def _warn_if_deterministic_arch(probe_spec, n: int) -> None:
+    """Warn when the requested architecture can't actually be diversified by a seed.
+
+    A deep ensemble only helps where the fit is stochastic. Difference-of-means and
+    LDA are closed-form and SklearnProbe's logistic regression is solved by lbfgs
+    under a fixed ``random_state``, so ``n`` seeds there produce ``n`` identical
+    members and an average that equals a single probe — at ``n`` times the cost.
+    """
+    name = getattr(getattr(probe_spec, "name", None), "value", None)
+    if name in DETERMINISTIC_ARCHS:
+        print(
+            f"WARNING: architecture {name!r} fits deterministically, so all {n} "
+            "ensemble members will be identical and their averaged score will equal "
+            "a single probe's. Use a stochastic architecture (e.g. "
+            f"{DEFAULT_FRESH_PROBE_ARCH!r}) for the ensemble to do anything."
+        )
 
 
 def _split_unit_interval(messages, split_value, seed: int) -> float:
@@ -476,6 +523,7 @@ def _train_with_cached_base_activations(
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
     seed: int = 0,
+    ensemble_seeds: list[int] | None = None,
     verbose: bool,
 ):
     """Extract activations (base + red-team from disk caches) and fit the probe.
@@ -503,6 +551,14 @@ def _train_with_cached_base_activations(
     not of how far the global RNG has advanced through earlier red-teaming, eval
     subsampling, or prior retrains in the same process. Without this, two retrains
     on byte-identical data produce different probes (and different eval scores).
+
+    ``ensemble_seeds`` turns that single fit into a **score-averaging deep ensemble**:
+    one ``ProbeFactory.build`` per seed over the *same* pre-activated datasets,
+    wrapped in an :class:`~agentic_redteam.ensemble.EnsembleProbe` whose score is the
+    members' mean probability. Only the fit repeats — the split, the extraction and
+    the merge are shared — so member ``k > 0`` costs a probe-head fit, not another
+    pass through the extraction LLM. ``None`` or a single seed returns a plain probe,
+    byte-identical to what the non-ensemble path produced.
     """
     from tuberlens.model import LLMModel
     from tuberlens.probes.probe_factory import ProbeFactory
@@ -608,21 +664,42 @@ def _train_with_cached_base_activations(
             f"{n_by_origin[2]}+{n_by_origin[3]})"
         )
 
-    # Reseed right before the fit so the fresh probe's random weight init is
-    # determined solely by `seed` + the (deterministic) training data, regardless of
-    # how much the global RNG advanced earlier in the process. See docstring.
-    seed_everything(seed)
-    return ProbeFactory.build(
-        probe_spec=probe_spec,
-        train_dataset=train_dataset,
-        model_name=model_name,
-        layer=layer,
-        validation_dataset=validation_dataset,
-        use_store=False,
-        pos_class_label=pos_class_label,
-        neg_class_label=neg_class_label,
-        probe_description=probe_description,
-    )
+    def _build(fit_seed: int):
+        # Reseed right before each fit so the fresh probe's random weight init is
+        # determined solely by `fit_seed` + the (deterministic) training data,
+        # regardless of how much the global RNG advanced earlier in the process (or
+        # in an earlier ensemble member). See docstring.
+        seed_everything(fit_seed)
+        return ProbeFactory.build(
+            probe_spec=probe_spec,
+            train_dataset=train_dataset,
+            model_name=model_name,
+            layer=layer,
+            validation_dataset=validation_dataset,
+            use_store=False,
+            pos_class_label=pos_class_label,
+            neg_class_label=neg_class_label,
+            probe_description=probe_description,
+        )
+
+    if not ensemble_seeds or len(ensemble_seeds) == 1:
+        return _build(ensemble_seeds[0] if ensemble_seeds else seed)
+
+    _warn_if_deterministic_arch(probe_spec, len(ensemble_seeds))
+    members = []
+    for i, fit_seed in enumerate(ensemble_seeds):
+        if verbose:
+            print(
+                f"\n--- Ensemble member {i + 1}/{len(ensemble_seeds)} "
+                f"(training seed {fit_seed}) ---"
+            )
+        members.append(_build(fit_seed))
+    if verbose:
+        print(
+            f"Built a {len(members)}-member score-averaging ensemble "
+            f"(seeds {ensemble_seeds})"
+        )
+    return EnsembleProbe.from_members(members, ensemble_seeds)
 
 
 @dataclass
@@ -630,6 +707,9 @@ class RetrainResult:
     new_probe_path: Path
     n_redteam_samples: int
     n_training_samples_total: int
+    # Members behind the probe just written: 1 for an ordinary probe, n when the
+    # retrain built a score-averaging deep ensemble.
+    ensemble_size: int = 1
 
 
 def _dump_labelled_dataset(dataset, out_path: str | Path) -> int:
@@ -839,6 +919,7 @@ def retrain_probe(
     split_field: str | None = None,
     seed: int = 0,
     base_data_fraction: float = 1.0,
+    ensemble_size: int | None = None,
     base_activation_cache_dir: str | Path | None = None,
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
@@ -886,6 +967,12 @@ def retrain_probe(
             (stable_fraction_subsample) applied *before* the train/val split.
             1.0 (default) uses all of it. The fraction is folded into the base
             activation cache key. Red-team successes are never subsampled.
+        ensemble_size: Number of independently-seeded probes to fit (1..
+            MAX_ENSEMBLE_SIZE) over the same activations, averaged into one
+            `EnsembleProbe` whose score is the members' mean probability. None
+            (default) *inherits* the base probe's ensemble size, so a retrain stays
+            apples-to-apples with what was attacked — mirroring how `probe_spec=None`
+            inherits its architecture. 1 writes a plain single probe.
         base_activation_cache_dir: If given, activations are cached here. The base
             training split is cached as a single blob (computed once for the whole run
             and reused every retrain). The growing red-team set is cached **per
@@ -973,6 +1060,18 @@ def retrain_probe(
     else:
         probe_spec = _coerce_probe_spec(probe_spec)
 
+    # Same inherit-by-default rule as the architecture: an unspecified ensemble size
+    # reproduces the probe that was actually red-teamed, so the retrain compares
+    # like with like across iterations.
+    if ensemble_size is None:
+        ensemble_size = probe_ensemble_size(base_probe)
+    ensemble_seeds = _resolve_ensemble_seeds(seed, ensemble_size)
+    if verbose and ensemble_size > 1:
+        print(
+            f"Training a {ensemble_size}-member score-averaging deep ensemble "
+            f"(training seeds {ensemble_seeds})"
+        )
+
     # Split base and red-team *independently*, then combine per side. Because the
     # split is content-deterministic (stable_train_test_split), splitting the two
     # sources separately yields the same membership as splitting their
@@ -1045,18 +1144,23 @@ def retrain_probe(
         combine_consecutive_messages=combine_consecutive_messages,
         convert_tool_to_assistant=convert_tool_to_assistant,
         seed=seed,
+        ensemble_seeds=ensemble_seeds,
         verbose=verbose,
     )
 
     with new_probe_path.open("wb") as f:
         pickle.dump(new_probe, f)
     if verbose:
-        print(f"Saved retrained probe to {new_probe_path}")
+        kind = (
+            f"{ensemble_size}-member ensemble probe" if ensemble_size > 1 else "probe"
+        )
+        print(f"Saved retrained {kind} to {new_probe_path}")
 
     return RetrainResult(
         new_probe_path=new_probe_path,
         n_redteam_samples=n_redteam,
         n_training_samples_total=n_total,
+        ensemble_size=ensemble_size,
     )
 
 
@@ -1073,6 +1177,7 @@ def train_initial_probe(
     split_field: str | None = None,
     seed: int = 0,
     base_data_fraction: float = 1.0,
+    ensemble_size: int = 1,
     base_activation_cache_dir: str | Path | None = None,
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
@@ -1101,6 +1206,11 @@ def train_initial_probe(
             (stable_fraction_subsample) applied before the train/val split. 1.0
             (default) uses all of it; the fraction is folded into the activation
             cache key.
+        ensemble_size: Number of independently-seeded probes to fit (1..
+            MAX_ENSEMBLE_SIZE) over the same activations, averaged into one
+            `EnsembleProbe` whose score is the members' mean probability. 1
+            (default) writes a plain single probe. Unlike `retrain_probe` there is
+            no base probe to inherit this from, so the caller states it.
         base_activation_cache_dir: If given, the base split's activations are cached here.
             Using the same dir as the retrains means the initial training populates the
             cache that every subsequent retrain reuses (base activations computed once).
@@ -1140,6 +1250,13 @@ def train_initial_probe(
 
     spec = _coerce_probe_spec(probe_spec or DEFAULT_FRESH_PROBE_ARCH)
 
+    ensemble_seeds = _resolve_ensemble_seeds(seed, ensemble_size)
+    if verbose and ensemble_size > 1:
+        print(
+            f"Training a {ensemble_size}-member score-averaging deep ensemble "
+            f"(training seeds {ensemble_seeds})"
+        )
+
     base_train_cache = base_val_cache = None
     if base_activation_cache_dir is not None:
         base_train_cache, base_val_cache = _base_activation_cache_paths(
@@ -1169,13 +1286,17 @@ def train_initial_probe(
         base_train_cache=base_train_cache,
         base_val_cache=base_val_cache,
         seed=seed,
+        ensemble_seeds=ensemble_seeds,
         verbose=verbose,
     )
 
     with new_probe_path.open("wb") as f:
         pickle.dump(probe, f)
     if verbose:
-        print(f"Saved initial probe to {new_probe_path}")
+        kind = (
+            f"{ensemble_size}-member ensemble probe" if ensemble_size > 1 else "probe"
+        )
+        print(f"Saved initial {kind} to {new_probe_path}")
     return new_probe_path
 
 
@@ -1189,7 +1310,11 @@ def _coerce_probe_spec(probe_spec):
 
 
 def _infer_probe_spec(base_probe):
-    """Infer a ProbeSpec from a loaded probe object so we can train a fresh one of the same kind."""
+    """Infer a ProbeSpec from a loaded probe object so we can train a fresh one of the same kind.
+
+    An :class:`EnsembleProbe` is inspected through its first member: every member
+    is built from the same ``ProbeSpec``, so member 0 answers for all of them.
+    """
     from tuberlens.interfaces.probes import ProbeSpec, ProbeType
     from tuberlens.probes.pytorch_modules import (
         AttnLite,
@@ -1200,6 +1325,9 @@ def _infer_probe_spec(base_probe):
         LinearThenSoftmax,
         MeanThenLinear,
     )
+
+    if isinstance(base_probe, EnsembleProbe):
+        base_probe = base_probe.members[0]
 
     classifier = getattr(base_probe, "_classifier", None)
 

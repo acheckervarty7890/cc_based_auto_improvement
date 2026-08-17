@@ -30,6 +30,11 @@ Config file shape:
       neg_class_label: low-stakes     # (from scratch)
       description: ...                # optional probe description (from scratch)
       architecture: linear_then_softmax  # optional ProbeType name (from scratch)
+      ensemble_size: 5                # optional (1..10): fit n probes with n different
+                                      # seeds on the same activations and average their
+                                      # scores (score-averaging deep ensemble). Applies
+                                      # to the initial training AND every retrain.
+                                      # Omit to inherit whatever the base probe had.
     preprocessing:                    # optional: collation-style preprocessing of red-team
       provider: openrouter            # successes before each retrain (filter + contrastive)
       model: anthropic/claude-sonnet-4.5
@@ -61,6 +66,7 @@ from typing import Literal
 
 import yaml
 
+from agentic_redteam.ensemble import MAX_ENSEMBLE_SIZE
 from agentic_redteam.token_budget import MAX_ACTIVATION_TOKENS
 
 ErrorType = Literal["false_positive", "false_negative"]
@@ -246,6 +252,12 @@ class ProbeConfig:
     neg_class_label: str | None = None
     description: str | None = None
     architecture: str | None = None
+    # Number of independently-seeded probes to fit at every training/retraining
+    # step and average into one score-averaging deep ensemble (see
+    # agentic_redteam.ensemble). 1 = the ordinary single probe. None means
+    # "unset", which lets a retrain inherit whatever the probe it is retraining
+    # from had, exactly as `architecture` does. Capped at MAX_ENSEMBLE_SIZE.
+    ensemble_size: int | None = None
 
     @property
     def error_type(self) -> ErrorType:
@@ -551,6 +563,20 @@ def load_config(path: str | Path) -> RedteamConfig:
         if et not in ("false_positive", "false_negative"):
             raise ValueError(f"probe.error_type entries must be 'false_positive' or 'false_negative', got {et!r}")
 
+    # probe.ensemble_size: how many independently-seeded probes each train/retrain
+    # fits and averages into one score. Bounded here (not just at the CLI) because
+    # every entry point that trains reads it from the config, and a typo like `100`
+    # would otherwise turn one retrain into a hundred fits.
+    raw_ensemble_size = pr.get("ensemble_size")
+    probe_ensemble_size: int | None = None
+    if raw_ensemble_size is not None:
+        probe_ensemble_size = int(raw_ensemble_size)
+        if not 1 <= probe_ensemble_size <= MAX_ENSEMBLE_SIZE:
+            raise ValueError(
+                f"probe.ensemble_size must be between 1 and {MAX_ENSEMBLE_SIZE}; "
+                f"got {probe_ensemble_size}"
+            )
+
     persistence_raw = a.get("persistence_from_last_rounds")
     persistence_from_last_rounds = int(persistence_raw) if persistence_raw is not None else None
 
@@ -622,6 +648,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             neg_class_label=pr.get("neg_class_label"),
             description=pr.get("description"),
             architecture=pr.get("architecture"),
+            ensemble_size=probe_ensemble_size,
         ),
         output=OutputConfig(
             jsonl_path=_resolve(o["jsonl_path"]),

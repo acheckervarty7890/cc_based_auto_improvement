@@ -1622,6 +1622,13 @@ async def run_redteam(
         combine_consecutive_messages=config.eval.combine_consecutive_messages,
         convert_tool_to_assistant=config.eval.convert_tool_to_assistant,
     )
+    if probe.ensemble_size > 1:
+        # The attacker and judge never see this — they get one averaged score, as
+        # for a single probe — but the operator should know what is being attacked.
+        print(
+            f"Probe under attack is a {probe.ensemble_size}-member score-averaging "
+            "ensemble; submissions are scored by the members' mean probability."
+        )
 
     judge = LLMJudge(
         model=config.judge.model,

@@ -11,6 +11,7 @@ from typing import Any
 
 import torch
 
+from agentic_redteam.ensemble import ensemble_size, iter_probe_members
 from agentic_redteam.persistence import Conversation
 
 
@@ -35,7 +36,17 @@ def _cpu_unpickle(f: io.BufferedIOBase) -> Any:
 
 @dataclass
 class ProbeJudge:
-    """Loads a pickled tuberlens probe and exposes (score, predicts_positive) for a Conversation."""
+    """Loads a pickled tuberlens probe and exposes (score, predicts_positive) for a Conversation.
+
+    The loaded object may be a single tuberlens probe or an
+    :class:`~agentic_redteam.ensemble.EnsembleProbe` — n same-architecture probes
+    trained on the same activations under different seeds. The ensemble is
+    deliberately invisible from here down: it exposes the same probe surface and
+    averages its members' probabilities behind ``predict_proba_from_inputs``, so
+    ``score`` returns one averaged score and ``evaluate`` thresholds *that*. The
+    LLM judge, the JSONL row and the attacker therefore see exactly one number
+    and one prediction, whatever n is.
+    """
 
     probe: Any
     threshold: float
@@ -79,16 +90,18 @@ class ProbeJudge:
         # activations through ActivationDataset on global_settings.DEVICE /
         # .DTYPE (e.g. cuda/bfloat16 when a GPU is present). Reconcile the
         # classifier with that device+dtype so the linear layer and the
-        # incoming activations live on the same device.
-        if (
-            hasattr(probe, "_classifier")
-            and getattr(probe._classifier, "model", None) is not None
-        ):
-            from tuberlens.config import global_settings
+        # incoming activations live on the same device. `iter_probe_members`
+        # makes this reach every member of an EnsembleProbe — the ensemble
+        # itself has no `_classifier`, so without it every member would be left
+        # on the CPU and the first forward would fail on a device mismatch.
+        for member in iter_probe_members(probe):
+            classifier = getattr(member, "_classifier", None)
+            if classifier is not None and getattr(classifier, "model", None) is not None:
+                from tuberlens.config import global_settings
 
-            probe._classifier.model.to(
-                device=global_settings.DEVICE, dtype=global_settings.DTYPE
-            )
+                classifier.model.to(
+                    device=global_settings.DEVICE, dtype=global_settings.DTYPE
+                )
         if probe.model_name is None:
             raise ValueError("Loaded probe has no model_name; cannot run inference.")
         if probe.layer is None:
@@ -120,6 +133,16 @@ class ProbeJudge:
     @property
     def layer(self) -> int:
         return int(self.probe.layer)
+
+    @property
+    def ensemble_size(self) -> int:
+        """How many probes back the score: 1 normally, n for an ``EnsembleProbe``.
+
+        The ensemble is transparent to everything below ``score`` — it averages
+        its members' probabilities internally and extracts activations once — so
+        this is only for reporting what was loaded.
+        """
+        return ensemble_size(self.probe)
 
     def _ensure_model(self):
         if self._model is None:

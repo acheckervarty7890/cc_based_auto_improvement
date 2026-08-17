@@ -167,6 +167,12 @@ of the **base** training data — selected by the same content-deterministic has
 train/val split) and applied *before* the split, so the chosen subset is identical
 every iteration, preserves class balance in expectation, and is folded into the
 base activation cache key. Red-team successes are never subsampled.
+`--ensemble-size` (1..10; overrides `probe.ensemble_size`) makes **every** training and
+retraining step fit that many probes with training seeds `--seed .. --seed+n-1` on the
+same activations and average their probabilities into one score — a score-averaging
+deep ensemble (see `ensemble.py`). The averaged score is what the threshold, the judge
+and the eval all see. Omit both flag and config key to inherit the size of the probe
+being retrained (1 for a plain probe).
 When the config has a `preprocessing:` section, red-team successes are run through
 `filter_dataset` + `generate_contrastive_dataset` before each retrain.
 
@@ -286,6 +292,13 @@ probe:
   neg_class_label: <str>              # from-scratch only
   description: <str>                  # from-scratch only (optional)
   architecture: <ProbeType name>      # from-scratch only (optional; default linear_then_softmax)
+  ensemble_size: int                  # OPTIONAL 1..10 (default unset). Fit N probes with N
+                                      #   different training seeds on the SAME activations and
+                                      #   average their probabilities into one score — a
+                                      #   score-averaging deep ensemble (see ensemble.py).
+                                      #   Applies to the initial training AND every retrain.
+                                      #   Unset ⇒ a retrain inherits the size of the probe it
+                                      #   is retraining, exactly as `architecture` does.
 preprocessing:                        # OPTIONAL: collation-style preprocessing of red-team
   provider: claude_sdk | openrouter   # successes before each retrain
   model: <model>                      # LLM for generate_contrastive_dataset
@@ -499,6 +512,16 @@ judge's label, so the judge always runs (see the conventions at the end).
 The probe carries `pos_class_label`, `neg_class_label`, `description`,
 `model_name` and `layer` as metadata, which everything downstream reads off the
 loaded object — never duplicate these in code.
+
+The pickle may hold a single tuberlens probe **or** an `EnsembleProbe` (see
+`ensemble.py`); the two are interchangeable here, since the ensemble exposes the
+same probe surface and averages its members internally, so `score` returns one
+number and `evaluate` thresholds *that*. Two consequences to preserve: the
+CPU-unpickle device/dtype reconciliation loops over `iter_probe_members(probe)`
+(the ensemble itself has no `_classifier`, so reconciling only the top-level
+object would leave every member on the CPU and the first forward would die on a
+device mismatch), and `ProbeJudge.ensemble_size` reports how many probes back the
+score, for logging only.
 
 The model is loaded through `model_loading.load_extraction_model` (see below), which
 carries `offload_buffers` and truncates the model to the layers the probe
@@ -973,6 +996,41 @@ measured around one session also counts theirs, and since the caller sums the su
 the error multiplies by the fan-out (with `sessions_per_model: 5`, a 30-success round
 reported ~150). `_mark_round_done` sums these, so `rounds_done.jsonl` inherits the fix.
 
+### `agentic_redteam/ensemble.py`
+`EnsembleProbe` — `n` same-architecture probes fit on the **same** activations under
+`n` different training seeds, whose **probabilities are averaged** into one score.
+Built by `retrain._train_with_cached_base_activations` when it is handed
+`ensemble_seeds` (from `probe.ensemble_size` / `--ensemble-size`), pickled to the
+ordinary `probe_iter{N}.pkl` path, and read back by everything that consumes a probe.
+
+- **Averaging is on probabilities, before the threshold.** The predicted class is
+  `mean_i p_i >= threshold`, not a vote over the members' individual predictions —
+  so the judge, the JSONL row and the attacker all see exactly one score and one
+  prediction, whatever `n` is. Nothing below `ProbeJudge.score` knows it is an
+  ensemble, which is the point: `success` is still probe-label vs. judge-label.
+- **Duck-typed, not a `Probe` subclass.** It matches the surface its consumers
+  actually use (`model_name` / `layer` / `pos_class_label` / `neg_class_label` /
+  `description` / `predict_proba` / `predict_proba_from_inputs`), which is what makes
+  it a drop-in for a single probe at every call site. Not subclassing also keeps the
+  module importable without pulling in tuberlens (`probe_judge` imports it eagerly).
+- **`predict_proba_from_inputs` extracts activations ONCE** and hands them to every
+  member as a pre-activated `Dataset`. Delegating to the members' own
+  `predict_proba_from_inputs` would run `n` forward passes of a gemma-sized model per
+  submission — the dominant cost of scoring — for zero benefit.
+- **`per_token_predictions` raises.** The per-token output is architecture-dependent
+  (`PytorchAdamClassifier` returns a 3-tuple), so there is no averaging rule correct
+  across architectures. Nothing here calls it; iterate `.members` if you need it.
+- `iter_probe_members(probe)` / `ensemble_size(probe)` let code that must reach
+  *inside* a probe treat the single and ensemble cases uniformly (`[probe]` / `1` for
+  an ordinary probe).
+- `MAX_ENSEMBLE_SIZE` (10) is enforced in `config.load_config`, in the CLI flag and in
+  `retrain._resolve_ensemble_seeds` — every entry point that trains, since a typo like
+  `100` would otherwise turn one retrain into a hundred fits.
+- `DETERMINISTIC_ARCHS` (`sklearn`, `difference_of_means`, `lda`) drives a warning:
+  those fits are closed-form (or lbfgs under a fixed `random_state`), so `n` seeds
+  produce `n` identical members and an average equal to a single probe, at `n` times
+  the cost. Only stochastic architectures are actually diversified by a seed.
+
 ### `agentic_redteam/retrain.py`
 Converts successful JSONL records into a tuberlens `LabelledDataset` — labelled
 with the canonical enum value (`"positive"` / `"negative"`) corresponding to the
@@ -997,6 +1055,24 @@ conversion, shared by `retrain_probe` and `train_initial_probe`).
 (defaulting to `DEFAULT_FRESH_PROBE_ARCH`). This mirrors tuberlens'
 `collate_train_evaluate.train_high_stakes_probe` but with the concept passed in
 rather than hardcoded.
+
+**Deep ensembles (`ensemble_size`).** Both entry points take an ensemble size and turn
+it into `_resolve_ensemble_seeds(seed, n) = [seed, seed+1, ..., seed+n-1]`, which
+`_train_with_cached_base_activations` runs as one `ProbeFactory.build` per seed over
+the *same* pre-activated datasets, wrapped in an `EnsembleProbe`. Only the **fit**
+repeats — the split, the extraction, the caches and the merge are all shared — so
+member `k > 0` costs a probe-head fit, not another pass through the extraction LLM
+(the model is released once, before the first fit, exactly as before). `n == 1`
+returns a plain probe byte-identical to the non-ensemble path, and member 0 always
+uses the run's own `seed`, so an ensemble's first member *is* the probe that would
+have been trained anyway. **Only the fit seed varies — never the split seed**: varying
+the latter would give each member a different validation set (so early stopping would
+select against different data) and a different base-activation cache key, turning one
+cached extraction into `n`. `retrain_probe(ensemble_size=None)` (the default)
+**inherits** the size off the probe being retrained, mirroring `probe_spec=None`
+inheriting its architecture, so an iterative run keeps building what it was attacking;
+`train_initial_probe` has no probe to inherit from and defaults to 1.
+`_infer_probe_spec` unwraps an `EnsembleProbe` to member 0 (all members share a spec).
 
 Both `retrain_probe` and `train_initial_probe` derive the validation set with
 `stable_train_test_split(dataset, test_size, split_field, seed)` — a
@@ -1303,7 +1379,10 @@ path and the eval-activations cache dir each resolve by the precedence **CLI fla
 config paths resolve relative to the config file. It calls
 `seed_everything(--seed)` up front, threads `config.preprocessing` +
 `<probe-out-dir>/contrastive_cache.jsonl` + `--test-size` / `--split-field` / `--seed`
-into the train/retrain calls. The base (training) activation cache dir resolves by
+into the train/retrain calls. The ensemble size resolves by **`--ensemble-size` flag >
+config `probe.ensemble_size` > `None`**, and `None` is threaded through *unchanged* to
+`retrain_probe` (which reads the size off the probe it is retraining) while
+`train_initial_probe`, having nothing to inherit from, gets `or 1`. The base (training) activation cache dir resolves by
 precedence **`--base-activation-cache-dir` flag > config `output.base_activation_cache_dir`
 > `<probe-out-dir>/base_activation_cache` default**, and passes `--eval-max-samples` / `--seed` into
 `evaluate_probe`. `_free_gpu()` (`gc.collect()` + `torch.cuda.empty_cache()`) is
@@ -1339,6 +1418,14 @@ resumed run's CSV covers only the iterations that run actually executed.
 
 - **Probe metadata is the source of truth.** Don't pass `pos_class_label` /
   `neg_class_label` / `description` separately — read them off the loaded probe.
+- **A probe pickle may be an `EnsembleProbe`, and that must stay invisible below
+  `ProbeJudge.score`.** The ensemble averages its members' probabilities and exposes
+  the same probe surface, so red-teaming, the judge, the JSONL row and the eval all
+  keep seeing one score and one prediction. Anything that reaches *inside* a probe
+  (moving `_classifier.model` to a device, inferring a `ProbeSpec`) must go through
+  `ensemble.iter_probe_members` or unwrap explicitly — a `getattr(probe,
+  "_classifier")` on an ensemble silently returns `None`. And anything that scores raw
+  conversations must extract activations once for all members, never once per member.
 - **The attacker must never get filesystem/shell access.** For the Claude SDK
   driver, always carry both `allowed_tools=` and `disallowed_tools=` plus
   `setting_sources=[]` when constructing `ClaudeAgentOptions`. For the

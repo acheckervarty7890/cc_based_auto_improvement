@@ -18,6 +18,7 @@ from agentic_redteam.evaluation import (
     evaluate_probe,
     seed_everything,
 )
+from agentic_redteam.ensemble import MAX_ENSEMBLE_SIZE
 from agentic_redteam.retrain import (
     DEFAULT_FRESH_PROBE_ARCH,
     retrain_probe,
@@ -255,6 +256,16 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         "current probe's architecture.",
     )
     parser.add_argument(
+        "--ensemble-size",
+        type=int,
+        default=None,
+        help=f"Fit this many probes (1..{MAX_ENSEMBLE_SIZE}) with different training "
+        "seeds at every training/retraining step and average their scores into one "
+        "score-averaging deep ensemble; the averaged score is what the threshold, the "
+        "judge and the eval all see. Overrides probe.ensemble_size in config. Omit "
+        "both to inherit the size of the probe being retrained (1 for a plain probe).",
+    )
+    parser.add_argument(
         "--eval",
         action="store_true",
         help="Evaluate the initial probe and each retrained probe on the eval datasets",
@@ -318,6 +329,11 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         parser.error(
             f"--base-data-fraction must be in (0, 1]; got {args.base_data_fraction}"
         )
+    if args.ensemble_size is not None and not 1 <= args.ensemble_size <= MAX_ENSEMBLE_SIZE:
+        parser.error(
+            f"--ensemble-size must be between 1 and {MAX_ENSEMBLE_SIZE}; "
+            f"got {args.ensemble_size}"
+        )
 
     config = load_config(args.config)
     args.probe_out_dir.mkdir(parents=True, exist_ok=True)
@@ -326,6 +342,15 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
     error_types = config.probe.error_types
     layer = args.layer if args.layer is not None else config.probe.layer
     arch = args.probe_arch if args.probe_arch is not None else config.probe.architecture
+    # Precedence: --ensemble-size flag > config probe.ensemble_size > None. None is
+    # passed straight through to retrain_probe, which reads the size off the probe it
+    # is retraining (so a resumed run keeps whatever it was already building), and
+    # means 1 for train_initial_probe, which has no probe to inherit from.
+    ensemble_size = (
+        args.ensemble_size
+        if args.ensemble_size is not None
+        else config.probe.ensemble_size
+    )
     # Precedence: --eval-max-samples flag > config eval.eval_max_samples > default.
     # After resolution, 0 means "full split" (→ None).
     if args.eval_max_samples is not None:
@@ -363,6 +388,12 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         print(
             "Preprocessing enabled: filter_dataset + generate_contrastive_dataset "
             f"({config.preprocessing.model} via {config.preprocessing.provider})"
+        )
+    if ensemble_size is not None and ensemble_size > 1:
+        print(
+            f"Deep ensemble enabled: every train/retrain fits {ensemble_size} probes "
+            f"(seeds {args.seed}..{args.seed + ensemble_size - 1}) on the same "
+            "activations; their mean score is the probe's score."
         )
     if combine_consecutive_messages or convert_tool_to_assistant:
         print(
@@ -422,6 +453,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             split_field=args.split_field,
             seed=args.seed,
             base_data_fraction=args.base_data_fraction,
+            ensemble_size=ensemble_size or 1,
             base_activation_cache_dir=base_activation_cache_dir,
             combine_consecutive_messages=combine_consecutive_messages,
             convert_tool_to_assistant=convert_tool_to_assistant,
@@ -564,6 +596,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             split_field=args.split_field,
             seed=args.seed,
             base_data_fraction=args.base_data_fraction,
+            ensemble_size=ensemble_size,
             base_activation_cache_dir=base_activation_cache_dir,
             combine_consecutive_messages=combine_consecutive_messages,
             convert_tool_to_assistant=convert_tool_to_assistant,
@@ -572,6 +605,11 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         print(
             f"Iteration {i}: trained on {result.n_training_samples_total} samples "
             f"({result.n_redteam_samples} from red-team) → {result.new_probe_path}"
+            + (
+                f" [{result.ensemble_size}-member ensemble]"
+                if result.ensemble_size > 1
+                else ""
+            )
         )
         _free_gpu()  # release the retrain model's GPU memory before eval/next red-team
         current_probe_path = new_probe_path
