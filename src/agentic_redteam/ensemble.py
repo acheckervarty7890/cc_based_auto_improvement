@@ -36,6 +36,28 @@ from typing import Any
 # one retrain into an overnight job.
 MAX_ENSEMBLE_SIZE = 10
 
+# The ensemble's training seeds, drawn once at random and pinned here — member `i`
+# is always fit under ENSEMBLE_SEEDS[i], for every run, config and box.
+#
+# The alternative (walking `--seed + i`) makes a member's identity depend on a flag
+# that also governs the train/val split and the eval subsampling, so two runs that
+# differ only in `--seed` produce ensembles that differ in *two* ways at once and
+# can't be compared member-for-member. Pinning the fit seeds here separates the
+# concerns: `--seed` still moves the data (split, subsample), and this list alone
+# fixes the weight init and batch order of each member. It also means an
+# n-member ensemble and an (n+1)-member one share their first n members' seeds, so
+# growing an ensemble adds a member rather than reshuffling all of them.
+#
+# Treat these as frozen: changing a value silently changes every ensemble probe
+# trained afterwards, and nothing in the probe pickle would flag the mismatch
+# except `EnsembleProbe.member_seeds`, which records what was actually used.
+ENSEMBLE_SEEDS = (3699, 14431, 23529, 26229, 26660, 42624, 43521, 54184, 65963, 69051)
+
+assert len(ENSEMBLE_SEEDS) == MAX_ENSEMBLE_SIZE, (
+    "ENSEMBLE_SEEDS must supply one seed per allowed member; raising "
+    "MAX_ENSEMBLE_SIZE means appending seeds (never reordering the existing ones)."
+)
+
 # ProbeType names whose fit is a deterministic function of the training data:
 # difference-of-means and LDA are closed-form, and SklearnProbe's logistic
 # regression is solved by lbfgs with a fixed `random_state` hyperparam. Varying

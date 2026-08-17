@@ -18,7 +18,7 @@ from agentic_redteam.evaluation import (
     evaluate_probe,
     seed_everything,
 )
-from agentic_redteam.ensemble import MAX_ENSEMBLE_SIZE
+from agentic_redteam.ensemble import ENSEMBLE_SEEDS, MAX_ENSEMBLE_SIZE
 from agentic_redteam.retrain import (
     DEFAULT_FRESH_PROBE_ARCH,
     retrain_probe,
@@ -259,11 +259,13 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         "--ensemble-size",
         type=int,
         default=None,
-        help=f"Fit this many probes (1..{MAX_ENSEMBLE_SIZE}) with different training "
-        "seeds at every training/retraining step and average their scores into one "
-        "score-averaging deep ensemble; the averaged score is what the threshold, the "
-        "judge and the eval all see. Overrides probe.ensemble_size in config. Omit "
-        "both to inherit the size of the probe being retrained (1 for a plain probe).",
+        help=f"Fit this many probes (1..{MAX_ENSEMBLE_SIZE}) at every training/"
+        "retraining step and average their scores into one score-averaging deep "
+        "ensemble; the averaged score is what the threshold, the judge and the eval "
+        "all see. Member i is trained under the repo-pinned ensemble.ENSEMBLE_SEEDS[i], "
+        "the same on every run (--seed still governs the train/val split and eval "
+        "subsampling). Overrides probe.ensemble_size in config. Omit both to inherit "
+        "the size of the probe being retrained (1 for a plain probe).",
     )
     parser.add_argument(
         "--eval",
@@ -392,8 +394,9 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
     if ensemble_size is not None and ensemble_size > 1:
         print(
             f"Deep ensemble enabled: every train/retrain fits {ensemble_size} probes "
-            f"(seeds {args.seed}..{args.seed + ensemble_size - 1}) on the same "
-            "activations; their mean score is the probe's score."
+            f"on the same activations under the pinned training seeds "
+            f"{list(ENSEMBLE_SEEDS[:ensemble_size])}; their mean score is the probe's "
+            "score. (--seed still governs the train/val split and eval subsampling.)"
         )
     if combine_consecutive_messages or convert_tool_to_assistant:
         print(

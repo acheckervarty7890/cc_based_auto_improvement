@@ -30,11 +30,12 @@ Config file shape:
       neg_class_label: low-stakes     # (from scratch)
       description: ...                # optional probe description (from scratch)
       architecture: linear_then_softmax  # optional ProbeType name (from scratch)
-      ensemble_size: 5                # optional (1..10): fit n probes with n different
-                                      # seeds on the same activations and average their
-                                      # scores (score-averaging deep ensemble). Applies
-                                      # to the initial training AND every retrain.
-                                      # Omit to inherit whatever the base probe had.
+      ensemble_size: 5                # optional (1..10): fit n probes on the same
+                                      # activations under the repo-pinned ENSEMBLE_SEEDS
+                                      # and average their scores (score-averaging deep
+                                      # ensemble). Applies to the initial training AND
+                                      # every retrain. Omit to inherit whatever the base
+                                      # probe had.
     preprocessing:                    # optional: collation-style preprocessing of red-team
       provider: openrouter            # successes before each retrain (filter + contrastive)
       model: anthropic/claude-sonnet-4.5
@@ -252,9 +253,10 @@ class ProbeConfig:
     neg_class_label: str | None = None
     description: str | None = None
     architecture: str | None = None
-    # Number of independently-seeded probes to fit at every training/retraining
-    # step and average into one score-averaging deep ensemble (see
-    # agentic_redteam.ensemble). 1 = the ordinary single probe. None means
+    # Number of probes to fit at every training/retraining step and average into
+    # one score-averaging deep ensemble (see agentic_redteam.ensemble); member i
+    # trains under the pinned ENSEMBLE_SEEDS[i]. 1 = the ordinary single probe
+    # (which trains under the run's own --seed, as it always has). None means
     # "unset", which lets a retrain inherit whatever the probe it is retraining
     # from had, exactly as `architecture` does. Capped at MAX_ENSEMBLE_SIZE.
     ensemble_size: int | None = None

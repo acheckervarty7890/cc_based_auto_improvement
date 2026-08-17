@@ -168,11 +168,12 @@ train/val split) and applied *before* the split, so the chosen subset is identic
 every iteration, preserves class balance in expectation, and is folded into the
 base activation cache key. Red-team successes are never subsampled.
 `--ensemble-size` (1..10; overrides `probe.ensemble_size`) makes **every** training and
-retraining step fit that many probes with training seeds `--seed .. --seed+n-1` on the
-same activations and average their probabilities into one score — a score-averaging
-deep ensemble (see `ensemble.py`). The averaged score is what the threshold, the judge
-and the eval all see. Omit both flag and config key to inherit the size of the probe
-being retrained (1 for a plain probe).
+retraining step fit that many probes on the same activations and average their
+probabilities into one score — a score-averaging deep ensemble (see `ensemble.py`).
+Member `i` is trained under the repo-pinned `ENSEMBLE_SEEDS[i]`, identical on every
+run; `--seed` keeps governing only the *data* (train/val split, eval subsample). The
+averaged score is what the threshold, the judge and the eval all see. Omit both flag
+and config key to inherit the size of the probe being retrained (1 for a plain probe).
 When the config has a `preprocessing:` section, red-team successes are run through
 `filter_dataset` + `generate_contrastive_dataset` before each retrain.
 
@@ -292,10 +293,12 @@ probe:
   neg_class_label: <str>              # from-scratch only
   description: <str>                  # from-scratch only (optional)
   architecture: <ProbeType name>      # from-scratch only (optional; default linear_then_softmax)
-  ensemble_size: int                  # OPTIONAL 1..10 (default unset). Fit N probes with N
-                                      #   different training seeds on the SAME activations and
-                                      #   average their probabilities into one score — a
-                                      #   score-averaging deep ensemble (see ensemble.py).
+  ensemble_size: int                  # OPTIONAL 1..10 (default unset). Fit N probes on the
+                                      #   SAME activations under the repo-pinned
+                                      #   ENSEMBLE_SEEDS[:N] and average their probabilities
+                                      #   into one score — a score-averaging deep ensemble
+                                      #   (see ensemble.py). Member seeds are fixed; --seed
+                                      #   still governs only the split + eval subsample.
                                       #   Applies to the initial training AND every retrain.
                                       #   Unset ⇒ a retrain inherits the size of the probe it
                                       #   is retraining, exactly as `architecture` does.
@@ -1026,6 +1029,18 @@ ordinary `probe_iter{N}.pkl` path, and read back by everything that consumes a p
 - `MAX_ENSEMBLE_SIZE` (10) is enforced in `config.load_config`, in the CLI flag and in
   `retrain._resolve_ensemble_seeds` — every entry point that trains, since a typo like
   `100` would otherwise turn one retrain into a hundred fits.
+- **`ENSEMBLE_SEEDS`** — 10 numbers drawn once at random and pinned in the repo, one
+  per allowed member. Member `i` is always fit under `ENSEMBLE_SEEDS[i]`, on every
+  run, config and box. This deliberately decouples a member's identity from `--seed`,
+  which also governs the train/val split and the eval subsample: walking `--seed + i`
+  would mean two runs differing only in `--seed` produce ensembles differing in *two*
+  ways at once, uncomparable member-for-member. Taking a prefix also means an
+  `n`-member and an `(n+1)`-member ensemble share their first `n` members' seeds, so
+  growing an ensemble *adds* a member instead of reshuffling all of them. Treat the
+  values as frozen — editing one silently changes every ensemble trained afterwards,
+  and only `EnsembleProbe.member_seeds` (which records what was actually used) would
+  show it. Raising `MAX_ENSEMBLE_SIZE` means *appending* seeds, never reordering; an
+  assert ties the two constants together.
 - `DETERMINISTIC_ARCHS` (`sklearn`, `difference_of_means`, `lda`) drives a warning:
   those fits are closed-form (or lbfgs under a fixed `random_state`), so `n` seeds
   produce `n` identical members and an average equal to a single probe, at `n` times
@@ -1057,18 +1072,20 @@ conversion, shared by `retrain_probe` and `train_initial_probe`).
 rather than hardcoded.
 
 **Deep ensembles (`ensemble_size`).** Both entry points take an ensemble size and turn
-it into `_resolve_ensemble_seeds(seed, n) = [seed, seed+1, ..., seed+n-1]`, which
-`_train_with_cached_base_activations` runs as one `ProbeFactory.build` per seed over
-the *same* pre-activated datasets, wrapped in an `EnsembleProbe`. Only the **fit**
-repeats — the split, the extraction, the caches and the merge are all shared — so
-member `k > 0` costs a probe-head fit, not another pass through the extraction LLM
-(the model is released once, before the first fit, exactly as before). `n == 1`
-returns a plain probe byte-identical to the non-ensemble path, and member 0 always
-uses the run's own `seed`, so an ensemble's first member *is* the probe that would
-have been trained anyway. **Only the fit seed varies — never the split seed**: varying
-the latter would give each member a different validation set (so early stopping would
-select against different data) and a different base-activation cache key, turning one
-cached extraction into `n`. `retrain_probe(ensemble_size=None)` (the default)
+it into `_resolve_ensemble_seeds(seed, n)`, which `_train_with_cached_base_activations`
+runs as one `ProbeFactory.build` per seed over the *same* pre-activated datasets,
+wrapped in an `EnsembleProbe`. Only the **fit** repeats — the split, the extraction,
+the caches and the merge are all shared — so member `k > 0` costs a probe-head fit,
+not another pass through the extraction LLM (the model is released once, before the
+first fit, exactly as before). For `n > 1` the seeds are the **repo-pinned**
+`ENSEMBLE_SEEDS[:n]`, *not* a walk off `--seed`; `n == 1` is the carve-out and returns
+`[seed]`, so the default single-probe path is byte-identical to what it always was
+(routing it through the pinned list would silently retrain every existing
+non-ensemble config under a different seed). **Only the fit seed varies — never the
+split seed**: varying the latter would give each member a different validation set
+(so early stopping would select against different data) and a different
+base-activation cache key, turning one cached extraction into `n`.
+`retrain_probe(ensemble_size=None)` (the default)
 **inherits** the size off the probe being retrained, mirroring `probe_spec=None`
 inheriting its architecture, so an iterative run keeps building what it was attacking;
 `train_initial_probe` has no probe to inherit from and defaults to 1.

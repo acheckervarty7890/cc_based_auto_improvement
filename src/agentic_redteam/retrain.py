@@ -16,6 +16,7 @@ import torch
 
 from agentic_redteam.ensemble import (
     DETERMINISTIC_ARCHS,
+    ENSEMBLE_SEEDS,
     MAX_ENSEMBLE_SIZE,
     EnsembleProbe,
     ensemble_size as probe_ensemble_size,
@@ -32,16 +33,22 @@ DEFAULT_FRESH_PROBE_ARCH = "linear_then_softmax"
 
 
 def _resolve_ensemble_seeds(seed: int, n: int) -> list[int]:
-    """Training seeds for an ``n``-member deep ensemble anchored at ``seed``.
+    """Training seeds for an ``n``-member deep ensemble.
 
-    Member 0 keeps the run's own ``seed``, so ``n == 1`` reproduces the
-    single-probe path exactly and an ensemble's first member is the probe that
-    would have been trained anyway. Later members walk ``seed + i``, which is all
-    that separates them: they see identical activations, identical split and
-    identical hyperparameters, and differ only in weight init and batch order.
+    For ``n > 1`` these are the **repo-pinned** ``ENSEMBLE_SEEDS[:n]`` — the same
+    numbers on every run, config and box — so an ensemble's members are fixed
+    identities rather than an arithmetic walk off whatever ``--seed`` happens to
+    be. That keeps ``--seed`` doing exactly one job (moving the *data*: the
+    train/val split and the eval subsample) and this list doing the other (fixing
+    each member's weight init and batch order), instead of entangling the two.
 
-    The ``seed`` used for the train/val split is deliberately *not* varied — that
-    would give each member a different validation set (so early stopping would
+    ``n == 1`` is the carve-out: it returns ``[seed]``, because with a single
+    probe the run's ``--seed`` *is* that probe's training seed and always has
+    been. Routing the default single-probe path through the pinned list would
+    silently retrain every existing non-ensemble config under a different seed.
+
+    Whatever the seeds, only the **fit** is varied — never the split. Splitting
+    per member would give each a different validation set (so early stopping would
     select against different data) and, worse, a different base-activation cache
     key, turning one cached extraction into ``n``.
     """
@@ -51,7 +58,9 @@ def _resolve_ensemble_seeds(seed: int, n: int) -> list[int]:
         raise ValueError(
             f"ensemble_size must be <= {MAX_ENSEMBLE_SIZE}; got {n}"
         )
-    return [seed + i for i in range(n)]
+    if n == 1:
+        return [seed]
+    return list(ENSEMBLE_SEEDS[:n])
 
 
 def _warn_if_deterministic_arch(probe_spec, n: int) -> None:
@@ -558,7 +567,9 @@ def _train_with_cached_base_activations(
     members' mean probability. Only the fit repeats — the split, the extraction and
     the merge are shared — so member ``k > 0`` costs a probe-head fit, not another
     pass through the extraction LLM. ``None`` or a single seed returns a plain probe,
-    byte-identical to what the non-ensemble path produced.
+    byte-identical to what the non-ensemble path produced. The seeds themselves come
+    from ``_resolve_ensemble_seeds``, which draws them from the repo-pinned
+    ``ENSEMBLE_SEEDS`` so a member's identity is the same on every run.
     """
     from tuberlens.model import LLMModel
     from tuberlens.probes.probe_factory import ProbeFactory
