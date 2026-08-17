@@ -14,7 +14,7 @@ set -e
 #       -> results_instructions_gemma27b_ens10_nemotron/ probes/instructions_gemma27b_ens10_nemotron
 #
 # THE ONLY VARIABLE IS THE ATTACKER MODEL. This is experiment_instruction_cloud_1's
-# run_gemma27b_instructions_attackers.sh with exactly THREE changes, all applied to BOTH arms:
+# run_gemma27b_instructions_attackers.sh with exactly FOUR changes, all applied to BOTH arms:
 #
 #   1. probe.ensemble_size: 10 — every train/retrain fits TEN linear_then_softmax probes on the
 #      SAME activations under the repo-pinned ENSEMBLE_SEEDS[:10] and averages their
@@ -23,22 +23,31 @@ set -e
 #      the split, the extraction and the activation caches are shared across members, so member
 #      k > 0 costs a probe-head fit, not another pass through gemma-3-27b.
 #   2. --iterations 3 -> 5 below.
-#   3. batch_target 60 -> 20 in both configs. In batch mode this caps nothing (see the volume
-#      parity note below) — it only stops paying for TOP-UP calls from sessions whose first
-#      reply came back short, once the round has banked 20 successes. max_turns stays 5.
+#   3. sessions_per_model 20 -> 10, concurrency 20 -> 10, batch_target 60 -> 30 in both
+#      configs — experiment11_cloud's scheduling shape. max_turns stays 5 (it IS the batch
+#      size here), so round volume halves to sessions_per_model x max_turns = 50. In batch
+#      mode batch_target caps nothing (see the volume parity note below); it only stops
+#      paying for TOP-UP calls from sessions whose first reply came back short.
+#   4. A `kaggle:` section in both configs. Precomputed gemma-3-27b L32 activations for all
+#      seven eval_instructions splits are now published at anku7890/{slug}-gemmaevalpt, so
+#      the eval downloads ~1.45 GB of validated blobs (~4.9 GB on disk) instead of running
+#      1302 rows through a 27B model. This needs Kaggle credentials — checked below, up
+#      front — and disk for the unpacked blobs.
 #
-# Everything else is held at experiment_instruction_cloud_1's shape: batch mode,
-# sessions_per_model 20, concurrency 20, rounds 5, max_turns 5 (= batch size), view_limit 0,
+# Everything else is held at experiment_instruction_cloud_1's shape: batch mode, rounds 5,
+# max_turns 5 (= batch size), view_limit 0,
 # near-dup guard 0.8, cross-iteration memos off, round memo on. Judge and contrastive generator
 # are openai/gpt-5.1 in both. Probe is gemma-3-27b-it L32 trained from scratch off
 # data/instructions_llama70b_50.jsonl, both error types. The preflight below asserts the two
 # configs are identical apart from attacker.models and the output paths — ensemble_size
 # included — so a delta between the arms cannot come from anything else.
 #
-# ATTEMPT VOLUME per arm: 20 sessions x 5 (batch size) x 5 rounds = ~500 conversations per error
-# type per iteration, x 2 error types x 5 iterations = ~5000. Each is scored by a gemma-3-27b
-# forward pass — that, not the eval and not the ten probe-head fits, dominates wall clock.
-# Budget roughly 5/3 of experiment_instruction_cloud_1's red-team time per arm.
+# ATTEMPT VOLUME per arm: 10 sessions x 5 (batch size) x 5 rounds = ~250 conversations per error
+# type per iteration, x 2 error types x 5 iterations = ~2500 — the same per-round width as
+# experiment11_cloud, over more iterations. Each is scored by a gemma-3-27b forward pass, and
+# with the eval now served from Kaggle that is essentially the only thing loading the 27B model,
+# so it dominates wall clock outright. Against experiment_instruction_cloud_1 that is 5/6 of the
+# red-team volume per arm (half the round width, 5/3 the iterations) and none of its eval cost.
 #
 # NOTE ON VOLUME PARITY. In batch mode batch_target only suppresses top-up calls for sessions
 # whose first reply came back SHORT of max_turns; a session that returns a full batch breaks on
@@ -57,13 +66,16 @@ set -e
 # LLM, so the two arms' distinct successes get distinct keys. This is why the arms MUST run
 # sequentially: two live writers can tear a blob.
 #
-# NO KAGGLE PREFETCH IN THIS EXPERIMENT. Unlike the high-stakes runs, there are no published
-# gemma-3-27b activation blobs for the eval_instructions splits, so neither config carries a
-# `kaggle:` section and arm 1 computes all 1302 eval rows locally, once. That is a real one-off
-# cost at 27B — expect the first --eval to be long, unless the shared cache dir survived from
-# experiment_instruction_cloud_1 on this box. It is cached under
-# results_instructions_gemma27b_shared/eval_activations as `<split>-acts_full.pt` and reused by
-# every later iteration and by arm 2.
+# KAGGLE PREFETCH — the change from experiment_instruction_cloud_1, which had none. Both configs
+# now carry a `kaggle:` section pointing at anku7890/{slug}-gemmaevalpt, so arm 1's first --eval
+# downloads the precomputed gemma-3-27b activations for all seven eval_instructions splits
+# (~1.45 GB compressed / ~4.9 GB on disk, one file per split, named <split>-gemmaeval.pt) into
+# results_instructions_gemma27b_shared/eval_activations as `<split>-acts_full.pt`. Each blob is
+# validated against the probe's model_name/layer and the split's row count before use, and a
+# split that cannot be fetched RAISES rather than falling back to local extraction. NO LLM is
+# loaded for the eval at all — that is the point, and it removes what was the largest
+# non-red-team cost of the predecessor. The BASE split is still computed locally by arm 1, as is
+# every red-team conversation.
 #
 # A fresh --probe-out-dir per arm matters beyond overwriting:
 #   - the old dir holds redteam_done_iter*_*.marker resume markers; reusing it would make the
@@ -119,6 +131,20 @@ sys.exit(1)
 PY
 }
 
+# Kaggle credentials for the precomputed eval activations (configs' `kaggle:` section).
+# Checked HERE rather than at first use: the first eval is hours into arm 1, and an
+# unauthenticated KaggleApi.authenticate() ends in exit(1), not an exception.
+if [ -z "${KAGGLE_API_TOKEN:-}" ]; then
+    kaggle_json="${KAGGLE_CONFIG_DIR:-$HOME/.kaggle}/kaggle.json"
+    [ -f "$kaggle_json" ] || kaggle_json="$HOME/.config/kaggle/kaggle.json"
+    if [ ! -f "$kaggle_json" ]; then
+        echo "ERROR: no Kaggle credentials. Set KAGGLE_CONFIG_DIR to the DIRECTORY holding" >&2
+        echo "       kaggle.json (not the file), or export KAGGLE_API_TOKEN." >&2
+        exit 1
+    fi
+    echo ">>> kaggle credentials: $kaggle_json"
+fi
+
 check_model openai/gpt-oss-120b                 # attacker, ARM 1
 check_model nvidia/nemotron-3-ultra-550b-a55b   # attacker, ARM 2
 check_model openai/gpt-5.1                      # judge + summarizer + contrastive generator, BOTH arms
@@ -135,6 +161,9 @@ from agentic_redteam.config import load_config
 from agentic_redteam.ensemble import ENSEMBLE_SEEDS, MAX_ENSEMBLE_SIZE
 
 EXPECTED_ENSEMBLE_SIZE = 10
+EXPECTED_KAGGLE_OWNER = "anku7890"
+EXPECTED_KAGGLE_SLUG = "{slug}-gemmaevalpt"
+EXPECTED_KAGGLE_FILE = "{split}-gemmaeval.pt"
 
 a = load_config("configs/gptoss120b_instructions_gemma27b_ens10.md")   # gpt-oss-120b
 b = load_config("configs/nemotron_instructions_gemma27b_ens10.md")     # nemotron-3-ultra
@@ -174,6 +203,15 @@ for k in ("combine_consecutive_messages", "convert_tool_to_assistant", "eval_max
     if va != vb:
         problems.append(f"eval.{k}: {va!r} vs {vb!r}")
 
+if (a.kaggle is None) != (b.kaggle is None):
+    problems.append("only one arm carries a `kaggle:` section — one would download eval "
+                    "activations while the other extracted them locally")
+elif a.kaggle is not None:
+    for k in ("owner", "eval_dataset_slug", "eval_file_name"):
+        va, vb = getattr(a.kaggle, k), getattr(b.kaggle, k)
+        if va != vb:
+            problems.append(f"kaggle.{k}: {va!r} vs {vb!r}")
+
 # The one thing that IS supposed to differ.
 if a.attacker.model_names != ["openai/gpt-oss-120b"]:
     problems.append(f"arm 1 attacker must be openai/gpt-oss-120b, got {a.attacker.model_names}")
@@ -202,10 +240,39 @@ for name, c in (("arm 1", a), ("arm 2", b)):
             f"({need}) — the extra sessions would queue on the semaphore and each would get "
             "its own success budget"
         )
-    if c.kaggle is not None:
+    # Inverted from experiment_instruction_cloud_1, where a `kaggle:` section was a bug: the
+    # blobs now exist, so a config MISSING the section would silently spend hours extracting
+    # 1302 rows through gemma-3-27b instead of downloading them.
+    if c.kaggle is None:
         problems.append(
-            f"{name} carries a `kaggle:` section — no gemma-3-27b eval activations are "
-            "published for the eval_instructions splits, so it would fail at the first eval"
+            f"{name} carries NO `kaggle:` section — the eval would extract all 1302 "
+            "eval_instructions rows locally through gemma-3-27b instead of downloading the "
+            f"published blobs from {EXPECTED_KAGGLE_OWNER}/{EXPECTED_KAGGLE_SLUG}"
+        )
+    else:
+        if c.kaggle.owner != EXPECTED_KAGGLE_OWNER:
+            problems.append(f"{name}: kaggle.owner {c.kaggle.owner!r} != {EXPECTED_KAGGLE_OWNER!r}")
+        if c.kaggle.eval_dataset_slug != EXPECTED_KAGGLE_SLUG:
+            problems.append(
+                f"{name}: kaggle.eval_dataset_slug {c.kaggle.eval_dataset_slug!r} != "
+                f"{EXPECTED_KAGGLE_SLUG!r}"
+            )
+        if c.kaggle.eval_file_name != EXPECTED_KAGGLE_FILE:
+            problems.append(
+                f"{name}: kaggle.eval_file_name {c.kaggle.eval_file_name!r} != "
+                f"{EXPECTED_KAGGLE_FILE!r}"
+            )
+        # Every eval_instructions stem contains an underscore, which Kaggle forbids in a
+        # dataset slug — a {split}-based slug would name a dataset that cannot exist.
+        if "{slug}" not in c.kaggle.eval_dataset_slug:
+            problems.append(
+                f"{name}: kaggle.eval_dataset_slug must use {{slug}}, not {{split}} — every "
+                "eval_instructions split stem has an underscore and Kaggle slugs forbid them"
+            )
+    if c.eval.eval_max_samples != 0:
+        problems.append(
+            f"{name}: eval.eval_max_samples must be 0 to use precomputed full-split "
+            f"activations, got {c.eval.eval_max_samples!r}"
         )
 
 # Isolation of the per-arm outputs; deliberate sharing of the activation caches.
@@ -226,6 +293,8 @@ if problems:
 print(">>> arm configs OK: identical apart from attacker.models and the per-arm output paths")
 print(f">>> deep ensemble ON in both arms: {EXPECTED_ENSEMBLE_SIZE} members per train/retrain "
       f"(max {MAX_ENSEMBLE_SIZE}), seeds {list(ENSEMBLE_SEEDS[:EXPECTED_ENSEMBLE_SIZE])}")
+print(f">>> kaggle eval prefetch ON in both arms: {a.kaggle.owner}/"
+      f"{a.kaggle.eval_dataset_slug} :: {a.kaggle.eval_file_name}")
 PY
 
 # --- preflight: the eval splits' labels match the probe's ---------------------------------------
@@ -266,9 +335,9 @@ done
 
 mkdir -p "$SHARED_CACHE/base_activations" "$SHARED_CACHE/eval_activations"
 if [ -n "$(ls -A "$SHARED_CACHE/eval_activations" 2>/dev/null)" ]; then
-    echo ">>> activation cache: $SHARED_CACHE (already populated — arm 1's first eval should hit it)"
+    echo ">>> activation cache: $SHARED_CACHE (eval blobs already present — no Kaggle download needed)"
 else
-    echo ">>> activation cache: $SHARED_CACHE (starting empty — computed by arm 1, reused by arm 2)"
+    echo ">>> activation cache: $SHARED_CACHE (empty — arm 1's first eval downloads ~1.45 GB from Kaggle, ~4.9 GB unpacked)"
 fi
 
 # --- run one arm ------------------------------------------------------------------------------

@@ -25,7 +25,7 @@
 # Artifacts of already-finished stages stay in the commit set, so later
 # checkpoints keep carrying them.
 #
-# NOTE ON CADENCE. Both arms have the SAME shape (rounds: 5, sessions_per_model: 20,
+# NOTE ON CADENCE. Both arms have the SAME shape (rounds: 5, sessions_per_model: 10,
 # --iterations 5), so both produce one phase marker per iteration x error type — 10
 # marker-driven checkpoints each, not the 6 of the 3-iteration predecessor. Wall clock per
 # marker still differs: arm 2's attacker
@@ -34,13 +34,12 @@
 # (default every 15 min) is what keeps in-progress successes on the remote in between,
 # and it is the reason not to raise --periodic-interval for this experiment.
 #
-# ALSO NOTE: stage 1 carries an extra, unmarked stretch that produces NO checkpoints —
-# its first --eval computes all 1302 eval_instructions rows through gemma-3-27b locally
-# (this experiment publishes no Kaggle blobs for those splits), unless
-# results_instructions_gemma27b_shared/eval_activations survived from
-# experiment_instruction_cloud_1 on this box. Nothing is written to --probe-out-dir during
-# it, so a long marker-quiet period there is expected, not a hang. Arm 2 reads that cache
-# and skips the whole thing.
+# ALSO NOTE: stage 1 carries an extra, unmarked stretch that produces NO checkpoints — its
+# first --eval populates results_instructions_gemma27b_shared/eval_activations by DOWNLOADING
+# the published gemma-3-27b blobs for the seven eval_instructions splits from Kaggle (~1.45 GB,
+# ~4.9 GB unpacked). That is minutes, not the hours the predecessor spent extracting those
+# 1302 rows locally, but nothing is written to --probe-out-dir during it, so a short
+# marker-quiet period there is expected, not a hang. Arm 2 reads the cache and skips it.
 #
 # ---------------------------------------------------------------------------
 # SHUTDOWN
@@ -87,9 +86,10 @@
 # resume needs, so every add here uses `git add -f`.
 #
 # What is NOT committed: the base/eval activation caches (*.pt, multiple GB each —
-# this experiment's shared eval cache holds 1302 gemma-3-27b eval rows plus every
-# red-team conversation's per-sample blob, and at 5 iterations x 2 error types it grows
-# further into the tens of GB than the 3-iteration predecessor's did).
+# this experiment's shared eval cache holds ~4.9 GB of Kaggle-fetched eval blobs plus
+# every red-team conversation's per-sample blob, and at 5 iterations x 2 error types it
+# grows into the tens of GB). The eval half is now re-downloadable rather than
+# recomputable, which makes losing it cheaper still.
 # LOSING IT COSTS RECOMPUTE, NOT CORRECTNESS: on a fresh container the first --eval
 # re-extracts those 1302 rows. That is the one part of this experiment a wipe makes
 # genuinely expensive, and it is still not worth committing multi-GB tensors.
