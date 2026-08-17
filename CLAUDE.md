@@ -665,9 +665,23 @@ harmful/high-stakes.
 otherwise be stored as the memo and injected into later attackers' system prompts as
 if it were findings. Both summarizers therefore route through
 `LLMJudge._summarization_call(system, user_content, *, what)`:
-`_looks_like_refusal` scans the first `_REFUSAL_SCAN_CHARS` (240) characters for a
-leading refusal phrase from `_REFUSAL_MARKERS` (prefix-only, so a write-up quoting
-"can't" mid-text doesn't trip it); on a hit the judge is re-asked once **in-context**
+`_looks_like_refusal` decides whether the response *opens with* a refusal phrase from
+`_REFUSAL_MARKERS`, which takes three guards, not a substring scan — **a plain
+`marker in head` test is wrong here in a structural way, and it aborted a live
+instruction-following run.** That concept's negative class *is* refusal, so every good
+memo quotes the phrasings the probe over-weights (`- Any explicit refusal cue ("I must
+decline…", "I cannot…") is treated as…`), and the scan read the citation as the judge
+declining. The guards: (1) a response opening with markdown structure
+(`_MARKDOWN_OPENER` — bullet, heading, table, blockquote, numbered item) is a write-up,
+since a refusal is first-person prose; (2) quoted spans are blanked by
+`_strip_quoted_spans` / `_QUOTED_SPAN` before matching, because a *cited* marker is not
+an *uttered* one — note the straight-single-quote alternative is guarded on both sides
+against a letter, or the apostrophe in "I can't help" opens a span and blanks the very
+refusal being looked for; (3) what survives must carry a marker starting within
+`_REFUSAL_LEAD_CHARS` (60) of the response, short enough to exclude a later bullet but
+long enough to keep catching a real refusal with a lead-in ("I'm sorry, but I can't
+help with that"). `_REFUSAL_SCAN_CHARS` (240) still bounds the work. On a hit the judge
+is re-asked once **in-context**
 (original user turn + its refusal + `_REFUSAL_RETRY_NUDGE`, which restates that this
 is a classifier-quality report over already-collected data). A second refusal raises
 `JudgeRefusalError`, which `_summarize_round` / `_write_iteration_memo` deliberately

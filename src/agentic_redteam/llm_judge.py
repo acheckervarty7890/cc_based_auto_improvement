@@ -18,6 +18,7 @@ other to be installed.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -93,6 +94,19 @@ _REFUSAL_MARKERS = (
 
 # Only this many leading characters are scanned for a refusal marker.
 _REFUSAL_SCAN_CHARS = 240
+# A marker must START within this many characters of the (de-quoted) response to count
+# as the response *opening* with a refusal. Long enough for a lead-in ("I'm sorry, but
+# I can't help with that"), far too short for a marker cited in a later bullet.
+_REFUSAL_LEAD_CHARS = 60
+# Markdown structure at position 0 means the model produced the write-up, not a refusal.
+_MARKDOWN_OPENER = re.compile(r"[-*+#>|]|\d+[.)]\s")
+# Quoted spans, for _strip_quoted_spans. The straight-single-quote alternative is
+# guarded on both sides against a letter, or the apostrophe in "I can't help" would
+# open a span and blank out the very refusal we are looking for. Curly apostrophes
+# need no such guard: "I’m" carries the CLOSING glyph, and a span needs an opening one.
+_QUOTED_SPAN = re.compile(
+    r"\"[^\"]*\"|“[^”]*”|«[^»]*»|‘[^’]*’|(?<![A-Za-z])'[^']*'(?![A-Za-z])"
+)
 
 # Sent as a follow-up turn when the first summarization response looks like a
 # refusal — re-asks the judge in-context, restating what the task actually is.
@@ -109,13 +123,46 @@ _REFUSAL_RETRY_NUDGE = (
 )
 
 
+def _strip_quoted_spans(text: str) -> str:
+    """Blank out quoted spans, so a marker the write-up *cites* can't look like one it utters.
+
+    A memo about instruction-following necessarily quotes refusal phrasings — the
+    negative class of that concept IS refusal — e.g. ``- Any explicit refusal cue
+    ("I must decline...", "I cannot...") is over-weighted``. Those are citations,
+    not the judge declining. Quote characters are replaced (not deleted) so the
+    surviving offsets still mean what they did, which is what the lead-window
+    below is measured against.
+    """
+    return _QUOTED_SPAN.sub(lambda m: " " * len(m.group(0)), text)
+
+
 def _looks_like_refusal(text: str) -> bool:
-    """True if ``text`` opens with a refusal rather than the requested write-up."""
+    """True if ``text`` OPENS with a refusal rather than the requested write-up.
+
+    Three guards, because a plain substring scan over the first
+    ``_REFUSAL_SCAN_CHARS`` is wrong in a way that is *structural* for this repo, not
+    incidental: it aborted a live instruction-following run when the judge returned a
+    perfectly good memo whose second bullet quoted the very refusal phrases the probe
+    over-weights. On that concept every good memo quotes them, so the guard would have
+    kept firing.
+
+    1. A response that opens with markdown structure (bullet, heading, table, quote,
+       numbered item) is a write-up. A refusal is first-person prose.
+    2. Markers inside quotes are citations — see :func:`_strip_quoted_spans`.
+    3. What is left must carry a marker within ``_REFUSAL_LEAD_CHARS``, i.e. actually
+       at the start. The window is short but not zero, so ``"I'm sorry, but I can't
+       help with that"`` — a real refusal with a lead-in — is still caught.
+    """
     if not text or not text.strip():
         return False  # empty is handled separately by the callers (treated as "no memo")
-    head = text.strip()[:_REFUSAL_SCAN_CHARS].lower()
-    head = head.replace("’", "'").replace("‘", "'")
-    return any(marker in head for marker in _REFUSAL_MARKERS)
+    stripped = text.strip()
+    if _MARKDOWN_OPENER.match(stripped):
+        return False
+    head = _strip_quoted_spans(stripped[:_REFUSAL_SCAN_CHARS])
+    head = head.lower().replace("’", "'").replace("‘", "'")
+    return any(
+        0 <= head.find(marker) < _REFUSAL_LEAD_CHARS for marker in _REFUSAL_MARKERS
+    )
 
 
 @dataclass
