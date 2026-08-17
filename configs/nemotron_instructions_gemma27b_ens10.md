@@ -14,13 +14,13 @@
 #
 # BASE: experiment_instruction_cloud_1's ARM 2
 # (configs/nemotron_instructions_gemma27b_batch_target60.md). Carried over unchanged: batch
-# mode, batch_target 60, sessions_per_model 20, concurrency 20, rounds 5, max_turns 5,
-# view_limit 0, near-dup guard at 0.8, cross_iteration_memos off, round_summaries on, judge
+# mode, sessions_per_model 20, concurrency 20, rounds 5, max_turns 5, view_limit 0,
+# near-dup guard at 0.8, cross_iteration_memos off, round_summaries on, judge
 # openai/gpt-5.1, preprocessing model openai/gpt-5.1 with assistant_centric true, both error
 # types, base data data/instructions_llama70b_50.jsonl, eval_instructions/, no `kaggle:`
 # section, and both system prompts verbatim.
 #
-# WHAT CHANGES vs that experiment — exactly two things, both applied IDENTICALLY to both arms:
+# WHAT CHANGES vs that experiment — exactly three things, all applied IDENTICALLY to both arms:
 #
 #   1. probe.ensemble_size: 10 (new; see agentic_redteam/ensemble.py). Every training and
 #      retraining step now fits TEN probes on the SAME activations under the repo-pinned
@@ -38,6 +38,17 @@
 #
 #   2. --iterations 3 -> 5 (set by the runner, not here). Two more red-team/retrain cycles per
 #      arm, so ~5000 candidate conversations per arm instead of ~3000.
+#
+#   3. batch_target: 60 -> 20. In BATCH mode this does NOT cap a round — see the block below:
+#      it only suppresses TOP-UP calls for sessions whose first reply came back short of
+#      max_turns. So the effect of the drop is narrow and one-directional: a round that has
+#      already banked 20 successes stops paying for second and third asks from the sessions
+#      that under-delivered, while sessions returning a full batch of 5 are unaffected either
+#      way. Round volume is still sessions_per_model x max_turns = 20 x 5 = 100. Expect
+#      slightly FEWER attempts per round than at 60, concentrated in the later rounds of an
+#      iteration (the counter is the store's, so it only reaches 20 once successes accumulate),
+#      and expect that shortfall to be larger for whichever attacker returns short batches more
+#      often — check stop_reason before reading it as attacker quality.
 #
 # NOTE ON THE ATTACKER. nvidia/nemotron-3-ultra-550b-a55b is a much larger model than arm 1's
 # openai/gpt-oss-120b, so read a delta as "this attacker vs that attacker", not as an isolated
@@ -83,7 +94,7 @@ attacker:
                                   #   and _render_near_dup_rejects, so no past attempt reaches the
                                   #   attacker through either channel.
   max_turns: 5                    # BATCH SIZE in this mode → sessions_per_model x max_turns = 100/round
-  batch_target: 60                # shared per-round success budget, enforced programmatically and never
+  batch_target: 20                # shared per-round success budget, enforced programmatically and never
                                   #   told to the attacker. See the header: in batch mode this only
                                   #   suppresses top-up calls for sessions whose first reply came back
                                   #   short — it does not cap the round.

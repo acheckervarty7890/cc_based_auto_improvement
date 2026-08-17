@@ -14,7 +14,7 @@ set -e
 #       -> results_instructions_gemma27b_ens10_nemotron/ probes/instructions_gemma27b_ens10_nemotron
 #
 # THE ONLY VARIABLE IS THE ATTACKER MODEL. This is experiment_instruction_cloud_1's
-# run_gemma27b_instructions_attackers.sh with exactly TWO changes, both applied to BOTH arms:
+# run_gemma27b_instructions_attackers.sh with exactly THREE changes, all applied to BOTH arms:
 #
 #   1. probe.ensemble_size: 10 — every train/retrain fits TEN linear_then_softmax probes on the
 #      SAME activations under the repo-pinned ENSEMBLE_SEEDS[:10] and averages their
@@ -23,9 +23,12 @@ set -e
 #      the split, the extraction and the activation caches are shared across members, so member
 #      k > 0 costs a probe-head fit, not another pass through gemma-3-27b.
 #   2. --iterations 3 -> 5 below.
+#   3. batch_target 60 -> 20 in both configs. In batch mode this caps nothing (see the volume
+#      parity note below) — it only stops paying for TOP-UP calls from sessions whose first
+#      reply came back short, once the round has banked 20 successes. max_turns stays 5.
 #
-# Everything else is held at experiment_instruction_cloud_1's shape: batch mode, batch_target
-# 60, sessions_per_model 20, concurrency 20, rounds 5, max_turns 5 (= batch size), view_limit 0,
+# Everything else is held at experiment_instruction_cloud_1's shape: batch mode,
+# sessions_per_model 20, concurrency 20, rounds 5, max_turns 5 (= batch size), view_limit 0,
 # near-dup guard 0.8, cross-iteration memos off, round memo on. Judge and contrastive generator
 # are openai/gpt-5.1 in both. Probe is gemma-3-27b-it L32 trained from scratch off
 # data/instructions_llama70b_50.jsonl, both error types. The preflight below asserts the two
