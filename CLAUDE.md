@@ -153,9 +153,39 @@ scratch using the `probe:` fields (`model`, `layer`, `pos_class_label`,
 and every retrained probe on the local eval splits and writes a cross-round
 comparison CSV.
 
-Validation is always derived by splitting the training data via this repo's
-`stable_train_test_split` (`--test-size`, default 0.2; optional `--split-field`) —
-there is no external validation-file flag. **The split is content-deterministic, not
+Validation comes from one of two sources. **By default** it is derived by splitting the
+training data via this repo's `stable_train_test_split` (`--test-size`, default 0.2;
+optional `--split-field`). **With `--dev-data` (or `validation.dev_data` in config)** it
+is instead a held-out **dev set** used whole, and *nothing* is held out of the base data
+or the red-team successes — both train in full, and `--test-size` / `--split-field` are
+ignored. The dev path exists because the default split makes the validation set move: a
+share of every iteration's red-team successes lands in it, so the set the probe
+early-stops against (tuberlens keeps the **best-val-AUROC checkpoint** — see
+`pytorch_classifiers.py:358-405`) changes shape at every retrain and the checkpoints are
+not comparable across iterations. `--dev-data` takes a JSONL or a **directory** whose
+`*.jsonl` files are each a split, auto-discovered and concatenated (column intersection)
+the way `evaluate_probe` discovers eval splits; every row's `labels` must be one of the
+probe's two class labels, or the load raises rather than silently handing the fit
+unlabelled rows. **The dev data must be disjoint from the eval splits** — otherwise the
+fit selects its checkpoint on the test set. The three shipped dev sets are under
+`dev_samples/` (see below). The dev set is fixed for the run, so its activations are
+cached as **one blob** (`_dev_activation_cache_path`, keyed on the dev files' bytes +
+`model | layer | combine | convert` — no `seed`/`test_size`, since it is never split).
+Note that switching a run to `--dev-data` changes the *base* cache key too, since the
+base split's `test_size` becomes 0.0.
+
+**Budget the dev set's size deliberately** — it is resident for the whole fit and is
+usually now the largest single thing in a retrain. `get_activations` pads to 1024, so a
+row costs `1024 × hidden × 2` bytes: the 1908-row `dev_samples/highstakes` blob measured
+**8.0 GB** on llama-1b (hidden 2048) and would be **21 GB** on gemma-3-27b (hidden 5376,
+11 MB/row — the same arithmetic as the OOM analysis under `retrain.py` below). The
+default `test_size` slice it replaces was ~56 rows (0.24 GB) on a 282-sample retrain, so
+this is a ~34x increase in validation-side RAM, on top of the training activations that
+section already warns about. It is also scored **every epoch**, which is what turned a
+seconds-long fit into ~8 min at 1908 rows. If a gemma-sized run gets tight, subsample the
+dev dir rather than dropping back to the moving split.
+
+**The split is content-deterministic, not
 RNG-based**: each sample's train-vs-val side is a pure function of its own content
 (or its `split_field` value) plus `--seed`, so the base samples land identically
 every iteration even as red-team successes accumulate. `--seed` (default 42) seeds
@@ -323,6 +353,17 @@ preprocessing:                        # OPTIONAL: collation-style preprocessing 
       - ...                           #   LABEL_SHORT alias is also accepted). Unknown keys are
     <neg_class_label>: |              #   warned about and ignored.
       - ...
+validation:                           # OPTIONAL: held-out dev data used as the probe fit's
+  dev_data: <path>                    #   VALIDATION set (a JSONL, or a dir whose *.jsonl files
+                                      #   are each a split, auto-discovered + concatenated).
+                                      #   When set, base data AND red-team successes train in
+                                      #   FULL — nothing is held out — and test_size/split_field
+                                      #   are ignored, so the validation set is identical every
+                                      #   iteration instead of absorbing a share of each
+                                      #   iteration's successes. Labels must be the probe's own
+                                      #   class labels. MUST be disjoint from the eval splits or
+                                      #   the best-epoch checkpoint is selected on the test set.
+                                      #   CLI --dev-data overrides.
 eval:                                 # OPTIONAL: dataset message transforms applied to BOTH
   combine_consecutive_messages: bool  # training data AND eval splits (default false) — merge
   convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
@@ -1111,8 +1152,28 @@ Both `retrain_probe` and `train_initial_probe` derive the validation set with
 `create_train_test_split`. Each sample's train-vs-val side is
 `sha256(seed : content)` (or the `split_field` value) thresholded at `test_size`,
 independent of dataset size or order, so the base samples land identically every
-iteration; class balance is preserved in expectation. There is no external
-validation-file path.
+iteration; class balance is preserved in expectation.
+
+**`dev_data_path=` overrides that split entirely.** Given a held-out dev set (a JSONL or
+a dir of `*.jsonl` splits), both functions load it via `_load_dev_dataset` — which
+concatenates the splits and **raises** if any row's `labels` matches neither class label,
+since tuberlens would otherwise load them as `None` and hand the fit a validation set it
+cannot score — then set `test_size = 0.0` and `split_field = None`. That is the whole
+mechanism: `stable_train_test_split` at `test_size=0.0` puts every sample on the train
+side, so base *and* red-team train in full and the dev set is the sole validation set.
+Nothing else in the split/cache machinery needed changing, and the `test_size` already in
+the base cache key means the changed base membership gets a new key for free. The dev
+set's own activations are a single blob (`_dev_activation_cache_path`) keyed on the dev
+files' bytes + `model | layer | combine | convert`, with **no** `seed` / `test_size` /
+`split_field`: the dev set is used whole, so nothing about the train/val partition can
+change which rows it holds. `_train_with_cached_base_activations` takes it as `dev_val` /
+`dev_val_cache` and folds it into `validation_dataset` alongside the (now empty) base and
+red-team val sides, so the non-dev path is byte-for-byte unchanged.
+
+Note tuberlens uses the validation set to keep the **best-val-AUROC checkpoint** and to
+early-stop (`pytorch_classifiers.py:358-405`), so which set this is materially changes the
+probe — but only for the pytorch architectures. `SklearnProbe.fit` prints
+"does not use a validation dataset" and ignores it.
 
 **Activation caching (base-blob + red-team per-sample).** Because the base split is
 fixed, the base train/val activations are cached on disk and reused across the whole
@@ -1353,9 +1414,14 @@ JSONL row is a tuberlens `LabelledDataset` record: `inputs` is a **JSON-encoded 
 of `[{role, content}, ...]` (parse it, don't treat it as text) and `labels` is the class
 string; any other columns are provenance only.
 
-- **`eval_datasets/`** — the **high-stakes** probe's splits:
-  `anthropic` (1028), `mt` (278), `mts` (274), `toolace` (328).
-  Labels are `high-stakes` / `low-stakes`, exactly class-balanced per split. Extra columns:
+- **`eval_hs/`** — the **high-stakes** probe's splits (renamed from `eval_datasets/` in
+  c260778, and **re-cut** at the same time): `anthropic_hh_balanced` (2984),
+  `mt_balanced` (604), `mts_balanced` (86), `toolace_balanced` (734).
+  Labels are `high-stakes` / `low-stakes`, exactly class-balanced per split.
+  The *previous* eval set (`anthropic` 1028 / `mt` 278 / `mts` 274 / `toolace` 328) is
+  now `dev_samples/highstakes/` — so any high-stakes eval number, Kaggle activation
+  blob or comparison CSV predating that commit was scored on what is now the **dev**
+  set, and is not comparable to a post-rename one. Extra columns:
   `ids`, `scale_labels`, `scale_label_confidence`, and per-split provenance
   (`category`/`index` for anthropic, `medical_specialty`/`sample_name` for mt,
   `section_header` for mts, `original_system_prompts`/`modified_system_prompts` for toolace —
@@ -1393,6 +1459,17 @@ string; any other columns are provenance only.
   raw `{conversation, follows_the_instruction: bool, ...}` form** to the standard
   `inputs` (JSON string) + `labels` schema. Attack this concept with
   `configs/llama70b_instructions_llama1b.md` (llama70b attacker → llama-1b probe).
+
+**`dev_samples/`** holds the matching **dev** (validation) sets — one dir per concept,
+same schema and same `labels` strings as that concept's eval dir, and **verified disjoint
+from it**: `highstakes/` (1908 rows: 1028/278/274/328), `hu_ha/` (290: 46/44/134/66),
+`instructions/` (436, 68/68/66/68/68/66/32). Pass the dir to `--dev-data` /
+`validation.dev_data` and it becomes the whole validation set (see the `--dev-data`
+paragraph under "Common commands"). `dev_samples/instructions/` was converted in place
+from the same raw `{conversation, follows_the_instruction}` form `eval_instructions/` was.
+Anything added here must stay disjoint from the concept's eval dir — a dev row that also
+sits in eval means the probe's best-epoch checkpoint is chosen on the test set, which no
+downstream eval number would reveal.
 
 ### `agentic_redteam/cli.py`
 Two entry points: `run_redteam_main` (one round against an existing probe) and

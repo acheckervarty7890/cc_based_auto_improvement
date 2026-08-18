@@ -292,6 +292,28 @@ class EvalConfig:
 
 
 @dataclass
+class ValidationConfig:
+    """Held-out dev data to use as the probe fit's validation set.
+
+    ``dev_data`` is a JSONL, or a directory whose ``*.jsonl`` files are each a split
+    (auto-discovered and concatenated, the way ``evaluate_probe`` discovers eval
+    splits). Its ``labels`` strings must be the probe's own class labels.
+
+    When set, the validation set is that dev data **alone** — the base training data
+    and the red-team successes are no longer split, and train in full. The point is a
+    validation set that does not move: with the default ``test_size`` slice, a share
+    of every iteration's red-team successes lands in validation, so the set the probe
+    early-stops against changes shape every retrain and the best-epoch checkpoints
+    are not comparable across iterations.
+
+    The dev data must be disjoint from the eval splits — otherwise the fit selects
+    its checkpoint on the test set.
+    """
+
+    dev_data: Path | None = None
+
+
+@dataclass
 class KaggleConfig:
     """Precomputed eval activations to pull from Kaggle instead of recomputing.
 
@@ -340,6 +362,9 @@ class RedteamConfig:
     eval: EvalConfig = field(default_factory=EvalConfig)
     # Optional: pull precomputed eval activations from Kaggle (see KaggleConfig).
     kaggle: KaggleConfig | None = None
+    # Optional held-out dev set used as the probe fit's validation set (see
+    # ValidationConfig). Empty (dev_data=None) keeps the test_size-slice behaviour.
+    validation: ValidationConfig = field(default_factory=ValidationConfig)
 
     @property
     def true_class_label_for_success(self) -> str:
@@ -495,6 +520,7 @@ def load_config(path: str | Path) -> RedteamConfig:
     pp = frontmatter.get("preprocessing") or {}
     ev = frontmatter.get("eval") or {}
     kg = frontmatter.get("kaggle") or {}
+    va = frontmatter.get("validation") or {}
 
     if "models" not in a or not a["models"]:
         raise ValueError("attacker.models must be a non-empty list")
@@ -675,4 +701,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             ),
         ),
         kaggle=kaggle_cfg,
+        validation=ValidationConfig(
+            dev_data=_resolve(va["dev_data"]) if va.get("dev_data") else None,
+        ),
     )

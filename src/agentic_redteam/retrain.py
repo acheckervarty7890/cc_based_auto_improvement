@@ -278,6 +278,103 @@ def _redteam_activation_cache_path(
     return Path(cache_dir) / f"redteam_acts_{safe_model}_L{layer}" / f"{h[:32]}.pt"
 
 
+def _dev_activation_cache_path(
+    cache_dir: str | Path,
+    dev_files: "list[Path]",
+    model_name: str,
+    layer: int,
+    combine_consecutive_messages: bool,
+    convert_tool_to_assistant: bool,
+) -> Path:
+    """Single-blob activation cache path for the held-out dev (validation) set.
+
+    Cached like the base split rather than like the red-team set: the dev files are
+    fixed for the whole run, so one blob keyed on their contents hits on every
+    iteration. There is no ``seed`` / ``test_size`` / ``split_field`` in the key
+    because the dev set is used *whole* — it is never split — so nothing about the
+    train/val partition can change which rows it holds. As everywhere else here,
+    load is *by path without validating inputs*, so everything that would change the
+    activations is folded into the key.
+    """
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    h = hashlib.sha256()
+    for f in dev_files:
+        h.update(f.name.encode("utf-8"))
+        h.update(Path(f).read_bytes())
+    h.update(
+        f"|model={model_name}|layer={layer}"
+        f"|combine={combine_consecutive_messages}|convert={convert_tool_to_assistant}".encode(
+            "utf-8"
+        )
+    )
+    key = h.hexdigest()[:16]
+    safe_model = model_name.replace("/", "_")
+    return cache_dir / f"dev_acts_{safe_model}_L{layer}_{key}.pt"
+
+
+def _load_dev_dataset(
+    dev_data_path: str | Path,
+    pos_class_label: str,
+    neg_class_label: str,
+    combine_consecutive_messages: bool,
+    convert_tool_to_assistant: bool,
+    verbose: bool = True,
+):
+    """Load the held-out dev set that serves as the validation set.
+
+    ``dev_data_path`` is either a single JSONL or a directory of them, in which case
+    every ``*.jsonl`` is loaded (splits are auto-discovered the same way
+    ``evaluate_probe`` discovers eval splits) and concatenated into one dataset —
+    the probe fit wants a single validation set, and per-split provenance columns are
+    irrelevant to it, so ``concatenate`` takes the column intersection.
+
+    Every row must carry one of the probe's two class labels. tuberlens keeps an
+    unmatched label as its raw string (``from_jsonl``) and only fails later, when
+    ``.labels`` is first read — deep inside the fit, naming neither the file nor the
+    labels it wanted. So the labels are read *here*, per split, and the failure is
+    re-raised pointing at the offending file.
+
+    Returns ``(dataset, files)`` — the files are what the activation cache is keyed on.
+    """
+    from tuberlens.interfaces.dataset import LabelledDataset
+
+    path = Path(dev_data_path)
+    if path.is_dir():
+        files = sorted(path.glob("*.jsonl"))
+        if not files:
+            raise ValueError(f"No *.jsonl dev splits found in {path}")
+    elif path.exists():
+        files = [path]
+    else:
+        raise ValueError(f"Dev data path does not exist: {path}")
+
+    parts = []
+    for f in files:
+        part = LabelledDataset.load_from(
+            f,
+            pos_class_label=pos_class_label,
+            neg_class_label=neg_class_label,
+            combine_consecutive_messages=combine_consecutive_messages,
+            convert_tool_to_assistant=convert_tool_to_assistant,
+        )
+        try:
+            part.labels
+        except Exception as exc:
+            raise ValueError(
+                f"Dev split {f} has rows whose 'labels' is neither "
+                f"{pos_class_label!r} nor {neg_class_label!r}: {exc}"
+            ) from exc
+        parts.append(part)
+        if verbose:
+            print(f"  dev split {f.name}: {len(part)} samples")
+
+    dataset = parts[0] if len(parts) == 1 else LabelledDataset.concatenate(parts)
+    if len(dataset) == 0:
+        raise ValueError(f"Dev data at {path} is empty.")
+    return dataset, files
+
+
 # How often _activate_redteam_cached reports progress while computing misses. Rows cost
 # tens of seconds each on an offloaded gemma-sized model, so this is a line every few
 # minutes, not a spinner.
@@ -520,6 +617,7 @@ def _train_with_cached_base_activations(
     base_val,
     redteam_train,
     redteam_val,
+    dev_val,
     model_name: str,
     layer: int,
     probe_spec,
@@ -528,6 +626,7 @@ def _train_with_cached_base_activations(
     probe_description: str | None,
     base_train_cache: Path | None,
     base_val_cache: Path | None,
+    dev_val_cache: Path | None = None,
     redteam_cache_dir: str | Path | None = None,
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
@@ -543,7 +642,10 @@ def _train_with_cached_base_activations(
     written to a single-blob disk cache via tuberlens' ``get_activations`` blob cache,
     while the *growing* red-team set is cached **per conversation** (so samples seen in
     earlier iterations are reused and only newly-seen ones are forwarded — see
-    ``_activate_redteam_cached``). With ``redteam_cache_dir=None`` the red-team set is
+    ``_activate_redteam_cached``). ``dev_val`` is a held-out dev set supplied whole as
+    the validation set; like the base split it is fixed for the run, so it is cached as
+    one blob (``_dev_activation_cache_path``). When it is given, the callers pass
+    ``base_val``/``redteam_val`` as empty, so validation is the dev set *alone*. With ``redteam_cache_dir=None`` the red-team set is
     recomputed each call (previous behaviour). Per-side parts are merged with
     ``_concatenate_consuming``, which pads the activation tensors to a common length and
     concatenates them at ~1x rather than ~2x the result's peak memory.
@@ -640,11 +742,13 @@ def _train_with_cached_base_activations(
     base_val_a = _activate(base_val, base_val_cache)
     redteam_train_a = _activate_redteam(redteam_train)
     redteam_val_a = _activate_redteam(redteam_val)
+    dev_val_a = _activate(dev_val, dev_val_cache)
     n_by_origin = (
         0 if base_train_a is None else len(base_train_a),
         0 if base_val_a is None else len(base_val_a),
         0 if redteam_train_a is None else len(redteam_train_a),
         0 if redteam_val_a is None else len(redteam_val_a),
+        0 if dev_val_a is None else len(dev_val_a),
     )
 
     # Every activation is extracted by this point, so release the LLM before the
@@ -662,7 +766,7 @@ def _train_with_cached_base_activations(
         return _concatenate_consuming([p for p in parts if p is not None])
 
     train_dataset = _combine([base_train_a, redteam_train_a])
-    validation_dataset = _combine([base_val_a, redteam_val_a])
+    validation_dataset = _combine([base_val_a, redteam_val_a, dev_val_a])
     if train_dataset is None:
         raise ValueError("No training data available to fit the probe.")
 
@@ -672,7 +776,7 @@ def _train_with_cached_base_activations(
             f"Train/validation: {len(train_dataset)} train, "
             f"{0 if validation_dataset is None else len(validation_dataset)} validation "
             f"(base {n_by_origin[0]}+{n_by_origin[1]}; red-team "
-            f"{n_by_origin[2]}+{n_by_origin[3]})"
+            f"{n_by_origin[2]}+{n_by_origin[3]}; dev {n_by_origin[4]})"
         )
 
     def _build(fit_seed: int):
@@ -928,6 +1032,7 @@ def retrain_probe(
     min_judge_confidence: int = 0,
     test_size: float = 0.2,
     split_field: str | None = None,
+    dev_data_path: str | Path | None = None,
     seed: int = 0,
     base_data_fraction: float = 1.0,
     ensemble_size: int | None = None,
@@ -970,8 +1075,18 @@ def retrain_probe(
             judge confidence gates samples — view_past_attempts no longer filters on it.
             0 (default) keeps every success.
         test_size: Fraction held out for validation via stable_train_test_split.
+            Ignored (forced to 0.0) when `dev_data_path` is given.
         split_field: Optional field to keep grouped together when splitting (passed to
-            stable_train_test_split).
+            stable_train_test_split). Ignored when `dev_data_path` is given.
+        dev_data_path: A held-out dev set (a JSONL, or a directory of `*.jsonl` splits)
+            to use as the validation set. When given, validation is that dev set
+            **alone**: nothing is held out of the base data or the red-team successes,
+            which both go entirely into training. This is what makes the validation set
+            — and therefore the best-epoch checkpoint the probe fit selects — identical
+            across iterations, instead of drifting as red-team successes accumulate into
+            the held-out slice. The dev set must be disjoint from the eval splits, or
+            early stopping is selecting on the test set. None keeps the old behaviour
+            (validation = the `test_size` slice of base + red-team).
         seed: Seed for the deterministic train/val split (stable_train_test_split).
         base_data_fraction: Fraction (0, 1] of the base training data to ingest,
             selected by a deterministic content-addressed random subsample
@@ -1061,6 +1176,30 @@ def retrain_probe(
         if verbose:
             print(f"Saved {n_written} postprocessed red-team samples to {postprocessed_out_path}")
 
+    # A dev set replaces the held-out slice entirely: base and red-team both train in
+    # full (test_size 0.0 makes stable_train_test_split put everything on the train
+    # side), and the dev set is the whole validation set.
+    dev_val = None
+    dev_files: list[Path] = []
+    if dev_data_path is not None:
+        if verbose:
+            print(f"Validation set: held-out dev data at {dev_data_path}")
+        dev_val, dev_files = _load_dev_dataset(
+            dev_data_path,
+            pos_class_label,
+            neg_class_label,
+            combine_consecutive_messages,
+            convert_tool_to_assistant,
+            verbose,
+        )
+        if verbose:
+            print(
+                f"Dev validation samples: {len(dev_val)} "
+                "(base + red-team data all train, nothing held out)"
+            )
+        test_size = 0.0
+        split_field = None
+
     layer_used = layer if layer is not None else int(base_probe.layer)
 
     # Resolve the architecture for the new probe. Default (None): inherit the base probe's
@@ -1138,11 +1277,23 @@ def retrain_probe(
     if verbose:
         print(f"Total samples before split: {n_total} (base {n_base}, red-team {n_redteam})")
 
+    dev_val_cache = None
+    if dev_val is not None and base_activation_cache_dir is not None:
+        dev_val_cache = _dev_activation_cache_path(
+            base_activation_cache_dir,
+            dev_files,
+            base_probe.model_name,
+            layer_used,
+            combine_consecutive_messages,
+            convert_tool_to_assistant,
+        )
+
     new_probe = _train_with_cached_base_activations(
         base_train=base_train,
         base_val=base_val,
         redteam_train=redteam_train,
         redteam_val=redteam_val,
+        dev_val=dev_val,
         model_name=base_probe.model_name,
         layer=layer_used,
         probe_spec=probe_spec,
@@ -1151,6 +1302,7 @@ def retrain_probe(
         probe_description=probe_description,
         base_train_cache=base_train_cache,
         base_val_cache=base_val_cache,
+        dev_val_cache=dev_val_cache,
         redteam_cache_dir=base_activation_cache_dir,
         combine_consecutive_messages=combine_consecutive_messages,
         convert_tool_to_assistant=convert_tool_to_assistant,
@@ -1186,6 +1338,7 @@ def train_initial_probe(
     probe_spec: "ProbeSpec | str | None" = None,
     test_size: float = 0.2,
     split_field: str | None = None,
+    dev_data_path: str | Path | None = None,
     seed: int = 0,
     base_data_fraction: float = 1.0,
     ensemble_size: int = 1,
@@ -1210,7 +1363,13 @@ def train_initial_probe(
         probe_description: Optional human-readable probe description.
         probe_spec: Architecture (ProbeSpec | ProbeType name | None).
         test_size: Fraction held out for validation via stable_train_test_split.
-        split_field: Optional field to keep grouped together when splitting.
+            Ignored (forced to 0.0) when `dev_data_path` is given.
+        split_field: Optional field to keep grouped together when splitting. Ignored
+            when `dev_data_path` is given.
+        dev_data_path: A held-out dev set (a JSONL, or a directory of `*.jsonl` splits)
+            used as the validation set instead of a slice of the base data, which then
+            trains in full. Pass the same value here as to `retrain_probe` so iteration 0
+            and every retrain select their best epoch against the same validation set.
         seed: Seed for the deterministic train/val split (stable_train_test_split).
         base_data_fraction: Fraction (0, 1] of the base training data to ingest,
             selected by a deterministic content-addressed random subsample
@@ -1255,6 +1414,28 @@ def train_initial_probe(
         print(f"Initial samples before split: {len(base_dataset)}")
         base_dataset.print_label_distribution()
 
+    # See retrain_probe: a dev set is the whole validation set, so nothing is held out.
+    dev_val = None
+    dev_files: list[Path] = []
+    if dev_data_path is not None:
+        if verbose:
+            print(f"Validation set: held-out dev data at {dev_data_path}")
+        dev_val, dev_files = _load_dev_dataset(
+            dev_data_path,
+            pos_class_label,
+            neg_class_label,
+            combine_consecutive_messages,
+            convert_tool_to_assistant,
+            verbose,
+        )
+        if verbose:
+            print(
+                f"Dev validation samples: {len(dev_val)} "
+                "(base data all trains, nothing held out)"
+            )
+        test_size = 0.0
+        split_field = None
+
     base_train, base_val = stable_train_test_split(
         base_dataset, test_size=test_size, split_field=split_field, seed=seed
     )
@@ -1268,7 +1449,7 @@ def train_initial_probe(
             f"(training seeds {ensemble_seeds})"
         )
 
-    base_train_cache = base_val_cache = None
+    base_train_cache = base_val_cache = dev_val_cache = None
     if base_activation_cache_dir is not None:
         base_train_cache, base_val_cache = _base_activation_cache_paths(
             base_activation_cache_dir,
@@ -1282,12 +1463,22 @@ def train_initial_probe(
             convert_tool_to_assistant,
             base_data_fraction,
         )
+        if dev_val is not None:
+            dev_val_cache = _dev_activation_cache_path(
+                base_activation_cache_dir,
+                dev_files,
+                model_name,
+                layer,
+                combine_consecutive_messages,
+                convert_tool_to_assistant,
+            )
 
     probe = _train_with_cached_base_activations(
         base_train=base_train,
         base_val=base_val,
         redteam_train=None,
         redteam_val=None,
+        dev_val=dev_val,
         model_name=model_name,
         layer=layer,
         probe_spec=spec,
@@ -1296,6 +1487,7 @@ def train_initial_probe(
         probe_description=probe_description,
         base_train_cache=base_train_cache,
         base_val_cache=base_val_cache,
+        dev_val_cache=dev_val_cache,
         seed=seed,
         ensemble_seeds=ensemble_seeds,
         verbose=verbose,

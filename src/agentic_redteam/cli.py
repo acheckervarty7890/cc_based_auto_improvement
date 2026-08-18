@@ -221,6 +221,17 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
         help="Optional field kept grouped together when splitting train/validation",
     )
     parser.add_argument(
+        "--dev-data",
+        type=Path,
+        default=None,
+        help="Held-out dev data (a JSONL, or a directory of *.jsonl splits) to use as "
+        "the probe fit's validation set. When given, NOTHING is held out of the base "
+        "training data or the red-team successes — they train in full and --test-size / "
+        "--split-field are ignored — so the validation set stays identical across "
+        "iterations instead of absorbing a share of each iteration's successes. Must be "
+        "disjoint from --eval-dataset-dir. Overrides validation.dev_data in config.",
+    )
+    parser.add_argument(
         "--base-data-fraction",
         type=float,
         default=1.0,
@@ -378,6 +389,8 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
     # too, not just the train/eval calls below.
     config.eval.combine_consecutive_messages = combine_consecutive_messages
     config.eval.convert_tool_to_assistant = convert_tool_to_assistant
+    # Precedence: --dev-data flag > config validation.dev_data > None (test_size slice).
+    dev_data_path = args.dev_data or config.validation.dev_data
     contrastive_cache_path = args.probe_out_dir / "contrastive_cache.jsonl"
     # Precedence: --base-activation-cache-dir flag > config output.base_activation_cache_dir
     # > <probe-out-dir>-derived default.
@@ -397,6 +410,11 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             f"on the same activations under the pinned training seeds "
             f"{list(ENSEMBLE_SEEDS[:ensemble_size])}; their mean score is the probe's "
             "score. (--seed still governs the train/val split and eval subsampling.)"
+        )
+    if dev_data_path is not None:
+        print(
+            f"Validation: held-out dev data at {dev_data_path} (base training data and "
+            "red-team successes train in full; --test-size/--split-field ignored)"
         )
     if combine_consecutive_messages or convert_tool_to_assistant:
         print(
@@ -454,6 +472,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             probe_spec=arch,
             test_size=args.test_size,
             split_field=args.split_field,
+            dev_data_path=dev_data_path,
             seed=args.seed,
             base_data_fraction=args.base_data_fraction,
             ensemble_size=ensemble_size or 1,
@@ -597,6 +616,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             min_judge_confidence=config.judge.confidence_threshold,
             test_size=args.test_size,
             split_field=args.split_field,
+            dev_data_path=dev_data_path,
             seed=args.seed,
             base_data_fraction=args.base_data_fraction,
             ensemble_size=ensemble_size,
