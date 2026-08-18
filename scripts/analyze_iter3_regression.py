@@ -284,7 +284,7 @@ def main() -> int:
     p.add_argument("--redteam-a", default="redteam_postprocessed_iter2.jsonl")
     p.add_argument("--redteam-b", default="redteam_postprocessed_iter3.jsonl")
     p.add_argument("--splits", nargs="+", default=["mt", "mts"])
-    p.add_argument("--eval-dataset-dir", type=Path, default=REPO_ROOT / "eval_datasets")
+    p.add_argument("--eval-dataset-dir", type=Path, default=REPO_ROOT / "eval_sets/highstakes")
     p.add_argument(
         "--activations-cache-dir",
         type=Path,

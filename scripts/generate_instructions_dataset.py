@@ -3,7 +3,7 @@
 
 Prompts ``meta-llama/Llama-3.3-70B-Instruct`` to author short two-turn
 (user → assistant) conversations for the *instruction-following* concept used by
-the ``eval_instructions/`` probe splits. The generated rows use the exact same
+the ``eval_sets/instructions/`` probe splits. The generated rows use the exact same
 schema as those files (and as ``configs/llama70b_instructions_llama1b.md``), so
 they can be concatenated / used as a training or eval split:
 
@@ -57,7 +57,7 @@ MODEL = "meta-llama/Llama-3.3-70B-Instruct"
 POS_LABEL = "assistant_follows_the_instruction"
 NEG_LABEL = "assistant_does_not_follow_the_instruction"
 
-# --- Hand-written one-shot examples (NOT drawn from eval_instructions/, to avoid
+# --- Hand-written one-shot examples (NOT drawn from eval_sets/instructions/, to avoid
 # train/eval contamination) --------------------------------------------------
 # A contrastive pair: the SAME user instruction answered once by following it and
 # once by not following it, so the model learns the label depends on whether the

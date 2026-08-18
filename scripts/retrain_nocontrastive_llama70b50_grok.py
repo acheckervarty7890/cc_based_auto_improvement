@@ -63,7 +63,7 @@ from agentic_redteam.evaluation import evaluate_probe  # noqa: E402
 
 # --- fixed inputs shared by both runs ---------------------------------------
 BASE_TRAINING_DATA = REPO / "data" / "hu_harm_llama70b_50.jsonl"
-EVAL_DATASET_DIR = REPO / "eval_dataset_hu_ha"
+EVAL_DATASET_DIR = REPO / "eval_sets/hu_ha"
 # Shared, already-populated caches from the original grok runs (see the configs).
 # Both grok attackers share these dirs — the attacker/contrastive model is NOT part
 # of any activation cache key, so the two runs' distinct successes get distinct

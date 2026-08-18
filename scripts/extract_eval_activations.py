@@ -22,7 +22,7 @@ with no ``model_kwargs`` of its own. That path therefore gets **none** of what
 It never mattered before because every gemma run so far carried a ``kaggle:`` section,
 so its eval was a pure cache hit and no model was loaded. It matters the first time a
 gemma-sized probe has to compute its own eval activations — which is what the
-instruction-following experiment does, over 1302 rows of ``eval_instructions``.
+instruction-following experiment does, over 1302 rows of ``eval_sets/instructions``.
 
 So: compute them here instead, through ``load_extraction_model``, and write each split
 to the exact filename ``get_performances`` derives
@@ -51,11 +51,11 @@ Typical use — precompute the instruction-following eval activations, then publ
     .venv_claude/bin/python scripts/extract_eval_activations.py \\
         --config configs/gptoss120b_instructions_gemma27b_batch_target60.md \\
         --probe probes/instructions_gemma27b_gptoss/probe_iter0.pkl \\
-        --eval-dataset-dir eval_instructions
+        --eval-dataset-dir eval_sets/instructions
 
     .venv_claude/bin/python scripts/publish_kaggle_eval_activations.py \\
         --source-dir results_instructions_gemma27b_shared/eval_activations \\
-        --eval-dataset-dir eval_instructions \\
+        --eval-dataset-dir eval_sets/instructions \\
         --dataset-slug "{slug}-instr-gemmaevalpt" --dry-run
 
 Splits already cached and valid are skipped, so an interrupted run resumes at the split
