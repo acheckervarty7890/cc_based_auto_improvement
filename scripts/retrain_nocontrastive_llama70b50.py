@@ -58,7 +58,7 @@ from agentic_redteam.evaluation import evaluate_probe  # noqa: E402
 
 # --- fixed inputs shared by all three runs ----------------------------------
 BASE_TRAINING_DATA = REPO / "data" / "hu_harm_llama70b_50.jsonl"
-EVAL_DATASET_DIR = REPO / "eval_dataset_hu_ha"
+EVAL_DATASET_DIR = REPO / "eval_sets/hu_ha"
 # Shared, already-populated caches from the original runs (see the configs).
 BASE_ACT_CACHE = REPO / "results_hu_harm_llama70b50" / "llama1b_base_activations"
 EVAL_ACT_CACHE = REPO / "results_hu_harm_prompt_llama1b" / "llama1b_eval_activations"

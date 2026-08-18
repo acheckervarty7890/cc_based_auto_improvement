@@ -142,7 +142,7 @@ Full iterative loop (train initial probe → red-team → retrain → optional e
 ${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python \
   scripts/iterative_retrain.py configs/example_config.md \
   --iterations 3 --base-training-data path/to/base.jsonl \
-  --eval --eval-dataset-dir eval_datasets   # --eval is optional
+  --eval --eval-dataset-dir eval_sets/highstakes   # --eval is optional
 ```
 
 `--base-training-data` is **required**: it trains the initial probe (unless
@@ -375,7 +375,7 @@ kaggle:                               # OPTIONAL: pull PRECOMPUTED eval activati
   eval_file_name: <template>          #   and `slug=<stem hyphenated>` — e.g. "{split}gemmaevalpt" /
                                       #   "{split}-gemmaeval.pt". Kaggle slugs are lowercase
                                       #   alphanumerics + hyphens, so any split stem with an
-                                      #   underscore (every eval_dataset_hu_ha / eval_instructions
+                                      #   underscore (every eval_sets/hu_ha / eval_sets/instructions
                                       #   split) must use {slug} in eval_dataset_slug; the FILE name
                                       #   inside the dataset is unrestricted and stays on {split}.
                                       #   Requires eval.eval_max_samples: 0 (validated at parse time).
@@ -1379,8 +1379,8 @@ Deliberately **not** built on tuberlens' `get_activations(using_kaggle=True)`:
   with both fields `str.format`-ed on **two** keys: `split=<split stem>` and
   `slug=<that stem through `_slugify`>` (lowercased, runs of non-alphanumerics collapsed
   to one hyphen). `{slug}` exists because Kaggle rejects underscores in a dataset slug,
-  so for any split stem containing one — every `eval_dataset_hu_ha` and
-  `eval_instructions` split — a `{split}`-based `dataset_slug` names a dataset that
+  so for any split stem containing one — every `eval_sets/hu_ha` and
+  `eval_sets/instructions` split — a `{split}`-based `dataset_slug` names a dataset that
   cannot be created. Use `{slug}` there; `file_name` addresses a file *inside* the
   dataset, is unrestricted, and normally stays on `{split}`.
   The upload side is `scripts/publish_kaggle_eval_activations.py`, which stages
@@ -1407,15 +1407,17 @@ a `BaseException` an ordinary `except Exception` would let kill the run. A split
 cannot be fetched **raises rather than falling back** to computing it.
 
 ### Eval dataset splits on disk
-Three eval-split directories ship in the repo, one per probe concept. `--eval-dataset-dir`
-picks which one a run scores against; with `splits=None` (the default) `evaluate_probe`
+Eval splits live under **`eval_sets/<concept>/`** and dev splits under
+**`dev_samples/<concept>/`**, sharing the same three concept names — `highstakes`,
+`hu_ha`, `instructions` — so a run's eval dir and dev dir differ only in the top-level
+directory. `--eval-dataset-dir` picks which concept a run scores against; with `splits=None` (the default) `evaluate_probe`
 auto-discovers every `<dir>/*.jsonl` as a split (keyed by filename stem). Every split
 JSONL row is a tuberlens `LabelledDataset` record: `inputs` is a **JSON-encoded string**
 of `[{role, content}, ...]` (parse it, don't treat it as text) and `labels` is the class
 string; any other columns are provenance only.
 
-- **`eval_hs/`** — the **high-stakes** probe's splits (renamed from `eval_datasets/` in
-  c260778, and **re-cut** at the same time): `anthropic_hh_balanced` (2984),
+- **`eval_sets/highstakes/`** — the **high-stakes** probe's splits (was `eval_datasets/`,
+  then `eval_hs/`; **re-cut** in c260778 and moved under `eval_sets/` afterwards): `anthropic_hh_balanced` (2984),
   `mt_balanced` (604), `mts_balanced` (86), `toolace_balanced` (734).
   Labels are `high-stakes` / `low-stakes`, exactly class-balanced per split.
   The *previous* eval set (`anthropic` 1028 / `mt` 278 / `mts` 274 / `toolace` 328) is
@@ -1431,7 +1433,7 @@ string; any other columns are provenance only.
   **`scale_label_explanation`**. Rows are **independently labelled**: there is no
   cross-class pairing (anthropic chosen/rejected `index` is unique and orthogonal to the
   stakes label; mt/mts/toolace ids are per-sample).
-- **`eval_dataset_hu_ha/`** — the **harmful_to_human** probe's splits: `eval_ai_dilemmas`
+- **`eval_sets/hu_ha/`** — the **harmful_to_human** probe's splits: `eval_ai_dilemmas`
   (136 rows), `eval_balanced_refusal` (400), `eval_daily_dilemmas` (196), `eval_ant_hh`
   (134). Labels are `harmful_to_human` / `not_harmful_to_human`, class-balanced. Slim
   schema: `inputs`, `labels`, `harm_explanation` (the real rationale here — no boilerplate
@@ -1441,7 +1443,7 @@ string; any other columns are provenance only.
   carrying two of each class). `eval_ant_hh` is **not** paired (every user prompt is
   distinct). Pairing is a property of the data, not something the eval code uses —
   `evaluate_probe` scores every row independently regardless.
-- **`eval_instructions/`** — the **instruction-following** probe's splits (a third
+- **`eval_sets/instructions/`** — the **instruction-following** probe's splits (a third
   assistant-centric concept: did the assistant's response *follow the user's
   instruction* or not?). Seven splits, each exactly class-balanced:
   `anthropic_harmless_refusal` (200), `bbq_substitution` (200), `hc_context_drift`
@@ -1466,7 +1468,7 @@ from it**: `highstakes/` (1908 rows: 1028/278/274/328), `hu_ha/` (290: 46/44/134
 `instructions/` (436, 68/68/66/68/68/66/32). Pass the dir to `--dev-data` /
 `validation.dev_data` and it becomes the whole validation set (see the `--dev-data`
 paragraph under "Common commands"). `dev_samples/instructions/` was converted in place
-from the same raw `{conversation, follows_the_instruction}` form `eval_instructions/` was.
+from the same raw `{conversation, follows_the_instruction}` form `eval_sets/instructions/` was.
 Anything added here must stay disjoint from the concept's eval dir — a dev row that also
 sits in eval means the probe's best-epoch checkpoint is chosen on the test set, which no
 downstream eval number would reveal.

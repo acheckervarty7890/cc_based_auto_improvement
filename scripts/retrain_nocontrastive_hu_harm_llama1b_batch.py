@@ -73,7 +73,7 @@ from agentic_redteam.evaluation import evaluate_probe  # noqa: E402
 
 # --- fixed inputs shared by both runs ---------------------------------------
 BASE_TRAINING_DATA = REPO / "data" / "hu_harm_llama70b_50.jsonl"
-EVAL_DATASET_DIR = REPO / "eval_dataset_hu_ha"
+EVAL_DATASET_DIR = REPO / "eval_sets/hu_ha"
 # Shared, already-populated caches from the original batch runs. Both arms point
 # at these in their configs' output: section.
 BASE_ACT_CACHE = REPO / "results_hu_harm_llama70b50_batch_ablation" / "base_activations"

@@ -66,7 +66,7 @@ class KaggleActivationSource:
     no placeholder is also fine when every split maps to the same object.
 
     Use ``{slug}`` in ``dataset_slug`` whenever a split stem contains an underscore
-    (the ``eval_dataset_hu_ha`` and ``eval_instructions`` splits all do): Kaggle would
+    (the ``eval_sets/hu_ha`` and ``eval_sets/instructions`` splits all do): Kaggle would
     reject ``eval_ai_dilemmasgemmaevalpt`` as a slug, so ``{split}`` there names a
     dataset that cannot be created. ``file_name`` is a filename *inside* the dataset
     and is unrestricted, so it normally stays on ``{split}``.

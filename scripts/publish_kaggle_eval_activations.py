@@ -8,7 +8,7 @@ place, from blobs an earlier local run already computed.
 
 Why it is needed for the human-harm concept specifically: the high-stakes splits
 (anthropic/mt/mts/toolace) were published long ago as ``anku7890/{split}gemmaevalpt``,
-but no equivalents exist for the ``eval_dataset_hu_ha`` splits — and they could not be
+but no equivalents exist for the ``eval_sets/hu_ha`` splits — and they could not be
 named that way regardless, because Kaggle dataset slugs are lowercase alphanumerics and
 hyphens while every hu_ha split stem contains underscores. Hence the ``{slug}``
 placeholder (see ``KaggleActivationSource``) and the hyphenated default template here.
@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--source-dir", required=True, type=Path,
                     help="Directory holding <split>-<cache-stem> blobs (e.g. archive/results3/gemma27_activations)")
-    ap.add_argument("--eval-dataset-dir", type=Path, default=REPO_ROOT / "eval_dataset_hu_ha",
+    ap.add_argument("--eval-dataset-dir", type=Path, default=REPO_ROOT / "eval_sets/hu_ha",
                     help="Eval split JSONLs, used to discover splits and check row counts")
     ap.add_argument("--splits", nargs="*", default=None,
                     help="Split stems to publish (default: every *.jsonl in --eval-dataset-dir)")

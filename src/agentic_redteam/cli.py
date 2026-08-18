@@ -286,7 +286,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--eval-dataset-dir",
         type=Path,
-        default=Path("eval_datasets"),
+        default=Path("eval_sets/highstakes"),
         help="Directory of local eval split JSONLs (used with --eval)",
     )
     parser.add_argument(

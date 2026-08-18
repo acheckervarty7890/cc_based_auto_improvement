@@ -108,7 +108,7 @@ ${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python \
     --iterations 3 \
     --base-training-data path/to/base_train.jsonl \
     --probe-out-dir probes/ \
-    --eval --eval-dataset-dir eval_datasets   # --eval is optional
+    --eval --eval-dataset-dir eval_sets/highstakes   # --eval is optional
 ```
 
 `--base-training-data` is **required**: it trains the initial probe (unless

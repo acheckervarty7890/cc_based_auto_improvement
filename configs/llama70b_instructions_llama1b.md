@@ -40,13 +40,13 @@ preprocessing:                     # optional: collation-style preprocessing of 
 eval:                              # dataset-loading transforms — MUST match how the cached eval
   combine_consecutive_messages: true  #   activations below were computed, or the path-keyed cache
   convert_tool_to_assistant: true    #   would silently reuse mismatched activations
-  eval_max_samples: 0                 # full split (each eval_instructions split is already class-balanced)
+  eval_max_samples: 0                 # full split (each eval_sets/instructions split is already class-balanced)
 
 output:
   jsonl_path: ../results_instructions_llama70b50/llama70b_probing.jsonl   # NEW dir — instructions concept, isolated from all other runs
   run_id: llama70b_instructions_llama1b_full
   comparison_csv: ../results_instructions_llama70b50/llama70b_comparison.csv
-  activations_cache_dir: ../results_instructions_llama70b50/llama1b_eval_activations   # FRESH: no llama1b cache on the eval_instructions splits exists
+  activations_cache_dir: ../results_instructions_llama70b50/llama1b_eval_activations   # FRESH: no llama1b cache on the eval_sets/instructions splits exists
   base_activation_cache_dir: ../results_instructions_llama70b50/llama1b_base_activations   # FRESH: instructions base data → new key
 ---
 
