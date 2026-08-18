@@ -1,0 +1,546 @@
+<meta charset="utf-8">
+<title>Far / near removal ablation — 878-row vs intact-pair corpus</title>
+<style>
+:root {
+  color-scheme: light;
+  --surface-0: #f7f7f5;
+  --surface-1: #fcfcfb;
+  --surface-2: #f0efec;
+  --border:    #dcdbd6;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #7a7975;
+  --grid: #e6e5e1;
+  --good: #0f7a4a;
+  --bad:  #b3261e;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a;
+  --series-4: #eda100; --series-5: #e87ba4;
+  --warn-bg: #fdf6e3; --warn-br: #e0c86a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #242422;
+    --border: #3a3a37;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+    --grid: #2e2e2b;
+    --good: #4ec98a; --bad: #f08a84;
+    --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+    --series-4: #c98500; --series-5: #d55181;
+    --warn-bg: #2b2718; --warn-br: #6b5c22;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #242422;
+  --border: #3a3a37;
+  --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #8f8e86;
+  --grid: #2e2e2b;
+  --good: #4ec98a; --bad: #f08a84;
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70;
+  --series-4: #c98500; --series-5: #d55181;
+  --warn-bg: #2b2718; --warn-br: #6b5c22;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px 20px 72px;
+  background: var(--surface-0); color: var(--text-primary);
+  font: 14px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+.wrap { max-width: 1180px; margin: 0 auto; }
+h1 { font-size: 21px; margin: 0 0 4px; letter-spacing: -0.01em; }
+h2 { font-size: 16px; margin: 34px 0 10px; letter-spacing: -0.01em; }
+h3 { font-size: 13px; margin: 0 0 10px; color: var(--text-secondary); font-weight: 600; }
+p  { margin: 0 0 12px; }
+.sub { color: var(--text-secondary); margin: 0 0 18px; }
+.banner {
+  background: var(--warn-bg); border: 1px solid var(--warn-br);
+  border-radius: 8px; padding: 11px 14px; margin: 0 0 20px; font-size: 13px;
+}
+.banner b { font-weight: 650; }
+.defs { margin: 0; padding: 0; list-style: none; }
+.defs li { margin: 0 0 5px; }
+.defs li:last-child { margin-bottom: 0; }
+.card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px 18px; margin: 0 0 16px;
+}
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(430px, 1fr)); gap: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 0 0 18px; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 13px 15px; }
+.tile .k { font-size: 12px; color: var(--text-secondary); margin: 0 0 6px; }
+.tile .v { font-size: 25px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.1; }
+.tile .n { font-size: 12px; color: var(--text-muted); margin-top: 5px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 0 0 10px; font-size: 12.5px; color: var(--text-secondary); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { color: var(--text-secondary); font-weight: 600; font-size: 12px; }
+tbody tr:hover { background: var(--surface-2); }
+td.pos { color: var(--good); } td.neg { color: var(--bad); }
+.sig { font-weight: 650; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+       background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+.foot { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
+details { margin: 0 0 16px; } summary { cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+svg { display: block; max-width: 100%; overflow: visible; }
+.tt {
+  position: fixed; pointer-events: none; z-index: 20; opacity: 0; transition: opacity .09s;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: 7px;
+  padding: 7px 10px; font-size: 12.5px; box-shadow: 0 5px 18px rgba(0,0,0,.16);
+  font-variant-numeric: tabular-nums; max-width: 260px;
+}
+.tt b { font-weight: 650; }
+.hit { fill: transparent; cursor: pointer; }
+</style>
+
+<div class="wrap">
+<h1>Far / near removal ablation — does deleting red-team data far from the eval distribution help?</h1>
+<p class="sub">
+  Probe: <code>harmful_to_human</code> on <code>google/gemma-3-27b-it</code> layer 32,
+  architecture <code>linear_then_softmax</code>. Eval = the four <code>eval_dataset_hu_ha</code>
+  splits, full (866 rows). Two runs of the same question, 10 random-start iterations per arm,
+  train/val split seed held at 42 throughout.
+</p>
+
+<div class="banner">
+  <ul class="defs">
+    <li><b>run A — full</b>: all red-teaming data</li>
+    <li><b>run B — full</b>: red-teaming data after removing truncated examples and keeping only intact pairs</li>
+    <li><b>near</b>: dropping 10% of near cluster samples</li>
+    <li><b>far</b>: dropping 10% of far cluster samples</li>
+  </ul>
+</div>
+
+<div class="tiles" id="tiles"></div>
+
+<h2>1 · Effect size, both runs</h2>
+<div class="card">
+  <h3>Δ AUROC vs full, paired over the 10 random-start iterations (mean, 95% t CI)</h3>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--series-2)"></i>far − full</span>
+    <span><i class="sw" style="background:var(--series-3)"></i>near − full</span>
+    <span><i class="sw" style="background:var(--text-muted)"></i>no effect</span>
+  </div>
+  <div id="forest"></div>
+  <p class="foot">
+    The 10 iterations differ by arm. Run A's arms and run B's <code>far</code> are one fixed removal
+    set re-trained under 10 weight-init seeds. Run B's <code>near</code> is 10 different random 74-row
+    draws, all trained at seed 42, paired positionally with <code>full</code> — so its interval carries
+    row-choice variation on one side and init variation on the other rather than a matched pair.
+  </p>
+</div>
+
+<h2>2 · Per-iteration AUROC</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>Run A — 878-row corpus (<code>abl91</code>)</h3>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--series-1)"></i>full (878)</span>
+      <span><i class="sw" style="background:var(--series-2)"></i>far (−91)</span>
+      <span><i class="sw" style="background:var(--series-3)"></i>near (−91)</span>
+    </div>
+    <div id="seedA"></div>
+  </div>
+  <div class="card">
+    <h3>Run B — 736-row intact-pair corpus</h3>
+    <div class="legend">
+      <span><i class="sw" style="background:var(--series-1)"></i>full (736)</span>
+      <span><i class="sw" style="background:var(--series-2)"></i>far (−74)</span>
+      <span><i class="sw" style="background:var(--series-3)"></i>near (−74, random draw i)</span>
+    </div>
+    <div id="seedB"></div>
+  </div>
+</div>
+<p class="foot" style="margin:-6px 0 0">
+  <code>random_start_i</code> indexes the 10 repeats. For run A, and for run B's <code>full</code> and
+  <code>far</code>, iteration <em>i</em> is weight-init seed <span id="seedlist"></span> — the removal set
+  is fixed and only the initialisation changes. For run B's <code>near</code>, iteration <em>i</em> is
+  random draw <em>i</em> of 74 rows from the near pool, all trained at seed 42.
+</p>
+
+<h2>3 · Per-split effect of each removal</h2>
+<div class="card">
+  <h3>Δ AUROC vs full by eval split, paired over the 10 random-start iterations</h3>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--series-2)"></i>far − full</span>
+    <span><i class="sw" style="background:var(--series-3)"></i>near − full</span>
+  </div>
+  <div class="grid2">
+    <div><h3>Run A — 878-row</h3><div id="splitsA"></div></div>
+    <div><h3>Run B — intact-pair 736</h3><div id="splitsB"></div></div>
+  </div>
+  <p class="foot">
+    Shared x scale, so the two panels are directly comparable. In run A the far effect is entirely
+    <code>eval_balanced_refusal</code> (+0.0342, p=0.020) and the near effect entirely
+    <code>eval_ai_dilemmas</code> (−0.0345, p=0.014). In run B the largest single movement is
+    <code>eval_ant_hh</code> under the near removal (−0.0153, p=0.007, 1/10 iterations positive);
+    every other cell is inside noise.
+  </p>
+</div>
+
+<h2>4 · How the data differs between the two analyses</h2>
+<div class="card">
+  <p>
+    <b>Same source, different corpus.</b> Both start from <code>redteam_postprocessed_iter3.jsonl</code> —
+    the <b>878</b> rows that actually trained <code>probe_iter3</code>, 439 attacker originals plus one
+    LLM-generated contrastive counterpart each, exactly 439 positive / 439 negative. Run B then drops
+    <b>142</b> of them: <b>72 truncated</b> rows (conversations cut at <code>get_activations</code>' hard
+    1024-token cap, whose pooled vector is a mean over a truncated prefix) and <b>70 orphaned halves</b>
+    whose contrastive partner did not survive. What remains is <b>736 rows = 368 intact pairs</b>. So run B's
+    <code>full</code> baseline is a different probe, not a cleaner version of the same one — and those
+    142 excluded rows are the long tail of the corpus (mean 618 tokens, 51% at the cap).
+  </p>
+  <p>
+    <b>Different clustering.</b> Run A used a single k-means at <b>k=8</b> on the red-team side (eval k=3).
+    Run B used <b>consensus clustering</b> — several k × seeds × random subsamples reduced through a
+    co-association matrix, average-linkage, cut by silhouette — at <b>k=9</b> (eval k=7), with the partition
+    frozen in git so the cloud box could not silently re-cut it. Distance is the same in both:
+    minimum cosine from a row (or a cluster centroid) to its <em>nearest eval-cluster centroid</em>.
+  </p>
+  <p>
+    <b>Different arm rules.</b> Run A's far arm is two whole clusters, c4 (23) + c6 (68) = <b>91 rows</b>
+    (10.4% of 878). Run B's is c6 whole (23) plus the 51 farthest rows of c1 by per-row distance =
+    <b>74 rows</b> (10.1% of 736). The near sides are not comparable at all: run A drew 91 rows from c2
+    and <b>deliberately label-matched</b> them to far, then reused that one draw across every seed —
+    a second arm. Run B draws 10 random 74-row samples from a 234-row pool (c5 + c0, the two nearest
+    whole clusters) at a fixed seed — a <b>which-rows null</b>, and one that is <em>not</em> label-matched:
+    that pool is 74% positive against a 50% corpus, so those draws also shift the class prior.
+    Neither run has a global-random arm.
+  </p>
+
+  <h3 style="margin-top:20px">Average token length by arm</h3>
+  <div class="legend">
+    <span><i class="sw" style="background:var(--series-1)"></i>full (corpus)</span>
+    <span><i class="sw" style="background:var(--series-2)"></i>far</span>
+    <span><i class="sw" style="background:var(--series-3)"></i>near</span>
+  </div>
+  <div id="tokens"></div>
+  <div class="scroll" style="margin-top:14px"><table id="toktable"></table></div>
+  <p class="foot">
+    Token counts are the cached <code>n_tokens</code> per conversation, i.e. post-truncation
+    (<code>min(true_len, 1024)</code>) — the lengths the probe actually saw. Run B rows were matched to
+    run A's by an exact activation-vector permutation, so both columns are measured identically.
+  </p>
+  <p style="margin-top:12px">
+    <b>Length and truncation track the region, and only in run A.</b> There, the far region is the
+    <em>short</em> side (mean 350 tok, 1.1% truncated) while the near arm is long (mean 547 tok, 14.3%
+    truncated, drawn from a c2 pool that is 19.5% truncated) — so in run A "how far from eval" is
+    partly a proxy for "how long, and whether the activation was cut off at the cap". Run B removes
+    every truncated row up front, and its two regions land at comparable lengths (371 vs 307 tok, both
+    0% truncated) — with both effects then sitting inside noise. That is a hypothesis the two runs are
+    consistent with, not an established mechanism: the corpus, the clustering, the arm rule and the
+    near-arm construction all changed at once.
+  </p>
+</div>
+
+<h2>5 · Full data</h2>
+<details>
+  <summary>Per-iteration AUROC table</summary>
+  <div class="scroll" style="margin-top:12px"><table id="seedtable"></table></div>
+</details>
+<details>
+  <summary>Per-split table</summary>
+  <div class="scroll" style="margin-top:12px"><table id="splittable"></table></div>
+</details>
+<details>
+  <summary>Run B — the 10 random near draws (all at seed 42)</summary>
+  <div class="scroll" style="margin-top:12px"><table id="drawtable"></table></div>
+</details>
+
+<p class="foot" style="margin-top:24px">
+  Sources — Run A: <code>abl91/res_*.csv</code>, <code>abl91/per_split_n10.csv</code> (session
+  <code>047489b8</code>, 2026-08-12). Run B: <code>results/intact_pair_nonlinear/{all_means,all_splits,arch_summary}.csv</code>
+  and the committed <code>clusters.json</code> on branch <code>intact-pair-nonlinear</code>.
+  Run B is partial overall (83/150 jobs) but <code>linear_then_softmax</code> is complete at 30/30.
+  p-values are paired t over the 10 random-start iterations; CIs are t intervals.
+</p>
+</div>
+<div class="tt" id="tt"></div>
+
+<script>
+const D = {"A":{"runs":{"full":{"42":0.8940221517202873,"101":0.8942702146841452,"202":0.8884460739801279,"303":0.884343454218514,"404":0.8871883633248716,"505":0.8871540181970259,"606":0.9016928640163492,"707":0.8989696313483626,"808":0.8933630763540475,"909":0.9018103604885443},"far":{"42":0.8915356241069983,"101":0.904939213973,"202":0.9010785152837796,"303":0.8984464446530614,"404":0.9052894532256588,"505":0.9059791074028544,"606":0.9032741641925008,"707":0.9024561250454682,"808":0.8904238071305706,"909":0.903366907372849},"near":{"42":0.8636480299114302,"101":0.8817296787431299,"202":0.8929543284680006,"303":0.8813274326454628,"404":0.8908181468405223,"505":0.889480054908876,"606":0.8758255827488456,"707":0.8950704162748788,"808":0.8861430885480891,"909":0.8916991680625036}},"tok":{"full":{"n":878,"mean":440.4,"median":342,"p10":147,"p90":965,"cap":8.2,"pos":50.0},"far":{"n":91,"mean":349.8,"median":260,"p10":174,"p90":653,"cap":1.1,"pos":49.5},"near":{"n":91,"mean":546.6,"median":468,"p10":209,"p90":1024,"cap":14.3,"pos":49.5},"near_pool":{"n":297,"mean":559.5,"median":469,"p10":190,"p90":1024,"cap":19.5,"pos":38.7}},"split":[{"split":"eval_ai_dilemmas","full":0.9745458477508648,"full_sd":0.0114315435259057,"far_d":0.0039035467128028,"far_p":0.431640625,"near_d":-0.0344939446366781,"near_p":0.013671875},{"split":"eval_ant_hh","full":0.7382156382267766,"full_sd":0.0145669753033631,"far_d":-0.0066384495433281,"far_p":0.16015625,"near_d":-0.0109824014257072,"near_p":0.083984375},{"split":"eval_balanced_refusal","full":0.8739762499999999,"full_sd":0.0269416811333603,"far_d":0.0342012499999999,"far_p":0.01953125,"near_d":0.01297125,"near_p":0.130859375},{"split":"eval_daily_dilemmas","full":0.9857663473552688,"full_sd":0.0023813672189202,"far_d":-0.0012546855476884,"far_p":0.275390625,"near_d":-0.0005206164098291,"near_p":0.845703125}],"stats":{"far_full":{"mean":0.007552915405446547,"lo":0.0016357913371022109,"hi":0.013470039473790885,"wins":8,"n":10,"t":0.017956329181631755,"w":0.037109375,"dz":0.9131176113753899},"near_full":{"mean":-0.00825642811805367,"lo":-0.01680372864426588,"hi":0.00029087240815853753,"wins":3,"n":10,"t":0.05669446489049014,"w":0.064453125,"dz":-0.6910126600541426},"means":{"full":0.8931260208332276,"far":0.900678936238674,"near":0.884869592715174},"sds":{"full":0.0062811953722902835,"far":0.0055630622711096474,"near":0.009596765104206874}}},"B":{"runs":{"full":{"101":0.89679312631814,"202":0.8764872770982,"303":0.8780339821161944,"404":0.8739617624356404,"42":0.8873702224480123,"505":0.8693329684695623,"606":0.901917188855357,"707":0.8891236092511352,"808":0.8907976421173109,"909":0.8628290837750163},"far":{"101":0.8877395940671522,"202":0.8651763843610052,"303":0.8787609530086166,"404":0.879955471716887,"42":0.8939688209313599,"505":0.8851115781487107,"606":0.8858449532959256,"707":0.873929609305719,"808":0.901477717708828,"909":0.8884972696661768},"neardraw":{"0":0.8767268621440473,"1":0.8784489499345169,"2":0.8929503305998244,"3":0.8941043522702241,"4":0.8935602503117479,"5":0.8568005990406722,"6":0.8803836004071379,"7":0.8912824729418671,"8":0.8780795159418304,"9":0.8801634291929195}},"tok":{"full":{"n":736,"mean":406.1,"median":321,"p10":166,"p90":780,"cap":0.0,"pos":50.0},"far":{"n":74,"mean":371.0,"median":297,"p10":177,"p90":699,"cap":0.0,"pos":50.0},"near":{"n":74,"mean":307.0,"median":232,"p10":150,"p90":586,"cap":0.0,"pos":70.3},"near_pool":{"n":234,"mean":306.1,"median":237,"p10":150,"p90":587,"cap":0.0,"pos":74.4},"near_drawn":{"n":229,"mean":304.7,"median":237,"p10":149,"p90":580,"cap":0.0,"pos":73.8},"excluded":{"n":142,"mean":618.2,"median":1024,"p10":93,"p90":1024,"cap":50.7,"pos":50.0}},"split":[{"split":"eval_ai_dilemmas","full":0.9554822664359861,"full_sd":0.032062644456602556,"far_d":0.007255622837370279,"far_p":0.6293210577900047,"far_wins":6,"neardraw":0.9629325259515571,"near_d":0.007450259515570934,"near_p":0.5256911581785817,"near_wins":4},{"split":"eval_ant_hh","full":0.7426375584762754,"full_sd":0.011323453676152317,"far_d":-0.002283359322789058,"far_p":0.6420226733236951,"far_wins":4,"neardraw":0.7273112051681888,"near_d":-0.015326353308086437,"near_p":0.007209539652944191,"near_wins":1},{"split":"eval_balanced_refusal","full":0.8519475,"full_sd":0.030951320874704025,"far_d":0.0009912500000000101,"far_p":0.9313185077200214,"far_wins":6,"neardraw":0.8566499999999999,"near_d":0.00470250000000001,"near_p":0.7316762684086267,"near_wins":5},{"split":"eval_daily_dilemmas","full":0.9805914202415661,"full_sd":0.003010265528908684,"far_d":-0.00043731778425660784,"far_p":0.8055319694954688,"far_wins":5,"neardraw":0.982106413994169,"near_d":0.0015149937526030555,"near_p":0.058634282672004455,"near_wins":8}],"stats":{"far_full":{"mean":0.0013815489325812002,"lo":-0.008684045556136978,"hi":0.011447143421299377,"wins":6,"n":10,"t":0.7632573420970873,"w":0.921875,"dz":0.09818601086762226},"means":{"full":0.882664686288457,"far":0.8840462352210382,"neardraw":0.8822500362784786},"sds":{"full":0.012502474936135549,"far":0.0102373129279746,"neardraw":0.011461943199884205},"draw_range":[0.8568005990406722,0.8941043522702241],"far_pctile":60.0,"near_full":{"mean":-0.00041465000997811254,"lo":-0.012215285370290792,"hi":0.011385985350334566,"wins":5,"n":10,"t":0.9383842051352658,"w":1.0,"dz":-0.025136167599605266}}},"seeds":[42,101,202,303,404,505,606,707,808,909]};
+
+const SEEDS = D.seeds, S = SEEDS.map(String);
+/* Colors are emitted as CSS var() references inside inline styles rather than resolved
+   to hex, so the charts re-paint with the page when the OS/theme preference changes. */
+const C = n => `var(${n})`;
+const f4 = x => (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(4);
+const p4 = x => x.toFixed(4);
+const NS = "http://www.w3.org/2000/svg";
+const STYLED = { fill: 1, stroke: 1, opacity: 1 };
+const el = (t, a) => {
+  const e = document.createElementNS(NS, t); let css = "";
+  for (const k in a) {
+    if (STYLED[k]) css += `${k}:${a[k]};`;
+    else e.setAttribute(k, a[k]);
+  }
+  if (css) e.setAttribute("style", css);
+  return e;
+};
+
+/* ---------- tooltip ---------- */
+const tt = document.getElementById("tt");
+function bind(node, html) {
+  node.addEventListener("pointerenter", e => { tt.innerHTML = html; tt.style.opacity = 1; move(e); });
+  node.addEventListener("pointermove", move);
+  node.addEventListener("pointerleave", () => { tt.style.opacity = 0; });
+}
+function move(e) {
+  const pad = 14, w = tt.offsetWidth, h = tt.offsetHeight;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + w > innerWidth - 8) x = e.clientX - w - pad;
+  if (y + h > innerHeight - 8) y = e.clientY - h - pad;
+  tt.style.left = x + "px"; tt.style.top = y + "px";
+}
+
+/* ---------- stat tiles ---------- */
+const A = D.A.stats, B = D.B.stats;
+const tile = (lab, s, cls) => [lab, f4(s.mean),
+  `${s.wins}/10 iterations · t p=${p4(s.t)} · dz=${s.dz.toFixed(2)}`, cls];
+document.getElementById("tiles").innerHTML = [
+  tile("Run A · far − full", A.far_full, "good"),
+  tile("Run A · near − full", A.near_full, ""),
+  tile("Run B · far − full", B.far_full, ""),
+  tile("Run B · near − full", B.near_full, ""),
+].map(([k, v, n, cls]) =>
+  `<div class="tile"><div class="k">${k}</div><div class="v"${cls ? ` style="color:var(--${cls})"` : ""}>${v}</div><div class="n">${n}</div></div>`
+).join("");
+
+/* ---------- 1. forest ---------- */
+(function () {
+  const rows = [
+    { lab: "Run A · far − full", s: A.far_full, c: "--series-2" },
+    { lab: "Run A · near − full", s: A.near_full, c: "--series-3" },
+    { lab: "Run B · far − full", s: B.far_full, c: "--series-2" },
+    { lab: "Run B · near − full", s: B.near_full, c: "--series-3" },
+  ];
+  const W = 900, H = 204, L = 168, R = 96, T = 16, Bm = 34;
+  const lo = -0.022, hi = 0.024;
+  const x = v => L + (v - lo) / (hi - lo) * (W - L - R);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img",
+    "aria-label": "Paired effect sizes with 95% confidence intervals" });
+
+  for (let v = -0.02; v <= 0.0201; v += 0.01) {
+    svg.appendChild(el("line", { x1: x(v), x2: x(v), y1: T, y2: H - Bm, stroke: C("--grid"), "stroke-width": 1 }));
+    const t = el("text", { x: x(v), y: H - Bm + 16, "text-anchor": "middle", fill: C("--text-muted"), "font-size": 11 });
+    t.textContent = (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2); svg.appendChild(t);
+  }
+  svg.appendChild(el("line", { x1: x(0), x2: x(0), y1: T, y2: H - Bm, stroke: C("--text-muted"), "stroke-width": 2, "stroke-dasharray": "4 3" }));
+
+  rows.forEach((r, i) => {
+    const y = T + 24 + i * 36, col = C(r.c);
+    const lb = el("text", { x: L - 12, y: y + 4, "text-anchor": "end", fill: C("--text-primary"), "font-size": 12.5 });
+    lb.textContent = r.lab; svg.appendChild(lb);
+    svg.appendChild(el("line", { x1: x(r.s.lo), x2: x(r.s.hi), y1: y, y2: y, stroke: col, "stroke-width": 2, "stroke-linecap": "round" }));
+    [r.s.lo, r.s.hi].forEach(v => svg.appendChild(el("line", { x1: x(v), x2: x(v), y1: y - 5, y2: y + 5, stroke: col, "stroke-width": 2 })));
+    svg.appendChild(el("circle", { cx: x(r.s.mean), cy: y, r: 5.5, fill: col, stroke: C("--surface-1"), "stroke-width": 2 }));
+    const vt = el("text", { x: W - R + 10, y: y + 4, fill: C("--text-secondary"), "font-size": 12 });
+    vt.textContent = f4(r.s.mean); svg.appendChild(vt);
+    const hit = el("rect", { x: L, y: y - 15, width: W - L - R, height: 30, class: "hit" });
+    bind(hit, `<b>${r.lab}</b><br>mean ${f4(r.s.mean)}<br>95% CI [${f4(r.s.lo)}, ${f4(r.s.hi)}]<br>${r.s.wins}/${r.s.n} iterations positive<br>paired t p=${p4(r.s.t)} · Wilcoxon p=${p4(r.s.w)}`);
+    svg.appendChild(hit);
+  });
+  const ax = el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle", fill: C("--text-muted"), "font-size": 11 });
+  ax.textContent = "Δ AUROC (macro over the four hu_ha splits)"; svg.appendChild(ax);
+  document.getElementById("forest").appendChild(svg);
+})();
+
+/* ---------- 2. per-seed panels ---------- */
+/* Every arm is read on the shared iteration axis i = 0..9: seed-indexed arms map through
+   SEEDS, the draw-indexed arm maps through its draw number. */
+const byIter = (run, a) => (a.draws ? SEEDS.map((_, i) => run[a.key][String(i)])
+                                    : S.map(s => run[a.key][s]));
+function seedPanel(mount, run, arms) {
+  const W = 540, H = 290, L = 52, R = 14, T = 14, Bm = 40;
+  const series = arms.map(a => byIter(run, a));
+  const all = series.flat();
+  const lo = Math.min(...all) - 0.004, hi = Math.max(...all) + 0.004;
+  const x = i => L + (i + 0.5) / SEEDS.length * (W - L - R);
+  const y = v => T + (hi - v) / (hi - lo) * (H - T - Bm);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img",
+    "aria-label": "AUROC by weight-init seed" });
+
+  const step = 0.01, first = Math.ceil(lo / step) * step;
+  for (let v = first; v <= hi; v += step) {
+    svg.appendChild(el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: C("--grid"), "stroke-width": 1 }));
+    const t = el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", fill: C("--text-muted"), "font-size": 11 });
+    t.textContent = v.toFixed(2); svg.appendChild(t);
+  }
+  SEEDS.forEach((s, i) => {
+    const t = el("text", { x: x(i), y: H - Bm + 17, "text-anchor": "middle", fill: C("--text-muted"), "font-size": 10.5 });
+    t.textContent = i; svg.appendChild(t);
+  });
+  arms.forEach((a, ai) => {
+    const col = C(a.c), vals = series[ai];
+    const pts = vals.map((v, i) => [x(i), y(v)]);
+    svg.appendChild(el("polyline", { points: pts.map(p => p.join(",")).join(" "), fill: "none",
+      stroke: col, "stroke-width": 2, "stroke-linejoin": "round", opacity: 0.55 }));
+    pts.forEach((p, i) => {
+      svg.appendChild(el("circle", { cx: p[0], cy: p[1], r: 4.5, fill: col,
+        stroke: C("--surface-1"), "stroke-width": 2 }));
+      const hit = el("circle", { cx: p[0], cy: p[1], r: 11, class: "hit" });
+      const what = a.draws ? `random draw ${i} @ seed 42` : `weight-init seed ${SEEDS[i]}`;
+      bind(hit, `<b>${a.name}</b> · random_start_${i}<br>${what}<br>AUROC ${vals[i].toFixed(4)}`);
+      svg.appendChild(hit);
+    });
+  });
+  const ax = el("text", { x: (L + W - R) / 2, y: H - 6, "text-anchor": "middle", fill: C("--text-muted"), "font-size": 11 });
+  ax.textContent = "random_start_i"; svg.appendChild(ax);
+  document.getElementById(mount).appendChild(svg);
+}
+seedPanel("seedA", D.A.runs, [
+  { key: "full", name: "full (878)", c: "--series-1" },
+  { key: "far", name: "far (−91)", c: "--series-2" },
+  { key: "near", name: "near (−91)", c: "--series-3" },
+]);
+seedPanel("seedB", D.B.runs, [
+  { key: "full", name: "full (736)", c: "--series-1" },
+  { key: "far", name: "far (−74)", c: "--series-2" },
+  { key: "neardraw", name: "near (−74)", c: "--series-3", draws: true },
+]);
+document.getElementById("seedlist").textContent = SEEDS.join(", ");
+
+/* ---------- 3. per-split, one panel per run, shared x scale ---------- */
+function splitPanel(mount, rows, runName) {
+  const W = 540, H = 250, L = 158, R = 66, T = 14, Bm = 40;
+  const lo = -0.040, hi = 0.040;
+  const x = v => L + (v - lo) / (hi - lo) * (W - L - R);
+  const rowH = (H - T - Bm) / rows.length;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img",
+    "aria-label": `${runName}: change in AUROC vs full by eval split` });
+
+  for (let v = -0.04; v <= 0.0401; v += 0.02) {
+    svg.appendChild(el("line", { x1: x(v), x2: x(v), y1: T, y2: H - Bm, stroke: C("--grid"), "stroke-width": 1 }));
+    const t = el("text", { x: x(v), y: H - Bm + 16, "text-anchor": "middle", fill: C("--text-muted"), "font-size": 11 });
+    t.textContent = (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2); svg.appendChild(t);
+  }
+  svg.appendChild(el("line", { x1: x(0), x2: x(0), y1: T, y2: H - Bm, stroke: C("--text-muted"), "stroke-width": 2 }));
+
+  rows.forEach((r, i) => {
+    const yTop = T + i * rowH;
+    const lb = el("text", { x: L - 12, y: yTop + rowH / 2 + 4, "text-anchor": "end",
+      fill: C("--text-primary"), "font-size": 11.5 });
+    lb.textContent = r.split.replace(/^eval_/, ""); svg.appendChild(lb);
+    [["far", r.far_d, r.far_p, "--series-2"], ["near", r.near_d, r.near_p, "--series-3"]]
+      .forEach(([arm, v, p, c], j) => {
+        const bh = 13, gap = 2;
+        const yy = yTop + rowH / 2 - bh - gap / 2 + j * (bh + gap);
+        const x0 = Math.min(x(0), x(v)), w = Math.max(Math.abs(x(v) - x(0)), 1.5);
+        svg.appendChild(el("rect", { x: x0, y: yy, width: w, height: bh, rx: 4,
+          fill: C(c), stroke: C("--surface-1"), "stroke-width": 2 }));
+        const hit = el("rect", { x: x0 - 5, y: yy, width: w + 10, height: bh, class: "hit" });
+        bind(hit, `<b>${runName} · ${arm} − full</b><br>${r.split}<br>Δ = ${f4(v)}<br>p=${p4(p)}`);
+        svg.appendChild(hit);
+      });
+    const vt = el("text", { x: W - R + 6, y: yTop + rowH / 2 + 4, fill: C("--text-secondary"), "font-size": 11 });
+    vt.textContent = `${f4(r.far_d)} / ${f4(r.near_d)}`; svg.appendChild(vt);
+  });
+  const ax = el("text", { x: (L + W - R) / 2, y: H - 6, "text-anchor": "middle", fill: C("--text-muted"), "font-size": 11 });
+  ax.textContent = "Δ AUROC vs full  (far / near)"; svg.appendChild(ax);
+  document.getElementById(mount).appendChild(svg);
+}
+splitPanel("splitsA", D.A.split, "Run A");
+splitPanel("splitsB", D.B.split, "Run B");
+
+/* ---------- 4. token lengths ---------- */
+(function () {
+  const groups = [
+    { g: "Run A — 878-row", t: D.A.tok },
+    { g: "Run B — intact-pair 736", t: D.B.tok },
+  ];
+  const arms = [["full", "full (corpus)", "--series-1"], ["far", "far", "--series-2"], ["near", "near", "--series-3"]];
+  const W = 900, H = 260, L = 52, R = 14, T = 14, Bm = 52;
+  const hi = 620;
+  const y = v => T + (hi - v) / hi * (H - T - Bm);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: "img",
+    "aria-label": "Mean token length per arm, both runs" });
+
+  for (let v = 0; v <= hi; v += 100) {
+    svg.appendChild(el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: C("--grid"), "stroke-width": 1 }));
+    const t = el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", fill: C("--text-muted"), "font-size": 11 });
+    t.textContent = v; svg.appendChild(t);
+  }
+  const gw = (W - L - R) / groups.length;
+  groups.forEach((grp, gi) => {
+    const bw = 62, gap = 12, tot = arms.length * bw + (arms.length - 1) * gap;
+    const x0 = L + gi * gw + (gw - tot) / 2;
+    arms.forEach(([k, name, c], ai) => {
+      const d = grp.t[k], xx = x0 + ai * (bw + gap), yy = y(d.mean);
+      svg.appendChild(el("rect", { x: xx, y: yy, width: bw, height: y(0) - yy, rx: 4,
+        fill: C(c), stroke: C("--surface-1"), "stroke-width": 2 }));
+      const vt = el("text", { x: xx + bw / 2, y: yy - 7, "text-anchor": "middle",
+        fill: C("--text-secondary"), "font-size": 11.5 });
+      vt.textContent = d.mean.toFixed(0); svg.appendChild(vt);
+      if (d.cap > 0) {
+        const ct = el("text", { x: xx + bw / 2, y: yy + 15, "text-anchor": "middle",
+          fill: C("--surface-1"), "font-size": 10.5, "font-weight": 650 });
+        ct.textContent = d.cap.toFixed(1) + "%"; svg.appendChild(ct);
+      }
+      const hit = el("rect", { x: xx - 3, y: T, width: bw + 6, height: y(0) - T, class: "hit" });
+      bind(hit, `<b>${grp.g} · ${name}</b><br>n = ${d.n} rows<br>mean ${d.mean} tok · median ${d.median}<br>p10–p90 ${d.p10}–${d.p90}<br>at 1024 cap: ${d.cap}%<br>positive: ${d.pos}%`);
+      svg.appendChild(hit);
+    });
+    const gt = el("text", { x: L + gi * gw + gw / 2, y: H - Bm + 20, "text-anchor": "middle",
+      fill: C("--text-primary"), "font-size": 12.5 });
+    gt.textContent = grp.g; svg.appendChild(gt);
+  });
+  const ax = el("text", { x: (L + W - R) / 2, y: H - 8, "text-anchor": "middle", fill: C("--text-muted"), "font-size": 11 });
+  ax.textContent = "mean tokens per conversation (white % = share truncated at the 1024 cap)"; svg.appendChild(ax);
+  document.getElementById("tokens").appendChild(svg);
+})();
+
+/* ---------- tables ---------- */
+function table(id, head, rows) {
+  document.getElementById(id).innerHTML =
+    "<thead><tr>" + head.map(h => `<th>${h}</th>`).join("") + "</tr></thead><tbody>" +
+    rows.map(r => "<tr>" + r.map(c => typeof c === "object"
+      ? `<td class="${c.cls || ""}">${c.v}</td>` : `<td>${c}</td>`).join("") + "</tr>").join("") +
+    "</tbody>";
+}
+const sgn = v => ({ v: f4(v), cls: v > 0 ? "pos" : v < 0 ? "neg" : "" });
+
+table("toktable",
+  ["arm", "run", "n rows", "mean tok", "median", "p10", "p90", "% at 1024 cap", "% positive"],
+  [["full (corpus)", "A"], ["full (corpus)", "B"], ["far", "A"], ["far", "B"],
+   ["near (arm)", "A"], ["near (draw 0)", "B"], ["near pool", "A"], ["near pool", "B"],
+   ["excluded rows", "B"]].flatMap(([lab, run]) => {
+    const key = lab.startsWith("full") ? "full" : lab.startsWith("far") ? "far"
+      : lab.startsWith("near pool") ? "near_pool" : lab.startsWith("excluded") ? "excluded" : "near";
+    const d = D[run].tok[key]; if (!d) return [];
+    return [[lab, "Run " + run, d.n, d.mean, d.median, d.p10, d.p90, d.cap.toFixed(1) + "%", d.pos.toFixed(1) + "%"]];
+  }));
+
+const bnear = i => D.B.runs.neardraw[String(i)];
+table("seedtable",
+  ["random_start_i", "A full", "A far", "A far Δ", "A near", "A near Δ",
+   "B full", "B far", "B far Δ", "B near", "B near Δ"],
+  S.map((s, i) => [i,
+    D.A.runs.full[s].toFixed(4), D.A.runs.far[s].toFixed(4), sgn(D.A.runs.far[s] - D.A.runs.full[s]),
+    D.A.runs.near[s].toFixed(4), sgn(D.A.runs.near[s] - D.A.runs.full[s]),
+    D.B.runs.full[s].toFixed(4), D.B.runs.far[s].toFixed(4), sgn(D.B.runs.far[s] - D.B.runs.full[s]),
+    bnear(i).toFixed(4), sgn(bnear(i) - D.B.runs.full[s])])
+  .concat([["mean",
+    A.means.full.toFixed(4), A.means.far.toFixed(4), sgn(A.far_full.mean),
+    A.means.near.toFixed(4), sgn(A.near_full.mean),
+    B.means.full.toFixed(4), B.means.far.toFixed(4), sgn(B.far_full.mean),
+    B.means.neardraw.toFixed(4), sgn(B.near_full.mean)]]));
+
+table("splittable",
+  ["split", "A full", "A far Δ", "A p", "A near Δ", "A p",
+   "B full", "B far Δ", "B p", "B near Δ", "B p"],
+  D.A.split.map(a => {
+    const b = D.B.split.find(r => r.split === a.split);
+    const p = v => ({ v: p4(v), cls: v < 0.05 ? "sig" : "" });
+    return [a.split, a.full.toFixed(4), sgn(a.far_d), p(a.far_p), sgn(a.near_d), p(a.near_p),
+      b.full.toFixed(4), sgn(b.far_d), p(b.far_p), sgn(b.near_d), p(b.near_p)];
+  }));
+
+table("drawtable", ["random_start_i", "run", "AUROC", "Δ vs same-iteration full"],
+  Object.keys(D.B.runs.neardraw).map(k =>
+    [k, "neardraw_d" + k + "_s42", bnear(k).toFixed(4), sgn(bnear(k) - D.B.runs.full[S[+k]])])
+  .concat([["mean", "—", B.means.neardraw.toFixed(4), sgn(B.near_full.mean)]]));
+</script>
