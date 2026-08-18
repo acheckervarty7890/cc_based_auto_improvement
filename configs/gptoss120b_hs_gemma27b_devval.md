@@ -1,28 +1,25 @@
 ---
-# ARM 1 of the ENSEMBLE + DEV-VALIDATION run on the HIGH-STAKES concept,
+# ARM 1 of the DEV-VALIDATION run on the HIGH-STAKES concept,
 # probe = gemma-3-27b-it (L32).
 #
 # Derived from configs/gptoss120b_hs_gemma27b_batch.md (experiment9_cloud, the
-# batch-submission attacker ablation) with THREE knobs changed, plus the per-arm output
+# batch-submission attacker ablation) with TWO knobs changed, plus the per-arm output
 # paths and the eval addressing that the eval-set re-cut on main forced:
 #
-#   probe.ensemble_size:   10      (was unset -> a single probe)
 #   validation.dev_data:   ../dev_samples/highstakes   (was unset -> a test_size slice)
 #   kaggle.eval_dataset_slug: "{slug}-gemmaevalpt"     (was "{split}gemmaevalpt")
 #
 # Every attacker/judge/preprocessing knob and the whole prompt body below are VERBATIM from
-# the experiment9 arm, so this run is comparable to it member-for-member on the attacker
-# side; what moved is how the probe is fit and what it is early-stopped and scored against.
+# the experiment9 arm, so this run is comparable to it on the attacker side; what moved is
+# what the probe is early-stopped against, and what it is scored on.
 #
-# WHAT ensemble_size: 10 CHANGES. Every train AND retrain fits ten probes on the SAME
-# activations and averages their scores — a score-averaging deep ensemble
-# (agentic_redteam.ensemble). Member i is fit under the repo-pinned ENSEMBLE_SEEDS[i]
-# (3699, 14431, 23529, 26229, 26660, 42624, 43521, 54184, 65963, 69051), NOT --seed + i, so
-# the member identities are the same numbers on every run, config and box, and --seed keeps
-# governing only the data (train/val split, eval subsample). 10 is MAX_ENSEMBLE_SIZE — the
-# whole pinned list — so this run cannot be grown further without appending seeds upstream.
-# Cost scales with the member count on the FIT only: activations are extracted once and
-# shared, so this is ten cheap head fits over one extraction, not ten extractions.
+# ONE PROBE, NOT AN ENSEMBLE. probe.ensemble_size is pinned to 1 — the ordinary single-probe
+# path, exactly as experiment9 ran. It is stated explicitly rather than left unset so the
+# file says what the run is, and because a retrain inherits the size off the probe it
+# retrains: setting it wrong on the INITIAL fit is what would silently carry an ensemble
+# through every later iteration. At n == 1 `_resolve_ensemble_seeds` deliberately returns
+# [seed] rather than a slice of ENSEMBLE_SEEDS, so this probe trains under the run's --seed,
+# which is also what governs the data — the pinned member seeds never enter.
 #
 # WHAT validation.dev_data CHANGES. The validation set becomes dev_samples/highstakes
 # (1908 rows: 1028/278/274/328) used WHOLE, and nothing is held out of the base data or the
@@ -30,9 +27,9 @@
 # point is a validation set that does not move: with the default test_size slice, a share of
 # every iteration's red-team successes lands in validation, so the set each probe
 # early-stops against changes shape at every retrain and the best-epoch checkpoints are not
-# comparable across iterations. With ten members early-stopping independently that is worth
-# more here than it was in experiment9, since a moving val set adds a second source of
-# member-to-member variance on top of the seeds.
+# comparable across iterations. This is the one variable this run is here to move: with a
+# fixed dev set, iteration n's checkpoint and iteration n+1's were selected against the
+# same rows, so the eval deltas across iterations mean what they appear to mean.
 #
 # DEV SET vs EVAL SET — disjointness is the whole premise. dev_samples/highstakes is the
 # PREVIOUS high-stakes eval set (renamed on main in c260778); the eval set this run scores
@@ -66,7 +63,7 @@
 # the first fit finds the dev blob and loads no model for it. Run it once per box; it is a
 # no-op afterwards, and both arms share the dirs so arm 2 needs nothing.
 #
-# ARM 2 (configs/deepseekv4pro_hs_gemma27b_ens10dev.md) is IDENTICAL in every knob except
+# ARM 2 (configs/deepseekv4pro_hs_gemma27b_devval.md) is IDENTICAL in every knob except
 # attacker.models and the per-arm output paths. Nothing else may differ between the two files.
 attacker:
   provider: openrouter            # claude_sdk | openrouter — default for bare-string entries below
@@ -107,15 +104,14 @@ probe:
   neg_class_label: low-stakes
   description: A linear probe on google/gemma-3-27b-it detecting whether the conversation is high-stakes.
   error_type: [false_positive, false_negative]
-  ensemble_size: 10               # THE CHANGE: fit 10 probes per train/retrain on the same
-                                  #   activations and average their scores. Members use the pinned
-                                  #   ensemble.ENSEMBLE_SEEDS[:10]; 10 == MAX_ENSEMBLE_SIZE. A
-                                  #   retrain inherits the size off the probe it retrains, so this
-                                  #   value only has to be set for the INITIAL fit — it is pinned
-                                  #   here anyway so the file states what the run is.
+  ensemble_size: 1                # ONE probe per train/retrain (no ensembling) — the default
+                                  #   behaviour, pinned explicitly. A retrain inherits the size off
+                                  #   the probe it retrains, so the INITIAL fit is what decides it
+                                  #   for the whole run. n == 1 trains under the run's --seed; the
+                                  #   pinned ensemble.ENSEMBLE_SEEDS are not consulted.
 
 validation:
-  dev_data: ../dev_samples/highstakes   # THE OTHER CHANGE: held-out dev set as the WHOLE validation
+  dev_data: ../dev_samples/highstakes   # THE CHANGE: held-out dev set as the WHOLE validation
                                   #   set. Base data and red-team successes then train in full and
                                   #   --test-size / --split-field are ignored. Disjoint from
                                   #   eval_sets/highstakes — see the header.
@@ -150,12 +146,12 @@ eval:                              # dataset-loading transforms — MUST match h
   eval_max_samples: 0                 # full split (required by kaggle:)
 
 output:
-  jsonl_path: ../results_hs_gemma27b_gptoss120b_ens10dev/gptoss120b_probing.jsonl   # per-arm:
+  jsonl_path: ../results_hs_gemma27b_gptoss120b_devval/gptoss120b_probing.jsonl   # per-arm:
                                   #   successes + runlog/summaries sidecars. Must NOT be shared with
                                   #   the deepseek arm or with any earlier hs run.
-  run_id: gptoss120b_hs_gemma27b_ens10dev
-  comparison_csv: ../results_hs_gemma27b_gptoss120b_ens10dev/gptoss120b_comparison.csv
-  activations_cache_dir: ../results_hs_gemma27b_ens10dev/eval_activations   # SHARED across BOTH arms.
+  run_id: gptoss120b_hs_gemma27b_devval
+  comparison_csv: ../results_hs_gemma27b_gptoss120b_devval/gptoss120b_comparison.csv
+  activations_cache_dir: ../results_hs_gemma27b_devval/eval_activations   # SHARED across BOTH arms.
                                   #   Eval activations depend only on the probe model + layer + eval
                                   #   splits + seed + transforms (NOT the attacker, the training data,
                                   #   the ensemble size, or the validation source), so both arms hit the
@@ -167,7 +163,7 @@ output:
                                   #   eval_max_samples 0 and the two transforms above. It is a NEW dir:
                                   #   experiment9's cache holds the OLD (now dev) splits under the same
                                   #   filenames and would be a silent mismatch.
-  base_activation_cache_dir: ../results_hs_gemma27b_ens10dev/base_activations   # SHARED across BOTH
+  base_activation_cache_dir: ../results_hs_gemma27b_devval/base_activations   # SHARED across BOTH
                                   #   arms ON PURPOSE: identical base data / probe model / layer / seed /
                                   #   transforms → identical base-cache key. NOTE the key moves vs.
                                   #   experiment9 anyway, because validation.dev_data forces the base
