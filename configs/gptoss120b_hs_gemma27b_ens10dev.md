@@ -52,6 +52,20 @@
 # anku7890/{slug}-gemmadevpt, but that is the eval-shaped per-split form, not the single
 # concatenated blob this path reads.)
 #
+# ON A BOX THAT ALREADY HAS THE ACTIVATIONS (this one does), stage them instead of
+# recomputing or re-downloading anything:
+#
+#     .venv_claude/bin/python scripts/stage_local_hs_activations.py --config <this file>
+#
+# It hard-links the four eval blobs into activations_cache_dir under the names
+# get_performances derives, and ASSEMBLES the single dev blob from the per-split dev
+# activations (concatenated in sorted-filename order — the order _load_dev_dataset uses),
+# writing it to the exact _dev_activation_cache_path the fit will look for. Every blob is
+# checked against the probe's model/layer and the split's row count first. After that the
+# kaggle: section below finds every eval split already cached and downloads nothing, and
+# the first fit finds the dev blob and loads no model for it. Run it once per box; it is a
+# no-op afterwards, and both arms share the dirs so arm 2 needs nothing.
+#
 # ARM 2 (configs/deepseekv4pro_hs_gemma27b_ens10dev.md) is IDENTICAL in every knob except
 # attacker.models and the per-arm output paths. Nothing else may differ between the two files.
 attacker:
