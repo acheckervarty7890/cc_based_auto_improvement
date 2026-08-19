@@ -37,9 +37,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
+
+# This is meant to run ALONGSIDE a live training run. Never touch the GPU (the
+# run has ~11 GiB of activations staged there and 1.5 GiB free), and keep the
+# thread count low so the fits keep their cores. Both must be set before torch
+# is imported anywhere.
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+for _v in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+    os.environ.setdefault(_v, "2")
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
@@ -143,7 +152,7 @@ def redteam_samples():
     return rows
 
 
-def build_vectors(out_dir: Path):
+def build_vectors(out_dir: Path, skip_eval: bool = False):
     import numpy as np
     from agentic_redteam.retrain import _redteam_activation_cache_path
 
@@ -205,7 +214,9 @@ def build_vectors(out_dir: Path):
                          "arm": "", "error_type": "", "success": False})
 
     # ---- eval -------------------------------------------------------------- #
-    for b in sorted(EVAL_CACHE.glob("*-acts_full.pt")):
+    if skip_eval:
+        log("skipping eval splits (--no-eval): dev alone is the reference")
+    for b in [] if skip_eval else sorted(EVAL_CACHE.glob("*-acts_full.pt")):
         split = b.name.replace("-acts_full.pt", "")
         v = pool_blob(b)
         log(f"eval split {split}: {v.shape[0]} rows")
@@ -253,7 +264,7 @@ def analyze(X, meta, out_dir: Path):
     cent = {g: Xn[groups == g].mean(0) for g in order}
     for g in cent:
         cent[g] /= max(np.linalg.norm(cent[g]), 1e-9)
-    ref = {"dev": Xn[kinds == "dev"], "eval": Xn[kinds == "eval"]}
+    has_eval = bool((kinds == "eval").sum())
     w("\n## 1. Distance from dev / eval\n")
     w("Cosine distance between group centroids, and the group's own spread "
       "(mean cosine distance of its members to its own centroid). A group whose "
@@ -261,13 +272,14 @@ def analyze(X, meta, out_dir: Path):
       "distribution, not beside it.\n")
     w("| group | cos-dist to dev centroid | cos-dist to eval centroid | own spread |")
     w("| --- | --- | --- | --- |")
-    dev_c = ref["dev"].mean(0); dev_c /= max(np.linalg.norm(dev_c), 1e-9)
-    ev_c = ref["eval"].mean(0); ev_c /= max(np.linalg.norm(ev_c), 1e-9)
+    dev_c = Xn[kinds == "dev"].mean(0); dev_c /= max(np.linalg.norm(dev_c), 1e-9)
+    if has_eval:
+        ev_c = Xn[kinds == "eval"].mean(0); ev_c /= max(np.linalg.norm(ev_c), 1e-9)
     for g in order:
         Xg = Xn[groups == g]
         spread = float((1 - Xg @ cent[g]).mean())
-        w(f"| {g} | {1 - float(cent[g] @ dev_c):.4f} | "
-          f"{1 - float(cent[g] @ ev_c):.4f} | {spread:.4f} |")
+        ev = f"{1 - float(cent[g] @ ev_c):.4f}" if has_eval else "n/a"
+        w(f"| {g} | {1 - float(cent[g] @ dev_c):.4f} | {ev} | {spread:.4f} |")
 
     # --- 2. nearest-neighbour novelty --------------------------------------- #
     w("\n## 2. Nearest-neighbour novelty\n")
@@ -327,7 +339,7 @@ def analyze(X, meta, out_dir: Path):
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        p = PCA(n_components=2).fit(Xn[kinds != "redteam"])
+        p = PCA(n_components=2).fit(Xn[kinds == "dev"] if not has_eval else Xn[kinds != "redteam"])
         P = p.transform(Xn)
         fig, ax = plt.subplots(figsize=(9, 7))
         for g in order:
@@ -353,13 +365,26 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out-dir", type=Path, default=REPO / "analysis/activation_space")
     ap.add_argument("--stage", choices=["all", "vectors", "metrics"], default="all")
+    ap.add_argument(
+        "--no-eval",
+        action="store_true",
+        help="Skip the eval splits (4.3 GB of blobs) and use dev alone as the "
+        "reference distribution. This is the cheap pass: dev is one 849 MB file "
+        "and the red-team blobs are ~1-3 MB each, so the whole thing is a few GB "
+        "of sequential reads instead of 5+.",
+    )
+    ap.add_argument("--threads", type=int, default=2, help="torch CPU threads")
     a = ap.parse_args()
+
+    import torch
+
+    torch.set_num_threads(max(1, a.threads))
     a.out_dir.mkdir(parents=True, exist_ok=True)
 
     import numpy as np
 
     if a.stage in ("all", "vectors"):
-        X, meta = build_vectors(a.out_dir)
+        X, meta = build_vectors(a.out_dir, skip_eval=a.no_eval)
     if a.stage == "vectors":
         return 0
     if a.stage == "metrics":
