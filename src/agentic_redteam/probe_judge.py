@@ -174,6 +174,12 @@ class ProbeJudge:
         """
         if self._model is None:
             return
+        # accelerate's dispatch hooks make the module graph self-referential, so the
+        # assignment below frees nothing on its own — the weights stay on the card and
+        # the next phase loads against a GPU that only looks full. Strip them first.
+        from agentic_redteam.model_loading import unhook_model
+
+        unhook_model(self._model)
         self._model = None
         import gc
 
