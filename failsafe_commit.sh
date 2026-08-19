@@ -220,7 +220,12 @@ for i in $(seq 0 $((N_STAGES - 1))); do
     COMMIT_PATHS+=("${RESULTS_DIRS[$i]}")   # *_fp.jsonl / *_fn.jsonl successes +
                                             #   .summaries/.iteration_memos sidecars + comparison csv
 done
-COMMIT_PATHS+=("logs")                      # run log(s) — *.log is gitignored, force-added
+COMMIT_PATHS+=("logs_archive")              # STRIPPED run log(s) — see strip_logs below.
+                                            #   NOT logs/: a raw run log is mostly tqdm
+                                            #   carriage-return spam and grew to 115 MB in
+                                            #   ~19 h, past GitHub's hard 100 MB per-file
+                                            #   limit, at which point EVERY push failed and
+                                            #   origin silently stopped being a resume point.
 
 # Never stage activation blobs (*.pt/*.pth), wherever they land. The exclude
 # pathspec is built PER PATH in do_commit and anchored to that path
@@ -254,9 +259,40 @@ log "branch:        $BRANCH -> $REMOTE   (current branch; not switched)"
 # nothing changed. Never aborts the poller on a transient git/network failure.
 # --------------------------------------------------------------------------- #
 PUSHED_UPSTREAM=0
+PUSH_FAIL_STREAK=0
+LAST_PUSHED_SHA=""
+
+# Write a tqdm-free copy of each stage's log into logs_archive/, and commit THAT
+# instead of the raw file.
+#
+# Two reasons, both learned the hard way on 2026-08-19. Size: the raw arm-1 log
+# reached 115 MB in ~19 h — over GitHub's hard 100 MB per-file cap — and from that
+# moment every push was rejected, so origin froze at 07:15 while probe_iter4 and
+# two hours of red-team JSONLs existed only on the box. Deltas: the raw log is
+# ~99% carriage-return progress bars, and a gzipped snapshot is binary, so each
+# checkpoint would store a fresh multi-MB blob. The stripped log is append-only
+# text, which git deltas almost perfectly — a checkpoint costs roughly the lines
+# added since the previous one.
+#
+# The raw log stays on disk untouched; it is simply not git's problem.
+strip_logs() {
+    local f base
+    mkdir -p logs_archive 2>/dev/null || return 0
+    for f in "${LOG_FILES[@]}"; do
+        [[ -f "$f" ]] || continue
+        base="$(basename "${f%.log}")"
+        tr -d '\r' < "$f" \
+            | grep -av "^Epoch .*:.*|" \
+            | grep -av "Processing batches:" \
+            | grep -av "it/s\]$" \
+            > "logs_archive/${base}.stripped.log" 2>/dev/null || true
+    done
+}
+
 do_commit() {
     local reason="$1"
     local p
+    strip_logs
     for p in "${COMMIT_PATHS[@]}"; do
         # Anchor the exclude to $p; an unanchored **/*.pt exclude drops everything.
         [[ -e "$p" ]] && git add -f "$p" \
@@ -275,19 +311,40 @@ do_commit() {
     fi
     log "committed: $msg"
     # Push (set upstream on first successful push); retry once on failure.
+    #
+    # The push output is CAPTURED and logged on failure. It used to be sent to
+    # /dev/null with only "WARN: push failed" recorded, which is how a hard,
+    # never-self-healing rejection ("File ... is 109.25 MB; this exceeds GitHub's
+    # file size limit of 100.00 MB") looked exactly like a transient network blip
+    # for three hours. A failsafe whose failures are indistinguishable from noise
+    # is not a failsafe.
     local push_args=("$REMOTE" "$BRANCH")
     [[ "$PUSHED_UPSTREAM" -eq 0 ]] && push_args=(-u "$REMOTE" "$BRANCH")
-    if git push -q "${push_args[@]}" >/dev/null 2>&1; then
-        PUSHED_UPSTREAM=1
-        log "pushed to $REMOTE/$BRANCH ($(git rev-parse --short HEAD))"
-    else
+    local push_out rc
+    push_out="$(git push "${push_args[@]}" 2>&1)"; rc=$?
+    if [[ $rc -ne 0 ]]; then
         sleep 5
-        if git push -q "${push_args[@]}" >/dev/null 2>&1; then
-            PUSHED_UPSTREAM=1
-            log "pushed to $REMOTE/$BRANCH on retry ($(git rev-parse --short HEAD))"
-        else
-            log "WARN: push failed; commit is local, will retry on next checkpoint"
-        fi
+        push_out="$(git push "${push_args[@]}" 2>&1)"; rc=$?
+    fi
+    if [[ $rc -eq 0 ]]; then
+        PUSHED_UPSTREAM=1
+        PUSH_FAIL_STREAK=0
+        LAST_PUSHED_SHA="$(git rev-parse --short HEAD)"
+        log "pushed to $REMOTE/$BRANCH ($LAST_PUSHED_SHA)"
+        return 0
+    fi
+
+    PUSH_FAIL_STREAK=$((PUSH_FAIL_STREAK + 1))
+    log "ERROR: push #$PUSH_FAIL_STREAK FAILED — origin is NOT a resume point right now."
+    log "ERROR:   local HEAD $(git rev-parse --short HEAD); last pushed ${LAST_PUSHED_SHA:-<never>}"
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && log "ERROR:   git: $line"
+    done <<< "$(printf '%s\n' "$push_out" | grep -aiv '^remote: *$' | head -6)"
+    if printf '%s' "$push_out" | grep -qi "exceeds\|file size limit\|GH001\|pre-receive hook declined"; then
+        log "ERROR:   This will NOT fix itself — a committed file is over the remote's"
+        log "ERROR:   size limit. Every later checkpoint will fail too until history is"
+        log "ERROR:   rewritten to drop it. Stop and fix now; do not let the run continue"
+        log "ERROR:   believing it is checkpointed."
     fi
 }
 

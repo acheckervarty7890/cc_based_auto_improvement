@@ -611,6 +611,80 @@ def _activate_redteam_cached(
     return _concatenate_consuming(parts)
 
 
+def _fit_device():
+    """The device tuberlens' probe fit will run on, or ``None`` if it is the CPU."""
+    import torch
+
+    if not torch.cuda.is_available():
+        return None
+    try:
+        from tuberlens.config import global_settings
+
+        device = str(getattr(global_settings, "DEVICE", "cuda"))
+    except Exception:  # pragma: no cover - tuberlens layout drift
+        device = "cuda"
+    return None if device.startswith("cpu") else device
+
+
+def _to_device_for_fit(datasets, *, verbose: bool = True) -> bool:
+    """Move merged activation tensors onto the fit device before ``ProbeFactory.build``.
+
+    ``ActivationDataset.__getitems__`` ends every batch fetch in ``.to(self.device)``.
+    With the tensors on the host that is a scattered CPU gather plus a host->device
+    copy of the entire set, once per epoch, for every ensemble member — which is
+    where a retrain's wall-clock actually goes (see the comment at the call site for
+    the measured 113x). Pre-staging them here turns that ``.to`` into a no-op.
+
+    Purely a data-placement change: the sampler, the batch order and the values are
+    untouched, so the fitted probes are bit-identical.
+
+    Returns True if anything was moved. On OOM — or any other failure — every tensor
+    already moved is restored to its original device and the fit proceeds on the host
+    exactly as before, because a slow retrain beats a dead one. That fallback is not
+    hypothetical: the red-team set grows each iteration, so a long enough run will
+    eventually present a set larger than the card.
+    """
+    import torch
+
+    device = _fit_device()
+    if device is None:
+        return False
+
+    original: list[tuple[object, str, "torch.Tensor"]] = []
+    moved_bytes = 0
+    try:
+        for ds in datasets:
+            if ds is None:
+                continue
+            fields = getattr(ds, "other_fields", None)
+            if not isinstance(fields, dict):
+                continue
+            for name in _PAD_FIELDS:
+                tensor = fields.get(name)
+                if not isinstance(tensor, torch.Tensor) or tensor.device.type == "cuda":
+                    continue
+                original.append((fields, name, tensor))
+                fields[name] = tensor.to(device)
+                moved_bytes += tensor.numel() * tensor.element_size()
+    except Exception as exc:  # torch.cuda.OutOfMemoryError is a RuntimeError subclass
+        for fields, name, tensor in original:
+            fields[name] = tensor
+        torch.cuda.empty_cache()
+        if verbose:
+            print(
+                f"Activations stay on the host for the fit ({type(exc).__name__}: {exc}); "
+                "the retrain will be much slower but is unaffected otherwise."
+            )
+        return False
+
+    if moved_bytes and verbose:
+        print(
+            f"Staged {moved_bytes / 2**30:.1f} GiB of activations on {device} for the "
+            "probe fits (no host->device copy per epoch)"
+        )
+    return bool(original)
+
+
 def _train_with_cached_base_activations(
     *,
     base_train,
@@ -778,6 +852,36 @@ def _train_with_cached_base_activations(
             f"(base {n_by_origin[0]}+{n_by_origin[1]}; red-team "
             f"{n_by_origin[2]}+{n_by_origin[3]}; dev {n_by_origin[4]})"
         )
+
+    # Park the activations ON THE GPU for the duration of the fits. This is the
+    # single largest speedup available to a retrain, and it is worth understanding
+    # why before touching it.
+    #
+    # tuberlens' fit reads batches through `ActivationDataset.__getitems__`, which
+    # ends in `.to(self.device)`. With the tensors on the host that means every
+    # epoch performs a scattered CPU gather of 11 MB rows AND pushes the whole set
+    # across PCIe — for a 892-train/290-val retrain, ~13 GB per epoch, every epoch,
+    # for ~780 epochs across the 10 ensemble members. Measured on this box at real
+    # shapes (1024 x 5376, fp16, batch 16), one epoch costs:
+    #
+    #     host-resident, gather + H2D per batch    18.35 ms/sample
+    #     GPU-resident, same random gather          0.16 ms/sample   (113x)
+    #
+    # which is the difference between a 4.5-hour retrain and a ~4-minute one. The
+    # head itself (a Linear(5376->1) plus a masked softmax) is arithmetically free;
+    # essentially all of the fit's cost was moving data. Note the gather is NOT the
+    # thing to fix — on-device, random gather costs only ~30% more than perfectly
+    # sequential reads (0.16 vs 0.11 ms/sample), so the sampler and its shuffling
+    # are left exactly as they are.
+    #
+    # Nothing about the arithmetic changes: same indices, same order, same values,
+    # so `.to(self.device)` simply becomes a no-op and the probes come out
+    # bit-identical (verified against probe_iter0.pkl, member for member).
+    #
+    # The model has already been released above, so the card is empty; we still
+    # fall back to host residency on OOM, since a large enough red-team set will
+    # eventually outgrow the GPU and a slow fit beats a dead one.
+    _to_device_for_fit([train_dataset, validation_dataset], verbose=verbose)
 
     def _build(fit_seed: int):
         # Reseed right before each fit so the fresh probe's random weight init is
