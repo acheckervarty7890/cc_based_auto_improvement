@@ -920,11 +920,21 @@ def _train_with_cached_base_activations(
     # The model has already been released above, so the card is empty; we still
     # fall back to host residency on OOM, since a large enough red-team set will
     # eventually outgrow the GPU and a slow fit beats a dead one.
-    # Training set FIRST: it is the one doing forward+backward every epoch and is far
-    # smaller than a full dev set, so when only one of the two fits, that is the one
-    # worth having resident. See _to_device_for_fit on why this is capacity-checked
-    # rather than left to OOM.
-    _to_device_for_fit([train_dataset, validation_dataset], verbose=verbose)
+    # VALIDATION FIRST, and the order is load-bearing — it is the bigger tensor, and on
+    # this workload that is exactly why it should be the resident one. What costs
+    # wall-clock is the per-epoch host->device copy, so the right thing to keep on the
+    # card is whatever moves the most bytes per epoch, not whatever is cheapest to hold.
+    # Measured on a 666-train/1908-dev retrain (gemma-3-27b, 24 GiB card):
+    #
+    #   both staged (26.4 GiB, oversubscribed via WSL paging)   5.3 epochs/min
+    #   train staged (6.9 GiB), 19.6 GiB dev copied per epoch   4.3 epochs/min
+    #   host-resident (upstream behaviour before staging)       ~4   epochs/min
+    #
+    # Staging the training set alone was the WORST of the three: it leaves the 19.6 GiB
+    # validation flow intact and buys only the 6.9 GiB one. Flipping the order stages the
+    # dev set and leaves train's 6.9 GiB to copy — ~2.8x less traffic per epoch.
+    # See _to_device_for_fit on why this is capacity-checked rather than left to OOM.
+    _to_device_for_fit([validation_dataset, train_dataset], verbose=verbose)
 
     def _build(fit_seed: int):
         # Reseed right before each fit so the fresh probe's random weight init is
