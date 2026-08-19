@@ -4,7 +4,7 @@
 # RESUMED after the container is wiped.
 #
 # MULTI-STAGE: one poller covers a whole sequence of runs (e.g. both arms of an
-# run launched by run_gemma27b_hs_devval.sh). You give it N stages —
+# run launched by run_gemma27b_hs_ens3.sh). You give it N stages —
 # each a (config, probe-out-dir, log-file) triple, in launch order — and it polls
 # stage 1's artifacts until that run FINISHES, then automatically hands itself
 # over to stage 2, and so on. No second poller, no manual restart.
@@ -23,7 +23,7 @@
 # checkpoints on top of it. One experiment (all its stages) per branch.
 #
 # This is a STANDALONE poller: you launch the training yourself (as in
-# run_gemma27b_hs_devval.sh), then start this alongside it. It watches the
+# run_gemma27b_hs_ens3.sh), then start this alongside it. It watches the
 # ACTIVE stage's --probe-out-dir for red-team **phase markers**
 # (redteam_done_iter*.marker) and newly retrained probes (probe_iter*.pkl) — the
 # exact points cli.py's --resume keys off — and, on every new one, force-adds all
@@ -47,32 +47,32 @@
 # Exit: once the LAST stage finishes, the poller makes a final commit and exits 0.
 # Stopping it early by hand (Ctrl-C / kill) also makes a final commit via the trap.
 #
-# Defaults target the DEV-VALIDATION run on the high-stakes concept with a
-# gemma-3-27b-it (L32) SINGLE probe, in the order run_gemma27b_hs_devval.sh
+# Defaults target the ENSEMBLE-OF-3 dev-validation run on the high-stakes concept
+# with a gemma-3-27b-it (L32) probe (3 members, 5 iterations), in the order run_gemma27b_hs_ens3.sh
 # launches them:
-#   stage 1 (gpt-oss-120b)    configs/gptoss120b_hs_gemma27b_devval.md
-#                             probes/hs_gemma27b_gptoss120b_devval
-#                             logs/run_hs_gemma27b_gptoss120b_devval.log
-#   stage 2 (deepseek-v4-pro) configs/deepseekv4pro_hs_gemma27b_devval.md
-#                             probes/hs_gemma27b_deepseekv4pro_devval
-#                             logs/run_hs_gemma27b_deepseekv4pro_devval.log
+#   stage 1 (gpt-oss-120b)    configs/gptoss120b_hs_gemma27b_ens3.md
+#                             probes/hs_gemma27b_gptoss120b_ens3
+#                             logs/run_hs_gemma27b_gptoss120b_ens3.log
+#   stage 2 (deepseek-v4-pro) configs/deepseekv4pro_hs_gemma27b_ens3.md
+#                             probes/hs_gemma27b_deepseekv4pro_ens3
+#                             logs/run_hs_gemma27b_deepseekv4pro_ens3.log
 #
 # WHAT THE *.pt EXCLUDE PROTECTS HERE. This experiment's SHARED cache dir
-# (results_hs_gemma27b_devval/) holds ~48 GB of staged eval blobs plus the 21 GB
+# (results_hs_gemma27b_devval/, SHARED with experiment18) holds ~48 GB of staged eval blobs plus the 21 GB
 # assembled dev blob. Neither is resume state — both come back in seconds from
 # scripts/stage_local_hs_activations.py, or from the configs' kaggle: section — and
 # that dir is not in the commit set anyway: the committed results dirs are the
-# PER-ARM results_hs_gemma27b_*_devval/. The anchored **/*.pt exclude is the second
+# PER-ARM results_hs_gemma27b_*_ens3/. The anchored **/*.pt exclude is the second
 # line of defence, and it matters more here than on any earlier experiment.
 #
 # Typical use on the remote box (two terminals / two nohups):
 #
 #   # 0) create this experiment's branch (the failsafe pushes onto whatever is
 #   #    checked out — it does NOT create or switch branches for you)
-#   git checkout -b failsafe/gemma27b-hs-devval
+#   git checkout -b failsafe/gemma27b-hs-ens3
 #
 #   # 1) launch BOTH arms (the runner runs them sequentially)
-#   nohup bash run_gemma27b_hs_devval.sh > logs/run_gemma27b_hs_devval.out 2>&1 &
+#   nohup bash run_gemma27b_hs_ens3.sh > logs/run_gemma27b_hs_ens3.out 2>&1 &
 #
 #   # 2) launch the ONE failsafe — it follows arm 1, then arm 2, then exits.
 #   nohup bash failsafe_commit.sh > logs/failsafe_commit.out 2>&1 &
@@ -88,7 +88,7 @@
 #       --config configs/b.md --probe-out-dir probes/b --log-file logs/b.log
 #
 # To RESUME on a fresh container (check out the same branch you pushed to):
-#   git fetch origin && git checkout failsafe/gemma27b-hs-devval
+#   git fetch origin && git checkout failsafe/gemma27b-hs-ens3
 #   # then re-run the SAME runner/iterative_retrain.py command with --resume
 #   # (default); it picks up from the latest probe_iterN.pkl and skips red-team
 #   # phases whose markers were committed. Restarting this failsafe on that branch
@@ -104,16 +104,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 CONFIGS=(
-    "configs/gptoss120b_hs_gemma27b_devval.md"
-    "configs/deepseekv4pro_hs_gemma27b_devval.md"
+    "configs/gptoss120b_hs_gemma27b_ens3.md"
+    "configs/deepseekv4pro_hs_gemma27b_ens3.md"
 )
 PROBE_DIRS=(
-    "probes/hs_gemma27b_gptoss120b_devval"
-    "probes/hs_gemma27b_deepseekv4pro_devval"
+    "probes/hs_gemma27b_gptoss120b_ens3"
+    "probes/hs_gemma27b_deepseekv4pro_ens3"
 )
 LOG_FILES=(
-    "logs/run_hs_gemma27b_gptoss120b_devval.log"
-    "logs/run_hs_gemma27b_deepseekv4pro_devval.log"
+    "logs/run_hs_gemma27b_gptoss120b_ens3.log"
+    "logs/run_hs_gemma27b_deepseekv4pro_ens3.log"
 )
 
 REMOTE="origin"
