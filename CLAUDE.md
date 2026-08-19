@@ -1253,6 +1253,47 @@ Neither is a full fix — the whole set is still materialized in RAM. Streaming 
 (mmap-backed blobs, or a lazy `ActivationDataset` that pads per batch) needs tuberlens
 changes; see the OOM analysis in the git history for this section.
 
+**Where a retrain's wall-clock actually goes: `_to_device_for_fit`.** Not the
+gemma-sized extraction — that is ~2.8 s/sample and fully cached. It is the probe-head
+fits, which were 57% of a first iteration and >90% by the third, and *none* of it was
+arithmetic. tuberlens reads batches through `ActivationDataset.__getitems__`, which ends
+in `.to(self.device)`; with the tensors on the host that is a scattered CPU gather of
+11 MB rows **plus a host→device copy of the whole set, once per epoch**, for ~780 epochs
+across the ensemble members. So `_to_device_for_fit` stages the merged train/validation
+activations on the fit device once — after `_release_model()` has emptied the card, before
+`ProbeFactory.build` — and that `.to` becomes a no-op. Measured at real shapes
+(1024 × 5376, fp16, batch 16), forward+backward through the real head:
+
+| data path | ms/sample |
+| --- | --- |
+| host-resident, gather + H2D per batch | 18.35 |
+| host-resident, no unbind/restack | 18.57 (no gain) |
+| GPU-resident, same random gather | **0.16** |
+| GPU-resident, contiguous blocks | 0.11 |
+
+On a live 978-train/290-val retrain that took a 4.5-hour fit down to ~7 minutes (3–4
+epochs/min → 158), a ~45× end-to-end — less than the 113× the data path alone predicts,
+because once the transfer is gone the fixed per-epoch costs (kernel launches, the
+optimizer step, sklearn's `roc_auc_score` syncing the validation set to the CPU) become
+the bill.
+
+Two things deliberately **not** done, both because they were measured rather than assumed.
+**The sampler is untouched**: on-device, random gather costs only ~30% over perfectly
+sequential reads, so exact per-sample shuffling is kept instead of being traded for
+block-shuffled batches. And **the unbind/restack inside `__getitems__` is left alone** —
+it splits each gathered batch into per-sample tuples that the default collate immediately
+restacks, which measures 2.2× *in isolation on CPU* and exactly nothing in the real path,
+where the transfer dominates.
+
+This is a placement change only — same indices, same order, same values — so the fitted
+probes are **bit-identical**, verified by re-running `train_initial_probe` and reproducing
+an existing `probe_iter0.pkl` member for member, `best_epoch` included. (The unpatched
+control reproduces it too, so the fit is deterministic and this is a valid test — worth
+knowing independently: a training run here can be regenerated exactly.) It falls back to
+host residency on OOM, restoring every tensor it already moved: the red-team set grows
+each iteration, so a long enough run will eventually present a set larger than the card,
+and a slow retrain beats a dead one.
+
 **Training-time message transforms.** `combine_consecutive_messages` /
 `convert_tool_to_assistant` apply to the training data too (not just eval): the
 base data gets them via `load_from`, and the in-memory red-team set via
