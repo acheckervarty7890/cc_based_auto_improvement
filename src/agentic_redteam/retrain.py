@@ -801,14 +801,31 @@ def _train_with_cached_base_activations(
         return _build(ensemble_seeds[0] if ensemble_seeds else seed)
 
     _warn_if_deterministic_arch(probe_spec, len(ensemble_seeds))
-    members = []
-    for i, fit_seed in enumerate(ensemble_seeds):
-        if verbose:
-            print(
-                f"\n--- Ensemble member {i + 1}/{len(ensemble_seeds)} "
-                f"(training seed {fit_seed}) ---"
-            )
-        members.append(_build(fit_seed))
+    if verbose:
+        print(
+            f"\n--- Training {len(ensemble_seeds)} ensemble members "
+            f"(seeds {ensemble_seeds}) ---"
+        )
+    # One fused fit rather than a loop of `_build`. The members share their
+    # activations, so training them one at a time re-pays the per-epoch cost of
+    # feeding those activations to the GPU once per member — which, for a head
+    # this small, is nearly all of the wall-clock. `build_ensemble` stacks the
+    # members and steps them together while preserving each one's seed, batch
+    # order, gradient clipping and early stopping; they come back as ordinary
+    # independent probes, so `EnsembleProbe` and everything downstream is
+    # unchanged. See tuberlens' `_stack_and_train_ensemble_state`.
+    members = ProbeFactory.build_ensemble(
+        probe_spec=probe_spec,
+        train_dataset=train_dataset,
+        model_name=model_name,
+        layer=layer,
+        seeds=list(ensemble_seeds),
+        validation_dataset=validation_dataset,
+        pos_class_label=pos_class_label,
+        neg_class_label=neg_class_label,
+        probe_description=probe_description,
+        verbose=verbose,
+    )
     if verbose:
         print(
             f"Built a {len(members)}-member score-averaging ensemble "

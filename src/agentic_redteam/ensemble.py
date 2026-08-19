@@ -198,10 +198,58 @@ class EnsembleProbe:
     def _mean_proba(self, dataset):
         import numpy as np
 
+        fused = self._fused_proba(dataset)
+        if fused is not None:
+            return np.mean(fused, axis=0)
         per_member = [
             np.asarray(m.predict_proba(dataset), dtype=float) for m in self.members
         ]
         return np.mean(per_member, axis=0)
+
+    def _fused_proba(self, dataset):
+        """All members' probabilities from a single pass, or ``None`` if not possible.
+
+        Calling each member's ``predict_proba`` walks the activations once per
+        member; since the members differ only in their weights, one vmapped pass
+        over stacked parameters produces the same ``(n, batch)`` matrix having read
+        the activations once. That is worth doing here and not only at training
+        time, because this path runs on every red-team submission and on every eval
+        split.
+
+        Returns ``None`` — and the caller falls back to the per-member loop —
+        whenever the members are not a stack of identical pytorch heads: a
+        hand-assembled ensemble of mixed architectures, or a sklearn-backed member
+        with no torch module at all.
+        """
+        try:
+            from tuberlens.interfaces.activations import Activation
+            from tuberlens.probes.pytorch_classifiers import (
+                PytorchAdamClassifier,
+                stacked_probs,
+            )
+        except Exception:
+            return None
+
+        classifiers = [getattr(m, "_classifier", None) for m in self.members]
+        if not all(isinstance(c, PytorchAdamClassifier) for c in classifiers):
+            return None
+        models = [c.model for c in classifiers]
+        if any(m is None for m in models):
+            return None
+        if len({type(m) for m in models}) != 1:
+            return None
+
+        import numpy as np
+
+        first = classifiers[0]
+        probs = stacked_probs(
+            models,
+            Activation.from_dataset(dataset),
+            batch_size=first._eval_batch_size(),
+            device=first.device,
+            dtype=first.dtype,
+        )
+        return np.asarray(probs.float().cpu(), dtype=float)
 
 
 def iter_probe_members(probe: Any) -> list[Any]:

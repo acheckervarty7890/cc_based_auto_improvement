@@ -106,6 +106,12 @@ Required environment variables:
   (e.g. `"0=21GiB,cpu=45GiB"` — pins accelerate's per-device budget so it can't fall
   back to disk offload; unset by default) and tuberlens' own `BATCH_SIZE` (default 1),
   which drives both `get_activations` and the red-team chunking in `retrain`.
+- Optional probe-head training tuning (see `tuberlens.interfaces.activations.ActivationBatcher`):
+  `PROBE_GPU_RESIDENT_FRACTION` (default 0.6 — the share of free GPU memory the
+  already-extracted activations may occupy before the fit falls back to a pinned
+  staging path; see "Probe-head training speed" below) and `PROBE_EVAL_BATCH_SIZE`
+  (default 64 — batch size for no-grad passes, which have no gradient-noise
+  constraint; the training batch size stays 16).
 - Also read from tuberlens' own settings (`tuberlens.config.global_settings`, populated
   from the environment): `MAX_MEMORY` (same `"0=21GiB,cpu=45GiB"` form) and per-model
   `MODEL_MAX_MEMORY` pin the budget for **every** tuberlens load — including
@@ -1075,6 +1081,13 @@ ordinary `probe_iter{N}.pkl` path, and read back by everything that consumes a p
   member as a pre-activated `Dataset`. Delegating to the members' own
   `predict_proba_from_inputs` would run `n` forward passes of a gemma-sized model per
   submission — the dominant cost of scoring — for zero benefit.
+- **`_mean_proba` scores all members in one pass** via `_fused_proba` →
+  tuberlens' `stacked_probs`, which stacks the members' weights and vmaps one
+  forward over the activations instead of walking them once per member. Returns
+  `None` (and the caller falls back to the per-member loop) whenever the members
+  are not a stack of identical pytorch heads — mixed architectures, or a
+  sklearn-backed member with no torch module. Measured ~4-5x on a 5-member
+  ensemble; it runs on every red-team submission and every eval split.
 - **`per_token_predictions` raises.** The per-token output is architecture-dependent
   (`PytorchAdamClassifier` returns a 3-tuple), so there is no averaging rule correct
   across architectures. Nothing here calls it; iterate `.members` if you need it.
@@ -1128,8 +1141,10 @@ rather than hardcoded.
 
 **Deep ensembles (`ensemble_size`).** Both entry points take an ensemble size and turn
 it into `_resolve_ensemble_seeds(seed, n)`, which `_train_with_cached_base_activations`
-runs as one `ProbeFactory.build` per seed over the *same* pre-activated datasets,
-wrapped in an `EnsembleProbe`. Only the **fit** repeats — the split, the extraction,
+hands to `ProbeFactory.build_ensemble` as **one fused fit** over the pre-activated
+datasets, wrapped in an `EnsembleProbe` (see "Probe-head training speed" below —
+members are stacked and stepped together, and come back as ordinary independent
+probes). Only the **fit** repeats — the split, the extraction,
 the caches and the merge are all shared — so member `k > 0` costs a probe-head fit,
 not another pass through the extraction LLM (the model is released once, before the
 first fit, exactly as before). For `n > 1` the seeds are the **repo-pinned**
@@ -1524,6 +1539,86 @@ rows are not consulted, and new ones simply append). Note the eval comparison CS
 **not** resume: `eval_results` is in-process and the CSV is rewritten at the end, so a
 resumed run's CSV covers only the iterations that run actually executed.
 
+### Probe-head training speed (tuberlens-side)
+
+A probe head is one `embed_dim -> 1` projection, so a fit's wall-clock is almost
+entirely **getting already-extracted activations onto the GPU**, not arithmetic.
+Measured on the original code (300 train / 600 val, `linear_then_softmax`,
+llama-1b-sized hidden 2048): 87% of an epoch was the DataLoader, 12% was
+forward+backward. Three changes live in the tuberlens checkout:
+
+- **`interfaces/activations.py: ActivationBatcher`** replaces
+  `DataLoader(ActivationDataset(...))` everywhere a probe head reads activations.
+  The DataLoader was slow not because of collation but because every batch is a
+  *random gather into pageable host memory* followed by a pageable H2D copy —
+  1.4 GB/s against a link that does 12. The batcher picks a placement instead:
+  `resident` (the whole tensor lives on the GPU; a batch is a device gather —
+  120 GB/s) when it fits in `PROBE_GPU_RESIDENT_FRACTION` of free device memory,
+  else `staged` (gather straight into a page-locked double buffer with
+  `index_select(out=)`, copy async on a side stream — 3.8 GB/s), else `pageable`
+  (the original, kept for A/B and CPU-only boxes). **The free-memory check adds
+  back `memory_reserved - memory_allocated`**: torch's caching allocator holds
+  freed blocks as reserved, so counting only driver-free memory makes every fit
+  after the first think the GPU is full and silently drop to the slow path.
+- **`probes/pytorch_classifiers.py`** feeds `PytorchAdamClassifier.train` /
+  `logits` from the batcher, builds the validation batcher **once** for the whole
+  fit (it was re-transferring the entire validation set every epoch), scores it at
+  `PROBE_EVAL_BATCH_SIZE`, and accumulates the epoch loss on-device instead of
+  `.item()`-ing every batch (a host/device sync per step).
+- **`probes/pytorch_classifiers.py: _stack_and_train_ensemble_state`** +
+  **`probes/probe_factory.py: ProbeFactory.build_ensemble`** train all `n`
+  ensemble members *simultaneously*: `stack_module_state` puts the members'
+  parameters on a leading dimension and `torch.vmap` steps them together, so `n`
+  microsecond-scale kernels become one. Members come back as ordinary independent
+  probes, so the pickle, `EnsembleProbe` and every consumer are unchanged.
+
+The full measurement write-up — profiles, per-variant transfer rates, the
+ensemble-strategy comparison and the options that were evaluated and rejected —
+is `docs/ensemble_training_speedup.md`.
+
+**This is a speedup, not a change of result, and that is asserted rather than
+assumed.** `scripts/verify_ensemble_training.py` checks it; run it after touching
+any of the above. Two properties do the work:
+
+- **Batch composition is unchanged.** `ActivationBatcher` reproduces
+  `DataLoader(shuffle=True)`'s permutation *and its RNG consumption* — a shuffled
+  iteration burns two int64s of the ambient RNG (`_BaseDataLoaderIter`'s base seed,
+  then `RandomSampler`'s), an unshuffled one burns one. The unshuffled draw matters
+  because the training loop iterates a `shuffle=False` DataLoader over the
+  validation set every epoch, so that draw lands *between* two training shuffles.
+  Dropping it yields a different valid shuffle and therefore a different probe —
+  which is exactly how a "pure speedup" stops reproducing. With it, a single-probe
+  fit is **bit-identical** to the original at ~13x the speed, and all three
+  placements train to identical weights.
+- **The fused ensemble keeps each member's own everything**: seed and init, batch
+  order (hence the `(n, batch, seq, embed)` gather rather than one shared batch),
+  per-member gradient clipping (`clip_grad_norm_` over the stacked tensors would
+  take one norm across all members and couple them), and per-member early stopping
+  — where a stopped member is *frozen* rather than merely left running, since
+  otherwise a later epoch could hand it a checkpoint its sequential counterpart
+  would never have reached. What it does not preserve is floating-point
+  association: vmap dispatches the members' projections as one batched matmul, so
+  fused members are **equivalent, not identical** (measured corr 0.997 per member,
+  held-out ensemble AUROC 0.9721 vs 0.9722). Fused training is still fully
+  reproducible from `ENSEMBLE_SEEDS` alone.
+
+Measured speedups vs the original loop, 5 members x 10 epochs, hidden 2048:
+
+| activations fit the GPU | loader only (per-member) | + fused ensemble |
+| --- | --- | --- |
+| yes (1.3 GB train, 2.5 GB val) | 12.7x | 38.2x |
+| val spills (1.3 GB / 5.0 GB) | 3.5x | 15.2x |
+| neither fits (gemma-27b-sized) | 2.7x | 4.0x |
+
+**Rejected: trimming batches to their own max length.** `get_activations` pads
+every row to 1024 while real conversations average ~535 tokens, so most of what is
+transferred is padding. Trimming to the *batch's* max saves little (the max of 16
+random draws already sits in the tail), and trimming to a length-*sorted* batch's
+max — which would nearly halve the staged path — reorders samples, which is fine
+for validation but changes `linear_then_max` / `linear_then_rolling_max` results
+(their max can legitimately land on a masked zero). Not worth the exactness
+footnote for a path the fused trainer already improves 4x.
+
 ## Conventions to preserve
 
 - **Probe metadata is the source of truth.** Don't pass `pos_class_label` /
@@ -1586,6 +1681,12 @@ resumed run's CSV covers only the iterations that run actually executed.
   activation cache key. It is also the only one of the three placement controls that
   tuberlens' own settings can't supply — `MAX_MEMORY` and `OFFLOAD_BUFFERS` now reach
   every load, the layer count does not.
+- **Probe heads read activations through `ActivationBatcher`, never a `DataLoader`.**
+  The batcher is what keeps the activations off the pageable-copy path *and* what
+  reproduces the DataLoader's batch order and RNG consumption. A new `DataLoader`
+  in a training or scoring loop reintroduces both the 1.4 GB/s transfer and a
+  silent shift in every subsequent shuffle. Same rule for a new ensemble consumer:
+  score `n` members with one stacked pass (`stacked_probs`), not `n` walks.
 - **Free GPU memory between heavy phases.** Every tuberlens load uses
   `device_map="auto"` and, unless the budget is pinned, re-infers the layer split from
   *free* GPU memory at load time; torch's caching allocator holds freed memory as
