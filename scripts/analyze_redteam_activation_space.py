@@ -57,25 +57,40 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 
-def _pool(blob_path: Path, chunk: int = 64) -> np.ndarray:
-    """Mask-weighted mean over real tokens -> (rows, hidden) float32, read in chunks."""
+def _pool(blob_path: Path, chunk: int = 64, sample: int | None = None,
+          seed: int = 0) -> np.ndarray:
+    """Mask-weighted mean over real tokens -> (rows, hidden) float32, read in chunks.
+
+    ``sample`` reads only that many randomly chosen rows. The blob is opened with
+    mmap, so an unread row is never faulted in from disk — sampling 500 of 2984 rows
+    costs ~1/6th of the I/O, which is what makes a whole-experiment pass take minutes
+    instead of tens of minutes. The draw is seeded, so a re-run pools the same rows.
+    """
     d = torch.load(blob_path, map_location="cpu", mmap=True, weights_only=False)
     acts, mask = d["activations"], d["attention_mask"]
-    out = np.empty((acts.shape[0], acts.shape[2]), dtype=np.float32)
-    for i in range(0, acts.shape[0], chunk):
-        a = acts[i : i + chunk].to(torch.float32)
-        m = mask[i : i + chunk].to(torch.float32).unsqueeze(-1)
+    idx = np.arange(acts.shape[0])
+    if sample is not None and sample < len(idx):
+        idx = np.sort(np.random.default_rng(seed).choice(len(idx), sample, replace=False))
+    out = np.empty((len(idx), acts.shape[2]), dtype=np.float32)
+    for i in range(0, len(idx), chunk):
+        rows = torch.from_numpy(idx[i : i + chunk])
+        a = acts[rows].to(torch.float32)
+        m = mask[rows].to(torch.float32).unsqueeze(-1)
         out[i : i + chunk] = ((a * m).sum(1) / m.sum(1).clamp(min=1)).numpy()
     return out
 
 
 def _pool_redteam(rows, cache_dir: Path, model_name: str, layer: int,
-                  combine: bool, convert: bool) -> tuple[np.ndarray, int]:
+                  combine: bool, convert: bool, sample: int | None = None,
+                  seed: int = 0) -> tuple[np.ndarray, int]:
     """Pool one red-team dump by looking each conversation up in the per-sample cache."""
     from tuberlens.interfaces.dataset import Message
 
     from agentic_redteam.retrain import _redteam_activation_cache_path
 
+    if sample is not None and sample < len(rows):
+        pick = np.sort(np.random.default_rng(seed).choice(len(rows), sample, replace=False))
+        rows = [rows[i] for i in pick]
     vecs, missing = [], 0
     for row in rows:
         msgs = [Message(role=m["role"], content=m["content"]) for m in row["messages"]]
@@ -85,6 +100,15 @@ def _pool_redteam(rows, cache_dir: Path, model_name: str, layer: int,
             continue
         vecs.append(_pool(p)[0])
     return (np.stack(vecs) if vecs else np.empty((0, 0), np.float32)), missing
+
+
+def _cos(a: np.ndarray, b: np.ndarray) -> float:
+    """Cosine DISTANCE between two already-normalised (1, d) centroids, as a scalar.
+
+    The dot of two (1, d) arrays is (1, 1), and numpy >= 1.25 refuses float() on any
+    array with ndim > 0, so squeeze explicitly instead of leaning on a deprecation.
+    """
+    return float(np.asarray(1.0 - a @ b.T).reshape(-1)[0])
 
 
 def _norm(x: np.ndarray) -> np.ndarray:
@@ -143,6 +167,9 @@ def main(argv=None) -> int:
     ap.add_argument("--combine-consecutive-messages", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--convert-tool-to-assistant", action=argparse.BooleanOptionalAction, default=True)
     ap.add_argument("--refresh", action="store_true", help="recompute pooled vectors even if cached")
+    ap.add_argument("--sample-eval", type=int, default=None, help="rows to sample per EVAL split (default: all)")
+    ap.add_argument("--sample-dev", type=int, default=None, help="rows to sample from the dev set (default: all)")
+    ap.add_argument("--sample-rt", type=int, default=None, help="rows to sample per red-team iteration (default: all)")
     args = ap.parse_args(argv)
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -156,11 +183,11 @@ def main(argv=None) -> int:
         store: dict[str, np.ndarray] = {}
         for blob in sorted(args.eval_cache_dir.glob("*-acts_full.pt")):
             name = blob.name.replace("-acts_full.pt", "")
-            store[f"eval::{name}"] = _pool(blob)
+            store[f"eval::{name}"] = _pool(blob, sample=args.sample_eval)
             print(f"  pooled eval {name}: {store[f'eval::{name}'].shape} ({time.time()-t0:.0f}s)", flush=True)
         dev = sorted(args.cache_dir.glob("dev_acts_*.pt"))
         if dev:
-            store["dev"] = _pool(dev[0])
+            store["dev"] = _pool(dev[0], sample=args.sample_dev)
             print(f"  pooled dev: {store['dev'].shape} ({time.time()-t0:.0f}s)", flush=True)
         base = sorted(args.cache_dir.glob("base_acts_*_train.pt"))
         if base:
@@ -193,7 +220,8 @@ def main(argv=None) -> int:
                 rows.append({"messages": msgs})
             vecs, missing = _pool_redteam(rows, rt_cache, args.model_name, args.layer,
                                           args.combine_consecutive_messages,
-                                          args.convert_tool_to_assistant)
+                                          args.convert_tool_to_assistant,
+                                          sample=args.sample_rt)
             store[f"rt::iter{it}"] = vecs
             print(f"  pooled red-team iter{it}: {len(rows)} new rows, {vecs.shape} "
                   f"({missing} missing from cache) ({time.time()-t0:.0f}s)", flush=True)
@@ -222,24 +250,24 @@ def main(argv=None) -> int:
             first_c = c
         knn = _knn_dist(x, ev)
         row = (f"{key.replace('rt::',''):<12}{len(x):>6}"
-               f"{float(1 - c @ ev_c.T):>11.4f}"
-               f"{(float(1 - c @ dv_c.T) if dv_c is not None else float('nan')):>10.4f}"
+               f"{_cos(c, ev_c):>11.4f}"
+               f"{(_cos(c, dv_c) if dv_c is not None else float('nan')):>10.4f}"
                f"{knn.mean():>11.4f}{100*float((knn > thresh).mean()):>10.1f}"
                f"{_mmd2(x, ev):>11.4f}{_self_knn_dist(x).mean():>12.4f}"
-               f"{float(1 - c @ first_c.T):>12.4f}")
+               f"{_cos(c, first_c):>12.4f}")
         print(row, flush=True)
 
     if dv is not None:
         knn = _knn_dist(dv, ev)
-        print(f"{'dev (ref)':<12}{len(dv):>6}{float(1 - dv_c @ ev_c.T):>11.4f}{0.0:>10.4f}"
+        print(f"{'dev (ref)':<12}{len(dv):>6}{_cos(dv_c, ev_c):>11.4f}{0.0:>10.4f}"
               f"{knn.mean():>11.4f}{100*float((knn > thresh).mean()):>10.1f}"
               f"{_mmd2(dv, ev):>11.4f}{_self_knn_dist(dv[:1500]).mean():>12.4f}{float('nan'):>12.4f}")
     if "base_train" in store:
         b = store["base_train"]
         knn = _knn_dist(b, ev)
         bc = _norm(b.mean(0, keepdims=True))
-        print(f"{'base (ref)':<12}{len(b):>6}{float(1 - bc @ ev_c.T):>11.4f}"
-              f"{(float(1 - bc @ dv_c.T) if dv_c is not None else float('nan')):>10.4f}"
+        print(f"{'base (ref)':<12}{len(b):>6}{_cos(bc, ev_c):>11.4f}"
+              f"{(_cos(bc, dv_c) if dv_c is not None else float('nan')):>10.4f}"
               f"{knn.mean():>11.4f}{100*float((knn > thresh).mean()):>10.1f}"
               f"{_mmd2(b, ev):>11.4f}{_self_knn_dist(b).mean():>12.4f}{float('nan'):>12.4f}")
 
