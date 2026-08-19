@@ -254,10 +254,21 @@ def unhook_model(llm) -> None:
         gc.collect()
         torch.cuda.empty_cache()
 
-    Best-effort: a model that was never dispatched (single-device, no offload) has no
-    hooks to remove, and an accelerate too old to expose ``remove_hook_from_module``
-    leaves the old behaviour rather than raising. Freeing memory is an optimisation —
-    it must never be the reason a run dies.
+    Removing the hooks is necessary but has not proved sufficient in the live
+    pipeline: a run that had *used* the model for forward passes still held the card
+    after the hooks were stripped and the reference dropped, where a freshly loaded
+    one released cleanly. Rather than keep hunting for whichever reference outlives
+    the call, the weights are also **hard-detached** — every CUDA parameter and
+    buffer has its storage swapped for an empty CPU tensor. That returns the memory
+    whatever else still points at the module, which is what the callers actually
+    need. It also makes the model unusable, which is correct: this is only ever
+    called on a model the caller is finished with, and both call sites reload from
+    scratch on next use.
+
+    Best-effort throughout: a model that was never dispatched (single-device, no
+    offload) has no hooks to remove, and an accelerate too old to expose
+    ``remove_hook_from_module`` leaves that step out rather than raising. Freeing
+    memory is an optimisation — it must never be the reason a run dies.
     """
     if llm is None:
         return
@@ -269,6 +280,16 @@ def unhook_model(llm) -> None:
 
         remove_hook_from_module(inner, recurse=True)
     except Exception:  # noqa: BLE001 - see docstring: never fail a run over this
+        pass
+    try:
+        import torch
+
+        for tensor in list(inner.parameters(recurse=True)) + list(
+            inner.buffers(recurse=True)
+        ):
+            if tensor.device.type == "cuda":
+                tensor.data = torch.empty(0, dtype=tensor.dtype, device="cpu")
+    except Exception:  # noqa: BLE001 - as above
         pass
 
 

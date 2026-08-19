@@ -397,10 +397,28 @@ SHARED_CACHE="results_instructions_gemma27b_shared"   # shared, arm-independent 
 # Refuse to clobber per-arm outputs / probes. (The SHARED cache dir is intentionally NOT in
 # this list — it is meant to persist and grow across both arms, across re-runs, and across
 # experiments on the same probe/splits.)
-for p in results_instructions_gemma27b_ens10dev_gptoss probes/instructions_gemma27b_ens10dev_gptoss \
-         results_instructions_gemma27b_ens10dev_nemotron probes/instructions_gemma27b_ens10dev_nemotron; do
-    [ -e "$p" ] && { echo "ERROR: $p already exists — move it aside or bump the suffix." >&2; exit 1; }
+#
+# --resume turns the guard off, because on a resume those directories existing is the POINT:
+# the CLI reads probe_iterN.pkl and the redteam_done_* markers out of the probe dir to pick up
+# where it stopped, and re-running the red-team phases it already paid OpenRouter for would be
+# the expensive mistake, not the safe one. Without the flag the guard stands, so a fresh run
+# still cannot silently overwrite a previous experiment.
+RESUME=0
+for arg in "$@"; do
+    case "$arg" in
+        --resume) RESUME=1 ;;
+        *) echo "ERROR: unknown argument $arg (only --resume is accepted)" >&2; exit 2 ;;
+    esac
 done
+
+if [ "$RESUME" -eq 1 ]; then
+    echo ">>> --resume: keeping existing per-arm outputs; each arm continues from its latest probe_iterN.pkl"
+else
+    for p in results_instructions_gemma27b_ens10dev_gptoss probes/instructions_gemma27b_ens10dev_gptoss \
+             results_instructions_gemma27b_ens10dev_nemotron probes/instructions_gemma27b_ens10dev_nemotron; do
+        [ -e "$p" ] && { echo "ERROR: $p already exists — move it aside, bump the suffix, or pass --resume." >&2; exit 1; }
+    done
+fi
 
 mkdir -p "$SHARED_CACHE/base_activations" "$SHARED_CACHE/eval_activations"
 if [ -n "$(ls -A "$SHARED_CACHE/eval_activations" 2>/dev/null)" ]; then

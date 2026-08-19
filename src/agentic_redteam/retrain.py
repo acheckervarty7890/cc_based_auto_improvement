@@ -626,6 +626,38 @@ def _fit_device():
     return None if device.startswith("cpu") else device
 
 
+def _allocatable_bytes(device) -> int:
+    """How much CUDA memory a new allocation can actually get, in bytes.
+
+    Not the same thing as ``mem_get_info``'s free figure, and the difference is the
+    whole ballgame here. torch's caching allocator holds on to the segments it has
+    already carved out; ``empty_cache()`` only returns segments that are *entirely*
+    unused, and after a 27B model has been loaded, used and dropped, enough of them
+    stay reserved that the driver still reports the card as full. Measured on this
+    box right after releasing the extraction model::
+
+        driver free    1.08 GiB      <- what mem_get_info reports
+        torch reserved 21.62 GiB
+        torch allocated 0.01 GiB     <- so 21.61 GiB of that reservation is FREE
+
+    A 10.8 GiB allocation at that moment succeeds, served straight out of the
+    reserved pool. Sizing the staging against the driver's figure alone therefore
+    declines to stage anything on a card that has ~22 GiB going spare, and the fits
+    silently fall back to host-resident activations — the exact failure this function
+    exists to prevent, arrived at from the opposite direction.
+
+    So: driver-free PLUS the reserved-but-unallocated pool. Both terms matter — the
+    first is what can still be carved out, the second what has already been carved
+    and handed back.
+    """
+    import torch
+
+    free, _total = torch.cuda.mem_get_info(device)
+    reserved = torch.cuda.memory_reserved(device)
+    allocated = torch.cuda.memory_allocated(device)
+    return int(free) + max(0, int(reserved) - int(allocated))
+
+
 def _to_device_for_fit(
     datasets, *, verbose: bool = True, reserve_bytes: int = 2 * 2**30
 ) -> bool:
@@ -654,8 +686,10 @@ def _to_device_for_fit(
     measured here at 26.4 GiB staged onto a 24 GiB card, the retrain ran ~5.3 epochs/min
     against ~4 host-resident — a 1.3x gain where the arithmetic predicts ~45x.
 
-    So each tensor is moved only if it fits in what `mem_get_info` reports free, less
-    ``reserve_bytes`` for the fit's own activations/gradients. ``datasets`` is consumed
+    So each tensor is moved only if it fits in what can actually be allocated — see
+    ``_allocatable_bytes``, which counts torch's reserved-but-unallocated pool as well
+    as the driver's free figure — less ``reserve_bytes`` for the fit's own
+    activations/gradients. ``datasets`` is consumed
     IN ORDER, so pass the training set first: it is the one carrying forward+backward
     per epoch, and it is far smaller than a full dev set, so it is what you want resident
     when only one of the two fits. Anything skipped stays on the host and behaves exactly
@@ -690,8 +724,7 @@ def _to_device_for_fit(
             if not pending:
                 continue
             size = sum(tensor.numel() * tensor.element_size() for _n, tensor in pending)
-            free, _total = torch.cuda.mem_get_info(device)
-            if size + reserve_bytes > free:
+            if size + reserve_bytes > _allocatable_bytes(device):
                 skipped_bytes += size
                 continue
             for name, tensor in pending:
@@ -717,8 +750,9 @@ def _to_device_for_fit(
         if skipped_bytes:
             note += (
                 f"; {skipped_bytes / 2**30:.1f} GiB left on the host — it does not fit in "
-                f"free VRAM with a {reserve_bytes / 2**30:.0f} GiB reserve, and staging it "
-                "anyway would page over PCIe rather than fail"
+                f"the {_allocatable_bytes(device) / 2**30:.1f} GiB allocatable with a "
+                f"{reserve_bytes / 2**30:.0f} GiB reserve, and staging it anyway would page "
+                "over PCIe rather than fail"
             )
         print(note)
     return bool(original)
@@ -823,8 +857,14 @@ def _train_with_cached_base_activations(
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         if verbose and torch.cuda.is_available():
-            free = torch.cuda.mem_get_info()[0] / 2**30
-            print(f"  {free:.1f} GiB free on the card after the release")
+            # Report what the staging decision will actually consult. Driver-free on
+            # its own is misleading here: torch keeps its segments reserved, so this
+            # routinely reads ~1 GiB on a card with ~22 GiB available. See
+            # _allocatable_bytes.
+            print(
+                f"  {_allocatable_bytes(None) / 2**30:.1f} GiB allocatable after the release "
+                f"({torch.cuda.mem_get_info()[0] / 2**30:.1f} GiB of that free at the driver)"
+            )
 
     def _activate(dataset, cache_path: Path | None):
         if dataset is None or len(dataset) == 0:
