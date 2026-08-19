@@ -423,6 +423,50 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             f"convert_tool_to_assistant={convert_tool_to_assistant}"
         )
 
+    # Optional: pull the held-out DEV set's activations from Kaggle too, and assemble
+    # them into the single content-hashed blob the fit looks for. Done HERE, before
+    # anything trains, for the same reason the eval prefetch exists: the dev set is
+    # every iteration's validation set, so without it the first fit would push all of
+    # it through the probe model — and unlike the eval it is needed at iteration 0,
+    # not after the first red-team phase. Idempotent: a run that resumes finds the
+    # blob already assembled and only reads its header.
+    if (
+        config.kaggle is not None
+        and config.kaggle.dev_dataset_slug
+        and dev_data_path is not None
+    ):
+        from agentic_redteam.kaggle_activations import (
+            KaggleActivationSource,
+            prefetch_dev_activations,
+        )
+        from agentic_redteam.retrain import _dev_activation_cache_path
+
+        _dev_path = Path(dev_data_path)
+        _dev_files = (
+            sorted(_dev_path.glob("*.jsonl")) if _dev_path.is_dir() else [_dev_path]
+        )
+        if not _dev_files:
+            parser.error(f"validation.dev_data {_dev_path} holds no *.jsonl splits")
+        prefetch_dev_activations(
+            _dev_activation_cache_path(
+                base_activation_cache_dir,
+                _dev_files,
+                config.probe.model,
+                layer,
+                combine_consecutive_messages,
+                convert_tool_to_assistant,
+            ),
+            _dev_files,
+            KaggleActivationSource(
+                config.kaggle.owner,
+                config.kaggle.dev_dataset_slug,
+                config.kaggle.dev_file_name,
+            ),
+            model_name=config.probe.model,
+            layer=layer,
+            verbose=True,
+        )
+
     # ---- Step 1: obtain the initial probe ----
     # Resume first: if a previous run already wrote probe_iterN.pkl files into
     # --probe-out-dir, pick up from the latest one (red-team it next) instead of

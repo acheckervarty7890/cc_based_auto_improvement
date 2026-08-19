@@ -322,6 +322,14 @@ class KaggleConfig:
     and ``"{split}-gemmaeval.pt"``. Present only to skip the (very expensive)
     activation extraction for large probe models — see ``kaggle_activations.py``.
 
+    ``dev_dataset_slug`` / ``dev_file_name`` do the same for the held-out DEV set
+    (``validation.dev_data``), which the probe fit early-stops against. They are
+    optional and independent of the eval pair: set them and the dev activations are
+    downloaded per split and assembled into the single content-hashed dev blob the
+    fit looks for, so nothing is extracted locally; leave them out and the dev set is
+    computed on the box like any other split. Both must be given together, and only
+    alongside ``validation.dev_data`` — there is nothing to fetch otherwise.
+
     Requires credentials: ``KAGGLE_CONFIG_DIR`` pointing at the DIRECTORY holding
     ``kaggle.json``, or ``KAGGLE_API_TOKEN``. Only valid with full eval splits
     (``eval.eval_max_samples: 0``).
@@ -330,6 +338,9 @@ class KaggleConfig:
     owner: str
     eval_dataset_slug: str
     eval_file_name: str
+    # Optional dev-set counterparts. Both None (extract dev locally) or both set.
+    dev_dataset_slug: str | None = None
+    dev_file_name: str | None = None
 
 
 @dataclass
@@ -574,10 +585,26 @@ def load_config(path: str | Path) -> RedteamConfig:
                 "kaggle: requires eval.eval_max_samples: 0 (full splits), but got "
                 f"{ev['eval_max_samples']}."
             )
+        # The dev pair is optional, but half of it is always a mistake: one template
+        # without the other cannot name a file, and either without validation.dev_data
+        # would fetch activations for a validation set the run does not use.
+        dev_slug, dev_file = kg.get("dev_dataset_slug"), kg.get("dev_file_name")
+        if bool(dev_slug) != bool(dev_file):
+            raise ValueError(
+                "kaggle: dev_dataset_slug and dev_file_name must be given together "
+                f"(got dev_dataset_slug={dev_slug!r}, dev_file_name={dev_file!r})"
+            )
+        if dev_slug and not va.get("dev_data"):
+            raise ValueError(
+                "kaggle: dev_dataset_slug/dev_file_name are set but validation.dev_data "
+                "is not — there is no dev set to fetch activations for."
+            )
         kaggle_cfg = KaggleConfig(
             owner=str(kg["owner"]),
             eval_dataset_slug=str(kg["eval_dataset_slug"]),
             eval_file_name=str(kg["eval_file_name"]),
+            dev_dataset_slug=str(dev_slug) if dev_slug else None,
+            dev_file_name=str(dev_file) if dev_file else None,
         )
 
     raw_error_type = pr.get("error_type", "false_positive")
