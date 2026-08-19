@@ -55,23 +55,62 @@ Blobs live under `ceiling_acts/` (gitignored).
 
 ## Protocol
 
-**Validation is fixed for the whole analysis.** A stratified 20% slice of each concept's dev
-set is reserved as the validation set for *every* fit (both arms, every `N`, and the ceiling
-CV) and is never trained on. This mirrors `validation.dev_data` in the experiment 17/18/19
-configs — those runs early-stop against the whole dev set — while keeping the yardstick
-identical across points, which is what makes the per-`N` checkpoints comparable.
+**Validation is fixed for the whole analysis.** A stratified 25% slice of each concept's dev
+set (stratified by label *and* dev split) is reserved as the validation set for *every* fit —
+both sweep arms, every `N`, and every ceiling CV fold — and is never trained on. This mirrors
+`validation.dev_data` in the experiment 17/18/19 configs, which early-stop against the whole
+dev set, while keeping the yardstick identical across points: tuberlens keeps the
+best-validation-AUROC checkpoint, so a validation set that moved with `N` would mean each
+point's checkpoint was selected against different data.
 
-**Dev training pool** = the remaining 80% of dev. The 10 points are
-`linspace(0, |dev_train_pool|, 10)`, and the subsets are **nested** per seed, so the curve is
-a genuine learning curve rather than 10 unrelated draws.
+| concept | dev rows | reserved validation | dev training pool | sweep points |
+| --- | --- | --- | --- | --- |
+| `highstakes` | 1908 | 477 | 1431 | 0 … 1431 in 10 equidistant steps |
+| `hu_ha` | 290 | 72 | 218 | 0 … 218 in 10 equidistant steps |
 
-**Ceiling** = 5-fold stratified CV over the pooled eval splits: fit on 4 folds, score the
-held-out fold, so every eval row gets exactly one out-of-fold score; then the same per-split
-metrics the run comparison CSVs report. A half-data repeat checks the estimate is not itself
-training-size-limited.
+The dev subsets are **nested** within a draw seed (the `N=k` subset is a prefix of the
+`N=k+1` subset) and stratified, so each curve is a learning curve rather than 10 unrelated
+draws. Three draw seeds per point; the spread across them is the error bar.
+
+**Arms**
+
+* `mixed` — one fit on `base ∪ red-team ∪ N dev`.
+* `finetune` — fit on `base ∪ red-team`, then continue training that head on the `N` dev
+  samples via tuberlens' `initialize_model=False` hook. Both stages early-stop against the
+  same fixed validation set, so the two stages' checkpoints are comparable and the better of
+  them is kept — otherwise a fine-tune that only ever hurt would still return its least-bad
+  epoch.
+* `dev_only` — supplementary control: the `N` dev samples alone, no red-team data. Without
+  it a rising curve cannot distinguish "the dev samples carry the signal" from "the
+  combination does".
+
+**Ceiling** = 5-fold cross-validation over the eval splits: fit on the rows outside fold `k`,
+early-stop on the same reserved dev validation slice, score fold `k`. Every eval row gets
+exactly one out-of-fold score. A ceiling probe and a sweep probe then differ *only* in their
+training data. A training-size ladder runs alongside — a ceiling estimated from a training
+set that is itself too small is not a ceiling, so the top two rungs have to agree.
 
 **Metrics** are tuberlens' own (`evaluation.calculate_metrics`): AUROC, accuracy at 0.5, and
-TPR at 1% FPR, per eval split plus the mean over splits.
+TPR at 1% FPR, per eval split plus the mean over splits — the same quantity the run
+comparison CSVs report, so the numbers here sit on the same scale as those.
 
-**Probes are single probes**, never ensembles, `linear_then_softmax` with tuberlens' default
+**Probes are single probes**, never ensembles: `linear_then_softmax` with tuberlens' default
 hyperparameters, fit seed 42.
+
+## Layout
+
+```
+ceiling_analysis/
+  scripts/
+    fetch_kaggle_activations.py     eval + dev activation blobs from Kaggle
+    extract_redteam_activations.py  the one place gemma-3-27b is loaded
+    ca_data.py                      memory-mapped, row-addressable activation sources
+    ca_common.py                    concepts, partitions, fitting, scoring
+    run_ceiling.py                  the eval-internal cross-validation
+    run_sweep.py                    the 10-point x 3-arm dev-sample sweep
+    make_report.py                  tables, curves and the written answer
+    bench_fit.py                    host- vs GPU-resident fit cost on this box
+  data/                             red-team training sets + reference comparison CSVs
+  results/                          JSON/JSONL/CSV results, curves, SUMMARY.md
+  logs/                             run logs and PROGRESS.md
+```
