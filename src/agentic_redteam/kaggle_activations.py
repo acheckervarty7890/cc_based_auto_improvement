@@ -113,6 +113,12 @@ def _authenticate():
     return api
 
 
+def _jsonl_rows(path: Path) -> int:
+    """Number of records in a split JSONL (blank lines ignored)."""
+    with Path(path).open() as fh:
+        return sum(1 for line in fh if line.strip())
+
+
 def _blob_header(path: Path) -> dict:
     """Read a saved activation blob's metadata without paging its tensors into RAM.
 
@@ -263,3 +269,145 @@ def prefetch_eval_activations(
             shutil.rmtree(staging, ignore_errors=True)
 
     return statuses
+
+
+def _download_split_blob(api, source: "KaggleActivationSource", split: str, staging: Path,
+                         *, model_name: str, layer: int, n_rows: int, verbose: bool) -> Path:
+    """Fetch one split's blob into ``staging`` and validate it. Returns the .pt path."""
+    handle, remote_name = source.handle(split), source.file_for(split)
+    if verbose:
+        print(f"[kaggle] {split}: downloading {handle}:{remote_name} ...")
+    try:
+        api.dataset_download_file(handle, remote_name, path=str(staging), quiet=not verbose)
+    except Exception as e:
+        raise KaggleActivationError(
+            f"{split}: download of {handle}:{remote_name} failed: {e}"
+        ) from e
+    blob = _extract_downloaded(staging, split)
+    _validate_blob(blob, split=split, model_name=model_name, layer=layer, n_rows=n_rows)
+    return blob
+
+
+def prefetch_dev_activations(
+    dev_cache_path: str | Path,
+    dev_files: "list[Path]",
+    source: KaggleActivationSource,
+    *,
+    model_name: str,
+    layer: int,
+    verbose: bool = True,
+) -> str:
+    """Assemble the held-out dev set's activation blob from per-split Kaggle datasets.
+
+    The dev cache is shaped differently from the eval cache and that is the whole
+    reason this function exists. Eval is one file *per split*, named by path, so
+    ``prefetch_eval_activations`` can drop each download straight into place. The dev
+    set is used **whole** — ``_load_dev_dataset`` concatenates every ``*.jsonl`` in
+    ``validation.dev_data`` into one dataset — so its activations live in ONE blob
+    whose name is a content hash of those files (``_dev_activation_cache_path``).
+    Nothing on Kaggle is keyed that way, and nothing could be: the hash depends on the
+    local dev directory. So the splits are fetched individually and concatenated here,
+    in ``sorted(glob("*.jsonl"))`` order — exactly the order ``_load_dev_dataset``
+    concatenates them in, which is what makes row *i* of the blob row *i* of the
+    dataset.
+
+    Splits are padded to their OWN maximum length when they are extracted, so the
+    parts generally disagree on ``seq_len`` (for the instruction splits: 159 to 436).
+    They are right-padded, so extending a short part with zero activations and zero
+    attention-mask entries out to the common maximum reproduces exactly what a single
+    extraction over the concatenated dataset would have produced — the probe reads
+    only masked-in positions (``pytorch_classifiers`` gathers on ``attention_mask ==
+    1``), so the appended columns are inert.
+
+    Returns ``"cached"`` if the assembled blob was already there, ``"assembled"``
+    otherwise. Like the eval side, a split that cannot be fetched or fails validation
+    RAISES: the caller asked for the cache precisely to avoid extracting the dev set
+    through a 27B model.
+    """
+    import torch
+
+    target = Path(dev_cache_path)
+    total_rows = sum(_jsonl_rows(f) for f in dev_files)
+    if target.exists():
+        try:
+            got = int(_blob_header(target)["activations"].shape[0])
+        except Exception as e:
+            raise KaggleActivationError(f"dev: could not read {target}: {e}") from e
+        if got != total_rows:
+            raise KaggleActivationError(
+                f"dev: {target} has {got} rows but the dev set has {total_rows}. The blob is "
+                "keyed by a content hash of the dev files, so this should be impossible — "
+                "move it aside rather than training against it."
+            )
+        if verbose:
+            print(f"[kaggle] dev: already assembled at {target} ({total_rows} rows)")
+        return "cached"
+
+    api = _authenticate()
+    if verbose:
+        print(
+            f"[kaggle] authenticated as {api.get_config_value('username')}; fetching "
+            f"{len(dev_files)} dev split(s): {', '.join(f.stem for f in dev_files)}"
+        )
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    staging = target.parent / ".staging-dev"
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    try:
+        parts = []
+        for f in dev_files:
+            split_staging = staging / f.stem
+            split_staging.mkdir()
+            n = _jsonl_rows(f)
+            blob = _download_split_blob(api, source, f.stem, split_staging,
+                                        model_name=model_name, layer=layer, n_rows=n,
+                                        verbose=verbose)
+            parts.append((f.stem, blob, n))
+
+        heads = [torch.load(b, map_location="cpu", mmap=True, weights_only=False)
+                 for _s, b, _n in parts]
+        hidden = {h["activations"].shape[2] for h in heads}
+        dtypes = {h["activations"].dtype for h in heads}
+        if len(hidden) != 1 or len(dtypes) != 1:
+            raise KaggleActivationError(
+                f"dev: splits disagree on hidden size or dtype (hidden={hidden}, "
+                f"dtype={dtypes}) — they cannot be from one model/layer."
+            )
+        hid, dtype = hidden.pop(), dtypes.pop()
+        seq = max(h["activations"].shape[1] for h in heads)
+        if verbose:
+            lens = ", ".join(f"{s}:{h['activations'].shape[1]}" for (s, _b, _n), h
+                             in zip(parts, heads))
+            print(f"[kaggle] dev: padding to seq_len {seq} ({lens})")
+
+        out = {
+            "activations": torch.zeros((total_rows, seq, hid), dtype=dtype),
+            "attention_mask": torch.zeros((total_rows, seq),
+                                          dtype=heads[0]["attention_mask"].dtype),
+            "input_ids": torch.zeros((total_rows, seq), dtype=heads[0]["input_ids"].dtype),
+            "layer": layer,
+            "model_name": model_name,
+        }
+        at = 0
+        for (split, _b, n), head in zip(parts, heads):
+            s = head["activations"].shape[1]
+            for key in ("activations", "attention_mask", "input_ids"):
+                out[key][at:at + n, :s] = head[key]
+            at += n
+            if verbose:
+                print(f"[kaggle] dev: placed {split} at rows {at - n}..{at}", flush=True)
+        if at != total_rows:
+            raise KaggleActivationError(f"dev: placed {at} rows, expected {total_rows}")
+        del heads
+
+        tmp = target.with_name(f".{target.name}.partial")
+        torch.save(out, tmp)
+        tmp.replace(target)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    if verbose:
+        print(f"[kaggle] dev: {target.name} ({target.stat().st_size / 1e9:.2f} GB, "
+              f"{total_rows} rows) assembled")
+    return "assembled"
