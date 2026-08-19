@@ -790,7 +790,7 @@ def _train_with_cached_base_activations(
     from tuberlens.probes.probe_factory import ProbeFactory
 
     from agentic_redteam.evaluation import seed_everything
-    from agentic_redteam.model_loading import load_extraction_model
+    from agentic_redteam.model_loading import load_extraction_model, unhook_model
 
     loaded: dict[str, Any] = {"model": None}
 
@@ -814,10 +814,17 @@ def _train_with_cached_base_activations(
             return
         if verbose:
             print("Releasing extraction model before probe fit ...")
+        # Strip accelerate's hooks FIRST: without that the assignment below frees
+        # nothing, the card stays full, and _to_device_for_fit then finds no room to
+        # stage the activations. See model_loading.unhook_model for the measurements.
+        unhook_model(loaded["model"])
         loaded["model"] = None
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        if verbose and torch.cuda.is_available():
+            free = torch.cuda.mem_get_info()[0] / 2**30
+            print(f"  {free:.1f} GiB free on the card after the release")
 
     def _activate(dataset, cache_path: Path | None):
         if dataset is None or len(dataset) == 0:

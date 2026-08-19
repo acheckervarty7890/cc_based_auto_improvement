@@ -222,6 +222,56 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
     return LLMModel.load(model_name, model_kwargs=model_kwargs)
 
 
+def unhook_model(llm) -> None:
+    """Strip accelerate's dispatch hooks so dropping ``llm`` actually frees its VRAM.
+
+    Dereferencing a ``device_map="auto"`` model is not enough, and the gap is not
+    small. accelerate's ``dispatch_model`` installs an ``AlignDevicesHook`` on every
+    submodule, which replaces the module's ``forward`` with a closure that captures
+    the module itself. That makes the module graph self-referential through bound
+    methods and closure cells — cycles Python's collector does not break here, so the
+    weights stay on the card indefinitely.
+
+    Measured on google/gemma-3-27b-it (L32, ``max_memory={0: '22GiB'}``) against a
+    1.25 GiB empty-card baseline::
+
+        after load                                22.86 GiB
+        model = None; gc.collect(); empty_cache() 22.86 GiB   <- no effect
+        + three further gc.collect() passes       22.86 GiB   <- still no effect
+        remove_hook_from_module, then drop         1.25 GiB   <- freed
+
+    The consequence was silent: the next thing a run does after extraction is fit
+    probes, and ``retrain._to_device_for_fit`` sizes its staging against
+    ``mem_get_info``. With a whole 27B model still resident there is no room, so the
+    fits fall back to host-resident activations and every epoch pays a gather plus a
+    host->device copy — the very cost the staging exists to remove. Nothing errors;
+    the run is merely many times slower.
+
+    Callers must still drop their own reference afterwards and collect::
+
+        unhook_model(self._model)
+        self._model = None
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    Best-effort: a model that was never dispatched (single-device, no offload) has no
+    hooks to remove, and an accelerate too old to expose ``remove_hook_from_module``
+    leaves the old behaviour rather than raising. Freeing memory is an optimisation —
+    it must never be the reason a run dies.
+    """
+    if llm is None:
+        return
+    inner = getattr(llm, "model", None)
+    if inner is None:
+        return
+    try:
+        from accelerate.hooks import remove_hook_from_module
+
+        remove_hook_from_module(inner, recurse=True)
+    except Exception:  # noqa: BLE001 - see docstring: never fail a run over this
+        pass
+
+
 def extraction_batch_size() -> int:
     """tuberlens' configured extraction batch size (``BATCH_SIZE``, default 1).
 
