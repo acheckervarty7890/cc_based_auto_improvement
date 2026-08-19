@@ -40,7 +40,6 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ca_common as C  # noqa: E402
-import ca_data as D  # noqa: E402
 
 KEY_FIELDS = ("concept", "arm", "dev_seed", "n_dev")
 
@@ -90,10 +89,8 @@ def run_concept(concept: C.Concept, args) -> None:
     rt_src = C.redteam_source(concept)
     rt_all = list(range(len(rt_src)))
 
-    dev_val = dev_src.take(val_idx)
-    val_d = C.make_ragged(dev_val)
-    n_val = len(dev_val)
-    del dev_val
+    val_d = C.ragged_from_parts([(dev_src, val_idx)])
+    n_val = len(val_idx)
     points = C.sweep_points(len(pool_idx), args.n_points)
     print(f"[{concept.name}] base+red-team {len(rt_src)} rows "
           f"(max real length {int(rt_src.lengths().max())}), dev pool {len(pool_idx)}, "
@@ -108,9 +105,9 @@ def run_concept(concept: C.Concept, args) -> None:
     def get_stage1():
         if stage1["probe"] is None:
             t0 = time.time()
-            train = D.build_pool([(rt_src, rt_all)])
-            print(f"[{concept.name}] stage 1 fit (base+red-team only, dense "
-                  f"{C.nbytes(train)/1e9:.2f} GB) ...", flush=True)
+            train = C.ragged_from_parts([(rt_src, rt_all)])
+            print(f"[{concept.name}] stage 1 fit (base+red-team only, packed "
+                  f"{train.nbytes/1e9:.2f} GB) ...", flush=True)
             stage1["probe"] = C.fit(train, val_d, concept, seed=C.FIT_SEED)
             print(f"[{concept.name}] stage 1 fit in {time.time()-t0:.0f}s "
                   f"(val AUROC {C.ragged_val_auroc(stage1['probe'], val_d):.4f})", flush=True)
@@ -136,11 +133,11 @@ def run_concept(concept: C.Concept, args) -> None:
                 extra: dict = {}
                 train = None
                 if arm == "mixed":
-                    train = D.build_pool([(rt_src, rt_all), (dev_src, sel)])
+                    train = C.ragged_from_parts([(rt_src, rt_all), (dev_src, sel)])
                     n_train = len(train)
                     probe = C.fit(train, val_d, concept, seed=C.FIT_SEED)
                 elif arm == "dev_only":
-                    train = D.build_pool([(dev_src, sel)])
+                    train = C.ragged_from_parts([(dev_src, sel)])
                     n_train = len(train)
                     probe = C.fit(train, val_d, concept, seed=C.FIT_SEED)
                 elif arm == "finetune":
@@ -151,7 +148,7 @@ def run_concept(concept: C.Concept, args) -> None:
                         extra = {"checkpoint_kept": "stage1"}
                     else:
                         probe = copy.deepcopy(base_probe)
-                        train = D.build_pool([(dev_src, sel)])
+                        train = C.ragged_from_parts([(dev_src, sel)])
                         n_train = len(rt_src) + len(train)
                         probe, extra = C.finetune(probe, train, val_d, seed=C.FIT_SEED)
                 else:

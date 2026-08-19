@@ -614,3 +614,16 @@ def finetune(probe, train_ds, val_ds, *, seed: int = FIT_SEED, verbose: bool = F
     if USE_FAST_FIT:
         return finetune_probe_fast(probe, train_ds, val_ds, seed=seed, verbose=verbose)
     return finetune_probe(probe, train_ds, val_ds, seed=seed, verbose=verbose)
+
+
+def ragged_from_parts(parts):
+    """Pack `(source, row indices)` parts onto the GPU without a dense pool in between."""
+    import ca_fit as F
+
+    labels = []
+    for src, idx in parts:
+        y = source_labels(src)
+        labels.extend(int(y[i]) for i in idx)
+    return F.RaggedActivations.from_parts(
+        [(src, [int(i) for i in idx]) for src, idx in parts], labels
+    )

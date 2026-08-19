@@ -79,6 +79,44 @@ class RaggedActivations:
         )
         return cls(packed, offsets.to(device), lengths.to(device), y, dim, dtype, device)
 
+    @classmethod
+    def from_parts(cls, parts, labels, device: str = "cuda",
+                   dtype: torch.dtype = torch.bfloat16):
+        """Pack `(source, row indices)` parts straight onto the card, with no dense pool.
+
+        The dense intermediate is what makes the high-stakes side expensive: the full
+        training fold of the ceiling CV is 3526 rows padded to 1024 tokens — 39 GB — of
+        which ~14 GB is real. Streaming each source's slabs through to the packed buffer
+        keeps the host-side peak at one slab.
+        """
+        lengths_np = np.concatenate([src.lengths()[list(idx)] for src, idx in parts])
+        lengths = torch.tensor(lengths_np, dtype=torch.int64)
+        total = int(lengths.sum().item())
+        dim = parts[0][0].dim
+        packed = torch.empty((total, dim), dtype=dtype, device=device)
+        offsets = torch.zeros(len(lengths) + 1, dtype=torch.int64)
+        offsets[1:] = torch.cumsum(lengths, 0)
+        at = 0
+        row = 0
+        for src, idx in parts:
+            for a, m, _i in src.slabs(idx):
+                m = m.bool()
+                n = a.shape[0]
+                prefix = (
+                    torch.arange(m.shape[1]).unsqueeze(0) < m.sum(-1).unsqueeze(1)
+                )
+                if not bool((prefix == m).all()):
+                    raise ValueError(
+                        "activations are not right-padded; ragged packing is unsafe"
+                    )
+                sel = a.to(device, dtype)[m.to(device)]
+                packed[at : at + sel.shape[0]] = sel
+                at += sel.shape[0]
+                row += n
+                del a, m, sel
+        y = torch.tensor(labels, dtype=dtype, device=device)
+        return cls(packed, offsets.to(device), lengths.to(device), y, dim, dtype, device)
+
     def __len__(self) -> int:
         return int(self.lengths.shape[0])
 

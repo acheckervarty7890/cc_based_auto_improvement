@@ -39,7 +39,6 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ca_common as C  # noqa: E402
-import ca_data as D  # noqa: E402
 
 
 def assign_folds(labels: np.ndarray, n_folds: int, seed: int) -> np.ndarray:
@@ -52,8 +51,8 @@ def assign_folds(labels: np.ndarray, n_folds: int, seed: int) -> np.ndarray:
     return folds
 
 
-def build_train(eval_srcs, folds, labels, held_out: int, max_train: int, rng):
-    """Rows of every split outside fold `held_out`, subsampled to <= max_train in total."""
+def train_parts(eval_srcs, folds, labels, held_out: int, max_train: int, rng):
+    """`(source, rows)` for every split outside fold `held_out`, capped at max_train total."""
     avail = {n: np.where(folds[n] != held_out)[0] for n in eval_srcs}
     total = sum(len(v) for v in avail.values())
     take = min(max_train, total)
@@ -64,7 +63,7 @@ def build_train(eval_srcs, folds, labels, held_out: int, max_train: int, rng):
             keep = C.stratified_sample(labels[name][idx], quota, rng)
             idx = idx[keep]
         parts.append((eval_srcs[name], list(idx)))
-    return D.build_pool(parts)
+    return parts
 
 
 def score_source(probe, src, idx, chunk: int = 64) -> np.ndarray:
@@ -90,12 +89,10 @@ def run_concept(concept: C.Concept, args) -> dict:
               f"{int(s.lengths().max())}", flush=True)
 
     dev_src, val_idx, pool_idx = C.dev_partition(concept)
-    dev_val = dev_src.take(val_idx)
-    val_d = C.make_ragged(dev_val)
-    print(f"[{concept.name}] validation: {len(dev_val)} dev rows "
-          f"(dense {C.nbytes(dev_val)/1e9:.2f} GB, packed {val_d.nbytes/1e9:.2f} GB); "
-          f"dev training pool {len(pool_idx)}", flush=True)
-    del dev_val
+    val_d = C.ragged_from_parts([(dev_src, val_idx)])
+    print(f"[{concept.name}] validation: {len(val_idx)} dev rows "
+          f"(packed {val_d.nbytes/1e9:.2f} GB); dev training pool {len(pool_idx)}",
+          flush=True)
 
     folds = {n: assign_folds(labels[n], args.folds, args.seed) for n in eval_srcs}
     n_total = sum(len(s) for s in eval_srcs.values())
@@ -110,10 +107,12 @@ def run_concept(concept: C.Concept, args) -> dict:
         for k in range(args.folds):
             t0 = time.time()
             rng = np.random.default_rng(args.seed * 1000 + k)
-            train = build_train(eval_srcs, folds, labels, k, size, rng)
-            used.append(len(train))
-            print(f"[{concept.name}] size={size} fold {k}: {len(train)} train rows "
-                  f"(dense {C.nbytes(train)/1e9:.2f} GB)", flush=True)
+            parts = train_parts(eval_srcs, folds, labels, k, size, rng)
+            n_train = sum(len(idx) for _, idx in parts)
+            used.append(n_train)
+            train = C.ragged_from_parts(parts)
+            print(f"[{concept.name}] size={size} fold {k}: {n_train} train rows "
+                  f"(packed {train.nbytes/1e9:.2f} GB)", flush=True)
             probe = C.fit(train, val_d, concept, seed=C.FIT_SEED)
             del train
             C.free_gpu()
