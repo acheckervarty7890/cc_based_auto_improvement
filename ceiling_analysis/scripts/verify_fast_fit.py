@@ -45,16 +45,14 @@ def main() -> int:
     ref = C.fit_probe(train_d, val_d, concept, seed=C.FIT_SEED)
     t_ref = time.time() - t0
     t0 = time.time()
-    fast = C.fit_probe_fast(train_d, val_d, concept, seed=C.FIT_SEED)
+    fast = C.fit_probe_fast(train, val, concept, seed=C.FIT_SEED)
     t_fast = time.time() - t0
 
     eval_srcs = C.eval_sources(concept)
     diffs = []
     for name, src in eval_srcs.items():
-        a = np.concatenate([np.asarray(ref.predict_proba(C.to_device([ds])[0][0]))
-                            for _, ds in src.chunks(64)])
-        b = np.concatenate([np.asarray(fast.predict_proba(C.to_device([ds])[0][0]))
-                            for _, ds in src.chunks(64)])
+        a = C.score_source(ref, src)
+        b = C.score_source(fast, src)
         y = C.source_labels(src)
         m_a = C.metrics_from_scores(y, a)["auroc"]
         m_b = C.metrics_from_scores(y, b)["auroc"]

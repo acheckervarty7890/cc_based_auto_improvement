@@ -113,14 +113,23 @@ class BlobSource(Source):
         return self._len_cache
 
     def slabs(self, idx):
+        """Yield slabs trimmed to each slab's own longest real row.
+
+        Reading `activations[sl]` would fault in the full 1024-token width of every row —
+        for `anthropic_hh_balanced`, whose mean conversation is 226 tokens, that is ~4.5x
+        the bytes the rows actually hold. Slicing per row means only the pages behind the
+        real tokens are ever touched, which is most of the I/O of an eval pass.
+        """
         b = self.blob
+        lens = self.lengths()
         idx = [int(i) for i in idx]
         for start in range(0, len(idx), SLAB):
             sl = idx[start : start + SLAB]
+            w = int(max(lens[i] for i in sl))
             yield (
-                b["activations"][sl],
-                b["attention_mask"][sl],
-                b["input_ids"][sl],
+                torch.stack([b["activations"][i, :w] for i in sl]),
+                torch.stack([b["attention_mask"][i, :w] for i in sl]),
+                torch.stack([b["input_ids"][i, :w] for i in sl]),
             )
 
 

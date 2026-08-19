@@ -627,3 +627,26 @@ def ragged_from_parts(parts):
     return F.RaggedActivations.from_parts(
         [(src, [int(i) for i in idx]) for src, idx in parts], labels
     )
+
+
+def score_source(probe, source, idx=None, *, chunk: int = 64) -> np.ndarray:
+    """Score selected rows of a source, streaming, **in length-sorted order**.
+
+    Ordering matters for cost, not for the answer: a chunk is padded to its own longest
+    row, so grouping rows of similar length makes both the bytes read out of the memory map
+    and the tokens pushed through the head scale with real conversation length instead of
+    with the split's longest one. Scores are scattered back to the caller's row order.
+    """
+    idx = np.arange(len(source)) if idx is None else np.asarray(idx)
+    lens = source.lengths()[idx]
+    order = np.argsort(lens, kind="stable")
+    out = np.empty(len(idx), dtype=float)
+    for start in range(0, len(order), chunk):
+        pos = order[start : start + chunk]
+        rows = [int(idx[i]) for i in pos]
+        ds = source.take(rows)
+        [ds_d], _ = to_device([ds])
+        out[pos] = np.asarray(probe.predict_proba(ds_d))
+        del ds, ds_d
+    free_gpu()
+    return out

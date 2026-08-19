@@ -66,18 +66,6 @@ def train_parts(eval_srcs, folds, labels, held_out: int, max_train: int, rng):
     return parts
 
 
-def score_source(probe, src, idx, chunk: int = 64) -> np.ndarray:
-    """Score selected rows of a source, streaming so no split is ever materialized whole."""
-    out = np.empty(len(idx), dtype=float)
-    for start in range(0, len(idx), chunk):
-        sl = list(idx[start : start + chunk])
-        ds = src.take(sl)
-        [ds_d], _ = C.to_device([ds])
-        out[start : start + len(sl)] = np.asarray(probe.predict_proba(ds_d))
-        del ds, ds_d
-    return out
-
-
 def run_concept(concept: C.Concept, args) -> dict:
     out_path = C.RESULTS / f"ceiling_{concept.name}.json"
     log_path = C.RESULTS / f"ceiling_{concept.name}.jsonl"
@@ -119,7 +107,7 @@ def run_concept(concept: C.Concept, args) -> dict:
             for name, src in eval_srcs.items():
                 idx = np.where(folds[name] == k)[0]
                 if len(idx):
-                    oof[name][idx] = score_source(probe, src, idx)
+                    oof[name][idx] = C.score_source(probe, src, idx)
             del probe
             C.free_gpu()
             print(f"[{concept.name}] size={size} fold {k} done in {time.time()-t0:.0f}s",

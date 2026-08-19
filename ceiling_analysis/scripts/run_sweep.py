@@ -68,11 +68,7 @@ def evaluate(probe, eval_srcs, chunk: int = 64) -> dict:
     per_split = {}
     for name, src in eval_srcs.items():
         y = C.source_labels(src)
-        preds = np.empty(len(src), dtype=float)
-        for idx, ds in src.chunks(chunk):
-            [ds_d], _ = C.to_device([ds])
-            preds[idx[0] : idx[-1] + 1] = np.asarray(probe.predict_proba(ds_d))
-            del ds, ds_d
+        preds = C.score_source(probe, src, np.arange(len(src)), chunk=chunk)
         per_split[name] = calculate_metrics(y, preds, fpr=0.01)
     C.free_gpu()
     mean = {m: float(np.mean([v[m] for v in per_split.values()]))
