@@ -677,18 +677,27 @@ def _to_device_for_fit(
             fields = getattr(ds, "other_fields", None)
             if not isinstance(fields, dict):
                 continue
-            for name in _PAD_FIELDS:
-                tensor = fields.get(name)
-                if not isinstance(tensor, torch.Tensor) or tensor.device.type == "cuda":
-                    continue
-                size = tensor.numel() * tensor.element_size()
-                free, _total = torch.cuda.mem_get_info(device)
-                if size + reserve_bytes > free:
-                    skipped_bytes += size
-                    continue
+            # ALL OR NOTHING, PER DATASET. tuberlens' Activation.__post_init__ does
+            # `activations *= attention_mask[:, :, None]`, so a dataset whose fields
+            # straddle two devices raises rather than merely running slowly. Size the
+            # whole dataset first, then move every field or none of them.
+            pending = [
+                (name, fields[name])
+                for name in _PAD_FIELDS
+                if isinstance(fields.get(name), torch.Tensor)
+                and fields[name].device.type != "cuda"
+            ]
+            if not pending:
+                continue
+            size = sum(tensor.numel() * tensor.element_size() for _n, tensor in pending)
+            free, _total = torch.cuda.mem_get_info(device)
+            if size + reserve_bytes > free:
+                skipped_bytes += size
+                continue
+            for name, tensor in pending:
                 original.append((fields, name, tensor))
                 fields[name] = tensor.to(device)
-                moved_bytes += tensor.numel() * tensor.element_size()
+            moved_bytes += size
     except Exception as exc:  # torch.cuda.OutOfMemoryError is a RuntimeError subclass
         for fields, name, tensor in original:
             fields[name] = tensor
