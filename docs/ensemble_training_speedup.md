@@ -202,3 +202,127 @@ worth running after touching the batcher, the training loop or the fused trainer
   cast to `bfloat16` and never read during training) but worth ~1% — see §2.
 - **DataLoader `num_workers > 0`.** The dataset is already-materialized tensors;
   workers would add IPC copies to a path whose problem is the copies.
+
+## 7. Relation to experiment17
+
+`experiment17_cloud` profiled the same bottleneck from the other end — a live
+10-member gemma-27b run rather than a synthetic bench — and its diagnosis is
+recorded in `experiment17_session_log.md` on that branch. This section reconciles
+the two, and corrects two of its conclusions with measurements it could not make
+at the time (its GPU was occupied by the run it was profiling).
+
+### Confirmed independently
+
+- **The fits dominate, and the extraction this repo is architected around caching
+  is the cheap part.** experiment17 measured probe fits at 57% of iteration 0's
+  wall-clock rising to >90%, against 12–23 min of gemma-27b extraction per retrain.
+- **The head arithmetic is free; it is all data movement.** Its CPU benchmark had
+  the full forward (variant E, 3.37 ms/sample) indistinguishable from merely
+  touching the bytes (variant D, 3.23 ms/sample).
+- **GPU residency is the main lever, and random gather on-device is nearly free.**
+  It measured 83 ms/epoch for a resident random gather against 58 ms for
+  contiguous reads and concluded, correctly, that exact per-sample shuffling is
+  worth its 30% premium and should not be traded for block-shuffling. §2 here
+  reaches the same place from the other direction (119 GB/s resident vs 1.4 GB/s
+  pageable).
+- **Determinism.** It ran a control that re-fit the initial probe and reproduced
+  `probe_iter0.pkl` bit-for-bit across all 10 members, `best_epoch` included. That
+  is what makes the bit-identity check in §5 a meaningful test rather than a
+  hopeful one.
+
+### Corrected: "the unbind/restack fix is worth approximately zero"
+
+experiment17 measured the collate overhead at 2.2x on CPU, then — after its GPU
+benchmark showed variant 2 (no unbind/restack) indistinguishable from variant 1 —
+retracted it: "in the real path it's worth nothing, because the PCIe transfer
+dominates so completely that the collate overhead disappears into it. My patch, as
+written, would have bought approximately zero."
+
+That is right about the *CPU-resident* path, and §2 here reproduces it (an
+identity collate changed nothing). But its recommendation was residency **while
+keeping the DataLoader**, and the retraction does not survive that change: once
+the transfer is gone, the per-batch unbind-into-16-tuples and restack is what is
+left. Measured on a full fit — forward, backward, AdamW, clipping, the per-epoch
+validation pass and AUROC, none of which either side's microbenchmarks included:
+
+| | hidden 2048 (300/600) | hidden 5376 (150/150) |
+| --- | ---: | ---: |
+| residency alone, DataLoader kept | 8.2x | 11.5x |
+| residency + `ActivationBatcher` | 16.5x | 22.5x |
+| **what the batcher adds on top** | **2.0x** | **2.0x** |
+
+The overhead did not stop mattering; it stopped being *visible* behind a larger
+cost, and removing that cost exposes it again.
+
+### Corrected: "residency removes the reason to parallelize at all"
+
+experiment17 listed fusing the heads under `vmap` as its third parallelism option,
+estimated it at ~10x, and then set parallelism aside: residency "removes the
+reason to parallelize at all", and fusing would cost diversity because "shuffle
+order becomes shared across members".
+
+Both halves are wrong, and in the same direction. Once residency lands the fit is
+**launch-bound** — tens of microsecond-scale kernels per batch with the GPU idle
+between them — which is precisely the regime fusing fixes, so residency does not
+remove the reason to parallelize, it makes parallelism the *only* remaining lever.
+And the diversity cost is avoidable: gathering `(n, batch, seq, embed)` keeps each
+member's own permutation for 0.128 s/epoch against 0.112 for one shared batch, a
+14% premium (§3.3). At experiment17's own ensemble size:
+
+| 10 members x 25 epochs, 300 train / 600 val | wall-clock | vs original |
+| --- | ---: | ---: |
+| original tuberlens, 10 sequential fits | 595.0 s | 1.0x |
+| experiment17's plan: residency, DataLoader kept | 74.0 s | 8.0x |
+| this branch, loader only (still 10 sequential fits) | 34.9 s | 17.1x |
+| **this branch, fused ensemble** | **9.7 s** | **61.1x** |
+
+**7.6x beyond what residency alone would have delivered.**
+
+### Its 113x is a data-path number, not a fit number
+
+experiment17's headline was 113x (18.35 → 0.16 ms/sample) and the projection that
+followed was "a 10-member retrain goes from 4.5 hours to roughly 3–5 minutes".
+That benchmark ran a forward and backward through the head but no optimizer step,
+no gradient clipping, no per-epoch validation pass over the 290-row dev set and no
+AUROC — all of which the real loop does, and the validation pass alone was 58% of
+an epoch in §1. Measured over a whole fit, the same change is 8–11x, not 113x. The
+ratio is sound for what it measured; the extrapolation to wall-clock is roughly an
+order of magnitude optimistic. Fusing is what actually closes most of that gap.
+
+### Where the fix belongs
+
+experiment17 proposed putting it in this repo — move the merged tensors to the GPU
+in `_train_with_cached_base_activations` after `_release_model()`, and let
+`ActivationDataset.__getitems__`'s existing `.to(self.device)` become a no-op.
+That is the smallest possible change and it works, but it is unconditional, and
+experiment17 had already identified the wall it runs into: at 11 MB/sample on
+gemma-27b the activation set reaches ~16.6 GB by iteration 3 and ~26.5 GB by
+iteration 4, past a 24 GB card. Its own note was that this would need "an OOM
+guard falling back to CPU residency" — i.e. falling back to the 1.4 GB/s path that
+started the investigation.
+
+Putting the policy in tuberlens instead makes that fallback a real path rather
+than a surrender: `staged` is 2.7x/4.0x where unconditional residency would be
+1.0x, the choice is made per tensor against the actual budget, and every other
+tuberlens caller (including `get_performances` during eval) inherits it.
+
+### Not examined by experiment17
+
+- **Scoring.** `EnsembleProbe._mean_proba` walked the activations once per member.
+  That runs on every red-team submission and every eval split, not only at retrain
+  time; fusing it is 4–5x (§3.4).
+- **The free-memory trap.** `mem_get_info` excludes torch's cached-but-unused
+  blocks, so a naive budget check takes the slow path on every fit after the first
+  (§3.1). An unconditional `.to("cuda")` never meets this, which is why
+  experiment17 would not have hit it — but any budgeted version does.
+- **Per-epoch validation re-transfer** and the per-batch `.item()` sync (§3.2).
+
+### Left unresolved
+
+experiment17 measured fit cost scaling as `t_epoch ~ 2.3e-5 x N^1.97` — roughly
+quadratic — and flagged that it could not explain it. Nothing here explains it
+either: the transfer rates in §2 are flat across working sets from 2.5 to 5 GB, so
+the data path is linear in bytes and the superlinearity must sit somewhere else,
+most plausibly host-side gather locality on a working set growing into the tens of
+GB. It was measured on a live run from log timings taken at different moments,
+which is a noisy instrument, and it is moot under residency — so it was not chased.
