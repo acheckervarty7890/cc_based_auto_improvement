@@ -514,3 +514,70 @@ def free_gpu() -> None:
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
+
+# --------------------------------------------------------------------------------------
+# the ragged fit path (see ca_fit for why it is exact)
+# --------------------------------------------------------------------------------------
+
+USE_FAST_FIT = True
+
+
+def hyperparams() -> dict:
+    from tuberlens.interfaces.probes import ProbeType
+
+    return dict(ProbeType(ARCH).default_hyperparams)
+
+
+def fit_probe_fast(train_ds, val_ds, concept: Concept, *, seed: int = FIT_SEED,
+                   verbose: bool = False):
+    """Fit one probe over ragged, GPU-resident activations. Same arithmetic as `fit_probe`."""
+    import ca_fit as F
+    from tuberlens.probes.pytorch_modules import LinearThenSoftmax
+
+    from agentic_redteam.evaluation import seed_everything
+
+    hp = hyperparams()
+    train = F.RaggedActivations.from_dataset(train_ds)
+    val = F.RaggedActivations.from_dataset(val_ds) if val_ds is not None else None
+    seed_everything(seed)
+    model, info = F.train_head(train, val, hp, arch=LinearThenSoftmax, verbose=verbose)
+    probe = F.wrap_probe(
+        model, hp, model_name=MODEL_NAME, layer=LAYER,
+        pos_class_label=concept.pos_class_label,
+        neg_class_label=concept.neg_class_label,
+        description=concept.description, best_epoch=info["best_epoch"],
+    )
+    del train, val
+    free_gpu()
+    return probe
+
+
+def finetune_probe_fast(probe, train_ds, val_ds, *, seed: int = FIT_SEED,
+                        verbose: bool = False):
+    import ca_fit as F
+
+    from agentic_redteam.evaluation import seed_everything
+
+    hp = hyperparams()
+    train = F.RaggedActivations.from_dataset(train_ds)
+    val = F.RaggedActivations.from_dataset(val_ds)
+    seed_everything(seed)
+    model, info = F.finetune_head(probe._classifier.model, train, val, hp, verbose=verbose)
+    probe._classifier.model = model
+    probe._classifier.best_epoch = info["finetune_best_epoch"]
+    del train, val
+    free_gpu()
+    return probe, info
+
+
+def fit(train_ds, val_ds, concept: Concept, *, seed: int = FIT_SEED, verbose: bool = False):
+    if USE_FAST_FIT:
+        return fit_probe_fast(train_ds, val_ds, concept, seed=seed, verbose=verbose)
+    return fit_probe(train_ds, val_ds, concept, seed=seed, verbose=verbose)
+
+
+def finetune(probe, train_ds, val_ds, *, seed: int = FIT_SEED, verbose: bool = False):
+    if USE_FAST_FIT:
+        return finetune_probe_fast(probe, train_ds, val_ds, seed=seed, verbose=verbose)
+    return finetune_probe(probe, train_ds, val_ds, seed=seed, verbose=verbose)
