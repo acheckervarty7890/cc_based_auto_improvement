@@ -91,17 +91,18 @@ def run_concept(concept: C.Concept, args) -> dict:
 
     dev_src, val_idx, pool_idx = C.dev_partition(concept)
     dev_val = dev_src.take(val_idx)
-    [val_d], val_gpu = C.to_device([dev_val])
+    val_d = C.make_ragged(dev_val)
     print(f"[{concept.name}] validation: {len(dev_val)} dev rows "
-          f"({C.nbytes(dev_val)/1e9:.2f} GB, gpu={val_gpu}); dev training pool "
-          f"{len(pool_idx)}", flush=True)
+          f"(dense {C.nbytes(dev_val)/1e9:.2f} GB, packed {val_d.nbytes/1e9:.2f} GB); "
+          f"dev training pool {len(pool_idx)}", flush=True)
+    del dev_val
 
     folds = {n: assign_folds(labels[n], args.folds, args.seed) for n in eval_srcs}
     n_total = sum(len(s) for s in eval_srcs.values())
     sizes = args.train_sizes or [n_total]
 
     results = {"concept": concept.name, "n_eval_rows": n_total, "n_folds": args.folds,
-               "n_validation": len(dev_val), "by_train_size": {}}
+               "n_validation": len(val_idx), "by_train_size": {}}
 
     for size in sizes:
         oof = {n: np.full(len(s), np.nan) for n, s in eval_srcs.items()}
@@ -111,11 +112,10 @@ def run_concept(concept: C.Concept, args) -> dict:
             rng = np.random.default_rng(args.seed * 1000 + k)
             train = build_train(eval_srcs, folds, labels, k, size, rng)
             used.append(len(train))
-            [train_d], gpu = C.to_device([train])
             print(f"[{concept.name}] size={size} fold {k}: {len(train)} train rows "
-                  f"({C.nbytes(train)/1e9:.2f} GB, gpu={gpu})", flush=True)
-            probe = C.fit_probe(train_d, val_d, concept, seed=C.FIT_SEED)
-            del train_d, train
+                  f"(dense {C.nbytes(train)/1e9:.2f} GB)", flush=True)
+            probe = C.fit(train, val_d, concept, seed=C.FIT_SEED)
+            del train
             C.free_gpu()
             for name, src in eval_srcs.items():
                 idx = np.where(folds[name] == k)[0]

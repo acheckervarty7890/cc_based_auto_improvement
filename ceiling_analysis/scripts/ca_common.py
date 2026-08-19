@@ -529,17 +529,37 @@ def hyperparams() -> dict:
     return dict(ProbeType(ARCH).default_hyperparams)
 
 
+def make_ragged(dataset):
+    """Pack a dataset's activations onto the GPU. Reuse for anything fit against repeatedly."""
+    import ca_fit as F
+
+    return F.RaggedActivations.from_dataset(dataset)
+
+
+def _as_ragged(x):
+    import ca_fit as F
+
+    if x is None or isinstance(x, F.RaggedActivations):
+        return x, False
+    return F.RaggedActivations.from_dataset(x), True
+
+
 def fit_probe_fast(train_ds, val_ds, concept: Concept, *, seed: int = FIT_SEED,
                    verbose: bool = False):
-    """Fit one probe over ragged, GPU-resident activations. Same arithmetic as `fit_probe`."""
+    """Fit one probe over ragged, GPU-resident activations. Same arithmetic as `fit_probe`.
+
+    `train_ds` / `val_ds` may be host-resident datasets (packed onto the card here) or
+    already-packed `RaggedActivations` — the validation set is the same for every fit in a
+    run, so packing it once and passing it in saves re-uploading it ~60 times.
+    """
     import ca_fit as F
     from tuberlens.probes.pytorch_modules import LinearThenSoftmax
 
     from agentic_redteam.evaluation import seed_everything
 
     hp = hyperparams()
-    train = F.RaggedActivations.from_dataset(train_ds)
-    val = F.RaggedActivations.from_dataset(val_ds) if val_ds is not None else None
+    train, _ = _as_ragged(train_ds)
+    val, val_owned = _as_ragged(val_ds)
     seed_everything(seed)
     model, info = F.train_head(train, val, hp, arch=LinearThenSoftmax, verbose=verbose)
     probe = F.wrap_probe(
@@ -548,7 +568,9 @@ def fit_probe_fast(train_ds, val_ds, concept: Concept, *, seed: int = FIT_SEED,
         neg_class_label=concept.neg_class_label,
         description=concept.description, best_epoch=info["best_epoch"],
     )
-    del train, val
+    del train
+    if val_owned:
+        del val
     free_gpu()
     return probe
 
@@ -560,15 +582,26 @@ def finetune_probe_fast(probe, train_ds, val_ds, *, seed: int = FIT_SEED,
     from agentic_redteam.evaluation import seed_everything
 
     hp = hyperparams()
-    train = F.RaggedActivations.from_dataset(train_ds)
-    val = F.RaggedActivations.from_dataset(val_ds)
+    train, _ = _as_ragged(train_ds)
+    val, val_owned = _as_ragged(val_ds)
     seed_everything(seed)
     model, info = F.finetune_head(probe._classifier.model, train, val, hp, verbose=verbose)
     probe._classifier.model = model
     probe._classifier.best_epoch = info["finetune_best_epoch"]
-    del train, val
+    del train
+    if val_owned:
+        del val
     free_gpu()
     return probe, info
+
+
+def ragged_val_auroc(probe, val_ragged) -> float:
+    """Validation AUROC straight off the packed validation set, without a dense pass."""
+    import ca_fit as F
+    from sklearn.metrics import roc_auc_score
+
+    probs = F._probs(probe._classifier.model, val_ragged)
+    return float(roc_auc_score(val_ragged.y.float().cpu().numpy(), probs))
 
 
 def fit(train_ds, val_ds, concept: Concept, *, seed: int = FIT_SEED, verbose: bool = False):

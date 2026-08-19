@@ -91,11 +91,13 @@ def run_concept(concept: C.Concept, args) -> None:
     rt_all = list(range(len(rt_src)))
 
     dev_val = dev_src.take(val_idx)
-    [val_d], val_gpu = C.to_device([dev_val])
+    val_d = C.make_ragged(dev_val)
+    n_val = len(dev_val)
+    del dev_val
     points = C.sweep_points(len(pool_idx), args.n_points)
     print(f"[{concept.name}] base+red-team {len(rt_src)} rows "
           f"(max real length {int(rt_src.lengths().max())}), dev pool {len(pool_idx)}, "
-          f"validation {len(dev_val)} (gpu={val_gpu})", flush=True)
+          f"validation {n_val} (packed {val_d.nbytes/1e9:.2f} GB)", flush=True)
     print(f"[{concept.name}] points: {points}", flush=True)
 
     dev_labels = C.source_labels(dev_src)
@@ -107,13 +109,12 @@ def run_concept(concept: C.Concept, args) -> None:
         if stage1["probe"] is None:
             t0 = time.time()
             train = D.build_pool([(rt_src, rt_all)])
-            [train_d], gpu = C.to_device([train])
-            print(f"[{concept.name}] stage 1 fit (base+red-team only, "
-                  f"{C.nbytes(train)/1e9:.2f} GB, gpu={gpu}) ...", flush=True)
-            stage1["probe"] = C.fit_probe(train_d, val_d, concept, seed=C.FIT_SEED)
+            print(f"[{concept.name}] stage 1 fit (base+red-team only, dense "
+                  f"{C.nbytes(train)/1e9:.2f} GB) ...", flush=True)
+            stage1["probe"] = C.fit(train, val_d, concept, seed=C.FIT_SEED)
             print(f"[{concept.name}] stage 1 fit in {time.time()-t0:.0f}s "
-                  f"(val AUROC {C.val_auroc(stage1['probe'], val_d):.4f})", flush=True)
-            del train_d, train
+                  f"(val AUROC {C.ragged_val_auroc(stage1['probe'], val_d):.4f})", flush=True)
+            del train
             C.free_gpu()
         return stage1["probe"]
 
@@ -133,34 +134,30 @@ def run_concept(concept: C.Concept, args) -> None:
                     continue
                 t0 = time.time()
                 extra: dict = {}
-                train_d = None
+                train = None
                 if arm == "mixed":
                     train = D.build_pool([(rt_src, rt_all), (dev_src, sel)])
-                    [train_d], gpu = C.to_device([train])
                     n_train = len(train)
-                    probe = C.fit_probe(train_d, val_d, concept, seed=C.FIT_SEED)
+                    probe = C.fit(train, val_d, concept, seed=C.FIT_SEED)
                 elif arm == "dev_only":
                     train = D.build_pool([(dev_src, sel)])
-                    [train_d], gpu = C.to_device([train])
                     n_train = len(train)
-                    probe = C.fit_probe(train_d, val_d, concept, seed=C.FIT_SEED)
+                    probe = C.fit(train, val_d, concept, seed=C.FIT_SEED)
                 elif arm == "finetune":
                     base_probe = get_stage1()
                     if n_dev == 0:
                         probe = base_probe
-                        n_train, gpu = len(rt_src), None
+                        n_train = len(rt_src)
                         extra = {"checkpoint_kept": "stage1"}
                     else:
                         probe = copy.deepcopy(base_probe)
                         train = D.build_pool([(dev_src, sel)])
-                        [train_d], gpu = C.to_device([train])
                         n_train = len(rt_src) + len(train)
-                        probe, extra = C.finetune_probe(probe, train_d, val_d,
-                                                        seed=C.FIT_SEED)
+                        probe, extra = C.finetune(probe, train, val_d, seed=C.FIT_SEED)
                 else:
                     raise ValueError(arm)
-                if train_d is not None:
-                    del train_d, train
+                if train is not None:
+                    del train
                 C.free_gpu()
 
                 metrics = evaluate(probe, eval_srcs)
@@ -170,9 +167,8 @@ def run_concept(concept: C.Concept, args) -> None:
                     "dev_seed": dev_seed,
                     "n_dev": n_dev,
                     "n_train": n_train,
-                    "n_val": len(dev_val),
-                    "train_on_gpu": bool(gpu) if gpu is not None else None,
-                    "val_auroc": C.val_auroc(probe, val_d),
+                    "n_val": n_val,
+                    "val_auroc": C.ragged_val_auroc(probe, val_d),
                     "best_epoch": getattr(probe._classifier, "best_epoch", None),
                     "seconds": round(time.time() - t0, 1),
                     "mean": metrics["mean"],

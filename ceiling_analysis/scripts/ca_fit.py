@@ -55,6 +55,12 @@ class RaggedActivations:
         acts = dataset.other_fields["activations"]
         mask = dataset.other_fields["attention_mask"].bool()
         lengths = mask.sum(-1).to(torch.int64)
+        # Packing and unpacking both assume each row's real tokens are a PREFIX, i.e. that
+        # the tokenizer right-pads. It does (checked against the published blobs), but a
+        # left-padded blob would pack silently and shift every row, so it is asserted.
+        prefix = torch.arange(mask.shape[1]).unsqueeze(0) < lengths.unsqueeze(1)
+        if not bool((prefix == mask).all()):
+            raise ValueError("activations are not right-padded; ragged packing is unsafe")
         total = int(lengths.sum().item())
         dim = acts.shape[2]
         packed = torch.empty((total, dim), dtype=dtype, device=device)
