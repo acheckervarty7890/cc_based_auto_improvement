@@ -626,7 +626,9 @@ def _fit_device():
     return None if device.startswith("cpu") else device
 
 
-def _to_device_for_fit(datasets, *, verbose: bool = True) -> bool:
+def _to_device_for_fit(
+    datasets, *, verbose: bool = True, reserve_bytes: int = 2 * 2**30
+) -> bool:
     """Move merged activation tensors onto the fit device before ``ProbeFactory.build``.
 
     ``ActivationDataset.__getitems__`` ends every batch fetch in ``.to(self.device)``.
@@ -643,6 +645,21 @@ def _to_device_for_fit(datasets, *, verbose: bool = True) -> bool:
     exactly as before, because a slow retrain beats a dead one. That fallback is not
     hypothetical: the red-team set grows each iteration, so a long enough run will
     eventually present a set larger than the card.
+
+    **The staging is capacity-checked, per tensor, against the card's FREE memory.**
+    An unconditional `.to(device)` relies on the copy raising OutOfMemoryError when the
+    set does not fit — which it does on a normal Linux/CUDA box, but NOT under WSL2,
+    where the driver oversubscribes into host memory and pages over PCIe instead. There
+    the fallback above never fires and the fit gets the paging it was supposed to avoid:
+    measured here at 26.4 GiB staged onto a 24 GiB card, the retrain ran ~5.3 epochs/min
+    against ~4 host-resident — a 1.3x gain where the arithmetic predicts ~45x.
+
+    So each tensor is moved only if it fits in what `mem_get_info` reports free, less
+    ``reserve_bytes`` for the fit's own activations/gradients. ``datasets`` is consumed
+    IN ORDER, so pass the training set first: it is the one carrying forward+backward
+    per epoch, and it is far smaller than a full dev set, so it is what you want resident
+    when only one of the two fits. Anything skipped stays on the host and behaves exactly
+    as it did before this function existed.
     """
     import torch
 
@@ -652,6 +669,7 @@ def _to_device_for_fit(datasets, *, verbose: bool = True) -> bool:
 
     original: list[tuple[object, str, "torch.Tensor"]] = []
     moved_bytes = 0
+    skipped_bytes = 0
     try:
         for ds in datasets:
             if ds is None:
@@ -662,6 +680,11 @@ def _to_device_for_fit(datasets, *, verbose: bool = True) -> bool:
             for name in _PAD_FIELDS:
                 tensor = fields.get(name)
                 if not isinstance(tensor, torch.Tensor) or tensor.device.type == "cuda":
+                    continue
+                size = tensor.numel() * tensor.element_size()
+                free, _total = torch.cuda.mem_get_info(device)
+                if size + reserve_bytes > free:
+                    skipped_bytes += size
                     continue
                 original.append((fields, name, tensor))
                 fields[name] = tensor.to(device)
@@ -677,11 +700,18 @@ def _to_device_for_fit(datasets, *, verbose: bool = True) -> bool:
             )
         return False
 
-    if moved_bytes and verbose:
-        print(
+    if verbose and (moved_bytes or skipped_bytes):
+        note = (
             f"Staged {moved_bytes / 2**30:.1f} GiB of activations on {device} for the "
             "probe fits (no host->device copy per epoch)"
         )
+        if skipped_bytes:
+            note += (
+                f"; {skipped_bytes / 2**30:.1f} GiB left on the host — it does not fit in "
+                f"free VRAM with a {reserve_bytes / 2**30:.0f} GiB reserve, and staging it "
+                "anyway would page over PCIe rather than fail"
+            )
+        print(note)
     return bool(original)
 
 
@@ -881,6 +911,10 @@ def _train_with_cached_base_activations(
     # The model has already been released above, so the card is empty; we still
     # fall back to host residency on OOM, since a large enough red-team set will
     # eventually outgrow the GPU and a slow fit beats a dead one.
+    # Training set FIRST: it is the one doing forward+backward every epoch and is far
+    # smaller than a full dev set, so when only one of the two fits, that is the one
+    # worth having resident. See _to_device_for_fit on why this is capacity-checked
+    # rather than left to OOM.
     _to_device_for_fit([train_dataset, validation_dataset], verbose=verbose)
 
     def _build(fit_seed: int):
