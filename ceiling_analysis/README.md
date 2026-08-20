@@ -53,6 +53,25 @@ loaded only once, to extract the red-team + base conversations.
 
 Blobs live under `ceiling_acts/` (gitignored).
 
+**The red-team extraction runs at batch size 1, and that is not a default worth changing.**
+`BATCH_SIZE=4` is ~8x faster here — the CPU-offloaded half of gemma-3-27b is streamed once
+per forward instead of once per conversation — but it does not reproduce single-row
+extraction. Measured (`scripts/verify_extraction_noise.py`):
+
+| comparison | relative L2 |
+| --- | --- |
+| the same conversation extracted twice at batch size 1 | `0` (exact) |
+| local batch-1 extraction vs the **published** dev blob | `0` (exact) |
+| local batch-4 vs local batch-1 | `1.0e-2` |
+
+It is not the left padding gemma's tokenizer applies at batch > 1: a batch of four *copies*
+of one conversation, which needs no padding at all, drifts by the same `1e-2`. It is bf16
+matmul reduction order. Since extraction is otherwise bit-exact and machine-independent,
+batching would have left every red-team activation ~1% away from the eval and dev
+activations the same probe is scored against — a perturbation applied to exactly one side of
+the training data. `scripts/verify_batch_padding.py` asserts the cache still matches a fresh
+single-row extraction.
+
 ## Protocol
 
 **Validation is fixed for the whole analysis.** A stratified 25% slice of each concept's dev

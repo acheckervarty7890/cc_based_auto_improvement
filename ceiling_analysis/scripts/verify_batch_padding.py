@@ -1,19 +1,25 @@
 #!/usr/bin/env python
-"""Check that batched extraction gives the same activations as one-at-a-time extraction.
+"""Check the cached red-team activations against a fresh extraction, row by row.
 
-The red-team activations here were extracted with `BATCH_SIZE=4`, which is ~8x faster than
-tuberlens' default of 1 (the CPU-offloaded half of gemma-3-27b is streamed once per forward,
-not once per conversation). But gemma's tokenizer pads **left**, so at batch > 1 a
-conversation's real tokens no longer start at position 0 — while every published eval and
-dev blob, extracted one row at a time, has no intra-batch padding at all.
+They must match **exactly**, and the reason is worth stating, because the fast way to
+extract them does not.
 
-Left padding should be harmless: attention masks the pad positions out entirely, and RoPE is
-relative, so shifting all of a sequence's real tokens by the same offset leaves every
-query-key distance (and every sliding-window span) unchanged. "Should" is not "does",
-though, and if it were wrong every red-team activation in this analysis would be subtly
-mismatched against the eval and dev sets. So this re-extracts a sample of conversations at
-batch size 1 and compares them, token for token, against what the batched run stored.
+`BATCH_SIZE=4` is ~8x faster than tuberlens' default of 1 — the CPU-offloaded half of
+gemma-3-27b is streamed once per forward rather than once per conversation. But batched
+extraction does not reproduce single-row extraction: measured with
+`verify_extraction_noise.py`, a batch of 4 moves a conversation's activations by ~1e-2
+relative L2, while a repeated single-row extraction moves them by exactly 0 and a local
+single-row extraction reproduces the *published* eval/dev blobs by exactly 0 as well. It is
+not the padding (gemma pads left, so batching shifts every real token's position) — a batch
+of four copies of one conversation, which needs no padding at all, drifts by the same 1e-2.
+It is bf16 matmul reduction order.
+
+Which means the cheap knob was not free: it would have left every red-team activation ~1%
+off the eval and dev activations the same probe is scored against, a difference applied to
+exactly one side of the training data. So the cache is built at batch size 1, and this
+asserts it stayed that way.
 """
+
 
 from __future__ import annotations
 
@@ -73,18 +79,18 @@ def main() -> int:
                   flush=True)
             worst = float("inf")
             continue
-        scale = solo.abs().mean().item()
-        rel = (solo - batched).abs().max().item() / max(scale, 1e-6)
-        cos = torch.nn.functional.cosine_similarity(
-            solo.flatten(), batched.flatten(), dim=0
-        ).item()
+        rel = float(
+            (solo.double() - batched.double()).norm() / solo.double().norm()
+        )
         worst = max(worst, rel)
-        print(f"  row {i}: {tuple(solo.shape)}  max|delta|/mean|a| = {rel:.4f}  "
-              f"cosine = {cos:.6f}", flush=True)
+        print(f"  row {i}: {tuple(solo.shape)}  relative L2 = {rel:.2e}", flush=True)
 
-    print(f"\nworst relative deviation: {worst:.4f}", flush=True)
-    print("fp16 storage alone gives ~1e-3 relative error, so anything at that scale is "
-          "storage precision, not a padding effect.", flush=True)
+    print(f"\nworst relative deviation: {worst:.2e}", flush=True)
+    if worst > 0:
+        print("MISMATCH — the cache was not built at batch size 1 (or the model changed). "
+              "Delete it and re-run extract_redteam_activations.py.", flush=True)
+        return 1
+    print("exact match: the cache reproduces a fresh single-row extraction", flush=True)
     return 0
 
 
