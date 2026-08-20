@@ -199,9 +199,23 @@ def main() -> int:
                      f"**{ceiling:.4f}** mean eval AUROC")
         lines.append(f"* red-team only (N=0): **{s['redteam_only']:.4f}** "
                      f"— gap {s['gap']:+.4f}")
-        for size, entry in ceil["by_train_size"].items():
+        rungs = list(ceil["by_train_size"].items())
+        for size, entry in rungs:
             lines.append(f"* ceiling CV at {size} training rows/fold: "
                          f"{entry['mean']['auroc']:.4f}")
+        if len(rungs) >= 2:
+            climb = rungs[-1][1]["mean"]["auroc"] - rungs[-2][1]["mean"]["auroc"]
+            if climb > 0.005:
+                lines.append(
+                    f"* **the ladder is still climbing** (+{climb:.4f} on the top step), so "
+                    f"{ceiling:.4f} is a *lower bound* on the ceiling, not a plateau — the "
+                    f"eval set simply has no more in-distribution rows to train on"
+                )
+            else:
+                lines.append(
+                    f"* the top two rungs agree to {abs(climb):.4f}, so the estimate is "
+                    f"saturated rather than training-size limited"
+                )
         lines.append("")
         lines.append("| arm | best AUROC | at N | N to close 90% of gap | 95% | "
                      f"N within {args.tol} of ceiling |")

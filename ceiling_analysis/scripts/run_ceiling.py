@@ -51,8 +51,13 @@ def assign_folds(labels: np.ndarray, n_folds: int, seed: int) -> np.ndarray:
     return folds
 
 
-def train_parts(eval_srcs, folds, labels, held_out: int, max_train: int, rng):
-    """`(source, rows)` for every split outside fold `held_out`, capped at max_train total."""
+def train_parts(eval_srcs, folds, labels, held_out: int, max_train: int, rng,
+                extra=None):
+    """`(source, rows)` for every split outside fold `held_out`, capped at max_train total.
+
+    `extra` appends further in-distribution training data (the dev training pool) that is not
+    part of any fold, so it is added whole to every fold and never scored.
+    """
     avail = {n: np.where(folds[n] != held_out)[0] for n in eval_srcs}
     total = sum(len(v) for v in avail.values())
     take = min(max_train, total)
@@ -63,6 +68,8 @@ def train_parts(eval_srcs, folds, labels, held_out: int, max_train: int, rng):
             keep = C.stratified_sample(labels[name][idx], quota, rng)
             idx = idx[keep]
         parts.append((eval_srcs[name], list(idx)))
+    if extra is not None:
+        parts.append(extra)
     return parts
 
 
@@ -85,21 +92,31 @@ def run_concept(concept: C.Concept, args) -> dict:
     folds = {n: assign_folds(labels[n], args.folds, args.seed) for n in eval_srcs}
     n_total = sum(len(s) for s in eval_srcs.values())
     sizes = args.train_sizes or [n_total]
+    # An optional top rung that adds the dev training pool to every fold. The eval-only
+    # ladder is bounded by the eval set itself — with 5 folds the largest training set is
+    # 4/5 of it — so if the ladder is still climbing at the top rung, the estimate is a
+    # lower bound rather than a ceiling. The dev pool is drawn from the same sources as the
+    # eval splits and is disjoint from them, so adding it buys more in-distribution
+    # training data without contaminating what is scored.
+    rungs = [(size, None) for size in sizes]
+    if args.add_dev_pool:
+        rungs.append((sizes[-1], (dev_src, pool_idx)))
 
     results = {"concept": concept.name, "n_eval_rows": n_total, "n_folds": args.folds,
                "n_validation": len(val_idx), "by_train_size": {}}
 
-    for size in sizes:
+    for size, extra in rungs:
+        tag = str(size) if extra is None else f"{size}+dev{len(extra[1])}"
         oof = {n: np.full(len(s), np.nan) for n, s in eval_srcs.items()}
         used = []
         for k in range(args.folds):
             t0 = time.time()
             rng = np.random.default_rng(args.seed * 1000 + k)
-            parts = train_parts(eval_srcs, folds, labels, k, size, rng)
+            parts = train_parts(eval_srcs, folds, labels, k, size, rng, extra=extra)
             n_train = sum(len(idx) for _, idx in parts)
             used.append(n_train)
             train = C.ragged_from_parts(parts)
-            print(f"[{concept.name}] size={size} fold {k}: {n_train} train rows "
+            print(f"[{concept.name}] size={tag} fold {k}: {n_train} train rows "
                   f"(packed {train.nbytes/1e9:.2f} GB)", flush=True)
             probe = C.fit(train, val_d, concept, seed=C.FIT_SEED)
             del train
@@ -110,7 +127,7 @@ def run_concept(concept: C.Concept, args) -> dict:
                     oof[name][idx] = C.score_source(probe, src, idx)
             del probe
             C.free_gpu()
-            print(f"[{concept.name}] size={size} fold {k} done in {time.time()-t0:.0f}s",
+            print(f"[{concept.name}] size={tag} fold {k} done in {time.time()-t0:.0f}s",
                   flush=True)
 
         per_split = {}
@@ -120,12 +137,13 @@ def run_concept(concept: C.Concept, args) -> dict:
         mean = {m: float(np.mean([v[m] for v in per_split.values()]))
                 for m in ("auroc", "accuracy", "tpr_at_fpr")}
         entry = {"train_rows_per_fold": used, "per_split": per_split, "mean": mean}
-        results["by_train_size"][str(size)] = entry
-        C.append_jsonl(log_path, {"concept": concept.name, "train_size": size, **entry})
-        print(f"[{concept.name}] size={size}: MEAN eval AUROC {mean['auroc']:.4f} | "
+        results["by_train_size"][tag] = entry
+        C.append_jsonl(log_path, {"concept": concept.name, "train_size": tag, **entry})
+        print(f"[{concept.name}] size={tag}: MEAN eval AUROC {mean['auroc']:.4f} | "
               + " ".join(f"{k}={v['auroc']:.4f}" for k, v in per_split.items()), flush=True)
 
-    top = str(sizes[-1])
+    top = list(results["by_train_size"])[-1]
+    results["ceiling_rung"] = top
     results["ceiling"] = results["by_train_size"][top]["mean"]
     results["ceiling_per_split"] = {
         k: v["auroc"] for k, v in results["by_train_size"][top]["per_split"].items()
@@ -142,7 +160,9 @@ def main() -> int:
     ap.add_argument("--folds", type=int, default=5)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--train-sizes", nargs="*", type=int, default=None,
-                    help="training rows per fold; the LAST one is reported as the ceiling")
+                    help="training rows per fold; the LAST rung is reported as the ceiling")
+    ap.add_argument("--add-dev-pool", action="store_true",
+                    help="add a top rung that also trains on the dev training pool")
     args = ap.parse_args()
     for name in args.concepts:
         run_concept(C.CONCEPTS[name], args)
