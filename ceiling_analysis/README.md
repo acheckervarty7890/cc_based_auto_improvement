@@ -134,15 +134,37 @@ hyperparameters, fit seed 42.
 ```
 ceiling_analysis/
   scripts/
+    fetch_supervisor.sh             all downloads, with stall detection and retries
+    run_all.sh                      the whole chain end to end on a fresh box
     fetch_kaggle_activations.py     eval + dev activation blobs from Kaggle
     extract_redteam_activations.py  the one place gemma-3-27b is loaded
+    extract_redteam_partial.py      the same, startable before the download finishes
     ca_data.py                      memory-mapped, row-addressable activation sources
     ca_common.py                    concepts, partitions, fitting, scoring
     run_ceiling.py                  the eval-internal cross-validation
     run_sweep.py                    the 10-point x 3-arm dev-sample sweep
     make_report.py                  tables, curves and the written answer
+    build_artifact.py               the same results as a standalone HTML write-up
     bench_fit.py                    host- vs GPU-resident fit cost on this box
   data/                             red-team training sets + reference comparison CSVs
   results/                          JSON/JSONL/CSV results, curves, SUMMARY.md
   logs/                             run logs and PROGRESS.md
 ```
+
+## Running it
+
+```bash
+export HF_TOKEN=...                                   # tuberlens' hf_login needs it
+export KAGGLE_CONFIG_DIR=/path/to/dir-with-kaggle.json  # the DIRECTORY, not the file
+ceiling_analysis/scripts/fetch_supervisor.sh &        # ~135 GB: 16 blobs + the checkpoint
+ceiling_analysis/scripts/run_all.sh                   # waits on files, not on processes
+```
+
+`results/` matches the repo-wide `results*` ignore rule, so it is force-added by
+`progress_snapshot.sh`. Without that, a snapshot preserves the code and the logs and
+silently drops every number the run produced — which is how one box's results were lost
+in full.
+
+The written answer lives in `results/SUMMARY.md`, and the same numbers as a standalone
+page at https://claude.ai/code/artifact/35391e55-8c9c-40dd-a01a-f353a215de5a
+(regenerate with `build_artifact.py` and republish the same path to update it in place).
