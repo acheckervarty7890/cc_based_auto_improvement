@@ -1,5 +1,36 @@
 # Ceiling analysis — results
 
+### highstakes
+
+* ceiling (eval-trained 5-fold CV, best rung `3526`): **0.9809** mean eval AUROC
+* red-team only (N=0): **0.9043** — gap +0.0766
+* ceiling CV at 881 training rows/fold: 0.9680
+* ceiling CV at 1763 training rows/fold: 0.9745
+* ceiling CV at 3526 training rows/fold: 0.9809
+* ceiling CV at 3526+dev1431 training rows/fold: 0.9798
+* the top two rungs agree to 0.0010, so the estimate is saturated rather than training-size limited
+
+| arm | best AUROC | at N | N to close 90% of gap | 95% | N within 0.01 of ceiling |
+| --- | --- | --- | --- | --- | --- |
+| mixed into the red-team training data | 0.9734 | 1431 | 1431 | None | 1431 |
+| red-team first, then fine-tuned on the dev samples | 0.9738 | 954 | 1431 | None | 954 |
+| dev samples alone (control, no red-team data) | 0.9714 | 1431 | None | None | 1431 |
+
+For context, the probes those experiment runs actually produced (their own comparison CSVs, mean eval AUROC per retrain round):
+
+| run | round | mean eval AUROC |
+| --- | --- | --- |
+| experiment19 gpt-oss-120b, ens3, dev-validated | iter2 | 0.9086 |
+| experiment19 gpt-oss-120b, ens3, dev-validated | iter3 | 0.9276 |
+| experiment19 gpt-oss-120b, ens3, dev-validated | iter4 | 0.9248 |
+| experiment19 gpt-oss-120b, ens3, dev-validated | iter5 | 0.9150 |
+| experiment18 gpt-oss-120b, single probe, dev-validated | iter0 | 0.8997 |
+| experiment18 gpt-oss-120b, single probe, dev-validated | iter1 | 0.9097 |
+| experiment18 gpt-oss-120b, single probe, dev-validated | iter2 | 0.9250 |
+| experiment18 gpt-oss-120b, single probe, dev-validated | iter3 | 0.8988 |
+
+![highstakes](curve_highstakes.png)
+
 ### hu_ha
 
 * ceiling (eval-trained 5-fold CV, best rung `693+dev218`): **0.9844** mean eval AUROC
