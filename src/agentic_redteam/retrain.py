@@ -6,6 +6,7 @@ import gc
 import hashlib
 import io
 import json
+import os
 import pickle
 import time
 from dataclasses import dataclass
@@ -658,19 +659,95 @@ def _allocatable_bytes(device) -> int:
     return int(free) + max(0, int(reserved) - int(allocated))
 
 
+_STAGING_ENV = "AGENTIC_REDTEAM_STAGE_ACTIVATIONS"
+_STAGING_RESERVE_ENV = "AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB"
+_DEFAULT_STAGING_RESERVE_GIB = 2.0
+
+
+def _staging_enabled() -> bool:
+    return os.environ.get(_STAGING_ENV, "1").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+
+
+def _staging_reserve_bytes() -> int:
+    """Headroom kept free for the fit's own activations and gradients, in bytes.
+
+    2 GiB by default, which is what a gemma-3-27b-shaped head fit wanted on a 24 GiB
+    card. It is a property of the head and batch size rather than of the dataset, so
+    it is a knob rather than a fraction of the card: raise it if a fit OOMs *after*
+    staging reported success, lower it to squeeze a borderline set on.
+    """
+    raw = os.environ.get(_STAGING_RESERVE_ENV, "").strip()
+    if raw:
+        try:
+            gib = float(raw)
+        except ValueError:
+            print(
+                f"Ignoring {_STAGING_RESERVE_ENV}={raw!r}: expected a number of GiB. "
+                f"Using {_DEFAULT_STAGING_RESERVE_GIB}."
+            )
+        else:
+            if gib >= 0:
+                return int(gib * 2**30)
+            print(
+                f"Ignoring {_STAGING_RESERVE_ENV}={raw!r}: must not be negative. "
+                f"Using {_DEFAULT_STAGING_RESERVE_GIB}."
+            )
+    return int(_DEFAULT_STAGING_RESERVE_GIB * 2**30)
+
+
 def _to_device_for_fit(
-    datasets, *, verbose: bool = True, reserve_bytes: int = 2 * 2**30
+    datasets, *, verbose: bool = True, reserve_bytes: int | None = None
 ) -> bool:
     """Move merged activation tensors onto the fit device before ``ProbeFactory.build``.
 
     ``ActivationDataset.__getitems__`` ends every batch fetch in ``.to(self.device)``.
     With the tensors on the host that is a scattered CPU gather plus a host->device
-    copy of the entire set, once per epoch, for every ensemble member — which is
-    where a retrain's wall-clock actually goes (see the comment at the call site for
-    the measured 113x). Pre-staging them here turns that ``.to`` into a no-op.
+    copy of the entire set, once per epoch, for every ensemble member — which is where
+    a retrain's wall-clock actually goes. Pre-staging them here turns that ``.to`` into
+    a no-op.
 
     Purely a data-placement change: the sampler, the batch order and the values are
     untouched, so the fitted probes are bit-identical.
+
+    **Largest dataset first — the caller's order is not load-bearing.** Every dataset
+    handed in is traversed once per epoch (the training set under forward+backward, the
+    validation set under ``no_grad``), so the bytes a dataset moves per epoch is simply
+    its own size, and when only some of them fit, the card is worth spending on the
+    biggest. They are therefore sorted here rather than trusted in the order given.
+
+    That ordering has to be computed, not assumed, because *which* set is the big one
+    is a property of the configuration:
+
+    ======================================  ==================  ==============
+    configuration                           validation set      larger set
+    ======================================  ==================  ==============
+    ``--dev-data dev_samples/highstakes``   1908 rows           validation
+    ``--dev-data dev_samples/hu_ha``        290 rows            training
+    ``--dev-data dev_samples/instructions`` 436 rows            training
+    default split (no ``--dev-data``)       ``test_size`` share training
+    ======================================  ==================  ==============
+
+    Pinning either end of that table strands the other. Measured on the high-stakes
+    shape (666 train / 1908 dev, gemma-3-27b activations, 24 GiB card), staging the
+    *smaller* of the two ran 4.3 epochs/min against 13.7 for the larger and ~4.0
+    host-resident — i.e. picking wrong gives up nearly the whole gain.
+
+    **All or nothing, per dataset.** tuberlens' ``Activation.__post_init__`` does
+    ``activations *= attention_mask[:, :, None]``, so a dataset whose fields straddle
+    two devices raises rather than merely running slowly.
+
+    **Capacity-checked rather than left to OOM.** An unconditional ``.to(device)``
+    relies on the copy raising ``OutOfMemoryError`` when the set does not fit. That
+    holds on a normal Linux/CUDA box but *not* under WSL2, where the driver
+    oversubscribes into host memory and pages over PCIe instead — there the fallback
+    below never fires and the fit gets exactly the paging this exists to remove
+    (measured: 26.4 GiB staged onto a 24 GiB card ran 5.3 epochs/min against ~4.0
+    host-resident, where the data path predicts ~45x). So a dataset is moved only if it
+    fits in ``_allocatable_bytes`` less ``reserve_bytes``.
 
     Returns True if anything was moved. On OOM — or any other failure — every tensor
     already moved is restored to its original device and the fit proceeds on the host
@@ -678,52 +755,65 @@ def _to_device_for_fit(
     hypothetical: the red-team set grows each iteration, so a long enough run will
     eventually present a set larger than the card.
 
-    **The staging is capacity-checked, per tensor, against the card's FREE memory.**
-    An unconditional `.to(device)` relies on the copy raising OutOfMemoryError when the
-    set does not fit — which it does on a normal Linux/CUDA box, but NOT under WSL2,
-    where the driver oversubscribes into host memory and pages over PCIe instead. There
-    the fallback above never fires and the fit gets the paging it was supposed to avoid:
-    measured here at 26.4 GiB staged onto a 24 GiB card, the retrain ran ~5.3 epochs/min
-    against ~4 host-resident — a 1.3x gain where the arithmetic predicts ~45x.
+    Two environment knobs, honoured on every call:
 
-    So each tensor is moved only if it fits in what can actually be allocated — see
-    ``_allocatable_bytes``, which counts torch's reserved-but-unallocated pool as well
-    as the driver's free figure — less ``reserve_bytes`` for the fit's own
-    activations/gradients. ``datasets`` is consumed
-    IN ORDER, so pass the training set first: it is the one carrying forward+backward
-    per epoch, and it is far smaller than a full dev set, so it is what you want resident
-    when only one of the two fits. Anything skipped stays on the host and behaves exactly
-    as it did before this function existed.
+    ``AGENTIC_REDTEAM_STAGE_ACTIVATIONS=0``
+        Skip staging entirely and fit host-resident, as before this existed.
+    ``AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB``
+        Headroom left free for the fit itself (default 2) — see
+        ``_staging_reserve_bytes``.
+
+    ``reserve_bytes`` overrides the latter for a single call.
     """
     import torch
+
+    if not _staging_enabled():
+        if verbose:
+            print(
+                f"Activation staging disabled by {_STAGING_ENV}; the probe fits run "
+                "host-resident."
+            )
+        return False
 
     device = _fit_device()
     if device is None:
         return False
+    if reserve_bytes is None:
+        reserve_bytes = _staging_reserve_bytes()
 
-    original: list[tuple[object, str, "torch.Tensor"]] = []
+    try:
+        target_type = torch.device(device).type
+    except Exception:  # pragma: no cover - an unparseable DEVICE setting
+        target_type = "cuda"
+
+    # Size every dataset BEFORE moving any of it, so they can be ordered by what they
+    # actually cost per epoch. A dataset already on the target device contributes no
+    # pending tensors and drops out here.
+    plan: list[tuple[int, dict, list[tuple[str, "torch.Tensor"]]]] = []
+    for ds in datasets:
+        if ds is None:
+            continue
+        fields = getattr(ds, "other_fields", None)
+        if not isinstance(fields, dict):
+            continue
+        pending = [
+            (name, fields[name])
+            for name in _PAD_FIELDS
+            if isinstance(fields.get(name), torch.Tensor)
+            and fields[name].device.type != target_type
+        ]
+        if not pending:
+            continue
+        size = sum(tensor.numel() * tensor.element_size() for _n, tensor in pending)
+        plan.append((size, fields, pending))
+    plan.sort(key=lambda entry: entry[0], reverse=True)
+
+    original: list[tuple[dict, str, "torch.Tensor"]] = []
     moved_bytes = 0
     skipped_bytes = 0
     try:
-        for ds in datasets:
-            if ds is None:
-                continue
-            fields = getattr(ds, "other_fields", None)
-            if not isinstance(fields, dict):
-                continue
-            # ALL OR NOTHING, PER DATASET. tuberlens' Activation.__post_init__ does
-            # `activations *= attention_mask[:, :, None]`, so a dataset whose fields
-            # straddle two devices raises rather than merely running slowly. Size the
-            # whole dataset first, then move every field or none of them.
-            pending = [
-                (name, fields[name])
-                for name in _PAD_FIELDS
-                if isinstance(fields.get(name), torch.Tensor)
-                and fields[name].device.type != "cuda"
-            ]
-            if not pending:
-                continue
-            size = sum(tensor.numel() * tensor.element_size() for _n, tensor in pending)
+        for size, fields, pending in plan:
+            # Re-read the budget each time: the previous dataset just consumed some.
             if size + reserve_bytes > _allocatable_bytes(device):
                 skipped_bytes += size
                 continue
@@ -751,8 +841,9 @@ def _to_device_for_fit(
             note += (
                 f"; {skipped_bytes / 2**30:.1f} GiB left on the host — it does not fit in "
                 f"the {_allocatable_bytes(device) / 2**30:.1f} GiB allocatable with a "
-                f"{reserve_bytes / 2**30:.0f} GiB reserve, and staging it anyway would page "
-                "over PCIe rather than fail"
+                f"{reserve_bytes / 2**30:.1f} GiB reserve ({_STAGING_RESERVE_ENV} to "
+                "change), and staging it anyway risks paging over PCIe rather than "
+                "failing cleanly"
             )
         print(note)
     return bool(original)
@@ -967,21 +1058,21 @@ def _train_with_cached_base_activations(
     # The model has already been released above, so the card is empty; we still
     # fall back to host residency on OOM, since a large enough red-team set will
     # eventually outgrow the GPU and a slow fit beats a dead one.
-    # VALIDATION FIRST, and the order is load-bearing — it is the bigger tensor, and on
-    # this workload that is exactly why it should be the resident one. What costs
-    # wall-clock is the per-epoch host->device copy, so the right thing to keep on the
-    # card is whatever moves the most bytes per epoch, not whatever is cheapest to hold.
-    # Measured on a 666-train/1908-dev retrain (gemma-3-27b, 24 GiB card):
+    # What costs wall-clock is the per-epoch host->device copy, so when only one of the
+    # two fits, the card should hold whatever moves the most bytes per epoch. That is
+    # simply the larger set, and WHICH set that is depends on the configuration — a
+    # 1908-row dev set dwarfs the training data, a 290-row one is dwarfed by it — so
+    # _to_device_for_fit sorts by size rather than trusting the order here. Measured on
+    # a 666-train/1908-dev retrain (gemma-3-27b, 24 GiB card):
     #
-    #   both staged (26.4 GiB, oversubscribed via WSL paging)   5.3 epochs/min
-    #   train staged (6.9 GiB), 19.6 GiB dev copied per epoch   4.3 epochs/min
-    #   host-resident (upstream behaviour before staging)       ~4   epochs/min
+    #   larger set staged (19.6 GiB), 6.9 GiB copied per epoch  13.7 epochs/min
+    #   both staged (26.4 GiB, oversubscribed via WSL paging)    5.3 epochs/min
+    #   smaller set staged (6.9 GiB), 19.6 GiB copied per epoch  4.3 epochs/min
+    #   host-resident (upstream behaviour before staging)       ~4.0 epochs/min
     #
-    # Staging the training set alone was the WORST of the three: it leaves the 19.6 GiB
-    # validation flow intact and buys only the 6.9 GiB one. Flipping the order stages the
-    # dev set and leaves train's 6.9 GiB to copy — ~2.8x less traffic per epoch.
-    # See _to_device_for_fit on why this is capacity-checked rather than left to OOM.
-    _to_device_for_fit([validation_dataset, train_dataset], verbose=verbose)
+    # See _to_device_for_fit on the ordering, the capacity check (rather than relying on
+    # OOM) and the AGENTIC_REDTEAM_STAGE_ACTIVATIONS / _FIT_STAGING_RESERVE_GIB knobs.
+    _to_device_for_fit([train_dataset, validation_dataset], verbose=verbose)
 
     def _build(fit_seed: int):
         # Reseed right before each fit so the fresh probe's random weight init is

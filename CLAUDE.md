@@ -106,6 +106,10 @@ Required environment variables:
   (e.g. `"0=21GiB,cpu=45GiB"` — pins accelerate's per-device budget so it can't fall
   back to disk offload; unset by default) and tuberlens' own `BATCH_SIZE` (default 1),
   which drives both `get_activations` and the red-team chunking in `retrain`.
+- Optional probe-fit staging (see `retrain._to_device_for_fit`):
+  `AGENTIC_REDTEAM_STAGE_ACTIVATIONS` (default on; `0` fits host-resident) and
+  `AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB` (default 2 — GPU headroom left for the fit's
+  own activations and gradients).
 - Also read from tuberlens' own settings (`tuberlens.config.global_settings`, populated
   from the environment): `MAX_MEMORY` (same `"0=21GiB,cpu=45GiB"` form) and per-model
   `MODEL_MAX_MEMORY` pin the budget for **every** tuberlens load — including
@@ -1289,10 +1293,43 @@ This is a placement change only — same indices, same order, same values — so
 probes are **bit-identical**, verified by re-running `train_initial_probe` and reproducing
 an existing `probe_iter0.pkl` member for member, `best_epoch` included. (The unpatched
 control reproduces it too, so the fit is deterministic and this is a valid test — worth
-knowing independently: a training run here can be regenerated exactly.) It falls back to
-host residency on OOM, restoring every tensor it already moved: the red-team set grows
-each iteration, so a long enough run will eventually present a set larger than the card,
-and a slow retrain beats a dead one.
+knowing independently: a training run here can be regenerated exactly.)
+
+**Which set gets the card is computed, not fixed — and this is the part that does not
+travel between concepts.** Every dataset is traversed once per epoch (train under
+forward+backward, validation under `no_grad`), so the bytes a set moves per epoch is just
+its own size, and when only some of them fit, the biggest is the one worth staging.
+`_to_device_for_fit` therefore **sorts its arguments by size**; the call site's order is
+not load-bearing. Which set *is* the biggest depends entirely on the configuration — with
+`--dev-data dev_samples/highstakes` the 1908-row dev set (19.6 GiB of gemma-27b
+activations at 10.5 MB/row) dwarfs the training data, while `dev_samples/hu_ha` (290 rows)
+and `dev_samples/instructions` (436) are dwarfed by it, as is every run on the default
+`test_size` split. Pinning either end strands the other: measured on the high-stakes shape
+(666 train / 1908 dev, 24 GiB card), staging the **smaller** set ran 4.3 epochs/min against
+**13.7** for the larger and ~4.0 host-resident — picking wrong gives up nearly the whole
+gain. `scripts/verify_fit_staging.py` pins this (and the all-or-nothing rule below)
+without needing a GPU.
+
+**The staging is capacity-checked, not left to OOM**, because on some boxes the OOM never
+comes: under WSL2 the driver oversubscribes into host memory and pages over PCIe rather
+than raising, so an unconditional `.to()` silently buys the paging it was meant to remove
+(26.4 GiB onto a 24 GiB card: 5.3 epochs/min against ~4.0 host-resident, where the data
+path predicts ~45×). A dataset is moved only if it fits `_allocatable_bytes` less a
+reserve, and it moves **whole or not at all** — tuberlens' `Activation.__post_init__` does
+`activations *= attention_mask[:, :, None]`, so a dataset split across two devices *raises*
+rather than merely running slowly. `_allocatable_bytes` is driver-free **plus torch's
+reserved-but-unallocated pool**: `empty_cache()` only returns wholly-unused segments, so
+after a 27B model has been loaded and released the driver can report ~1 GiB free while
+torch has ~22 GiB going spare, and sizing against the driver's figure alone stages nothing.
+
+Two knobs, both read on every call: **`AGENTIC_REDTEAM_STAGE_ACTIVATIONS=0`** skips staging
+entirely (fit host-resident, as before it existed) and
+**`AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB`** (default 2) sets the headroom left for the
+fit's own activations and gradients — raise it if a fit OOMs *after* staging reported
+success, lower it to squeeze a borderline set on. The `reserve_bytes=` argument overrides
+the latter per call. On OOM or any other failure every tensor already moved is restored
+and the fit proceeds host-resident: the red-team set grows each iteration, so a long enough
+run will eventually present a set larger than the card, and a slow retrain beats a dead one.
 
 **Training-time message transforms.** `combine_consecutive_messages` /
 `convert_tool_to_assistant` apply to the training data too (not just eval): the
