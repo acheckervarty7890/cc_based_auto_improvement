@@ -33,6 +33,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ca_common as C  # noqa: E402
 
+# batch_size x gradient_accumulation_steps for `linear_then_softmax`'s defaults. A training
+# set smaller than this produces fewer batches per epoch than the accumulation period, so
+# `(batch_idx + 1) % gradient_accumulation_steps == 0` never fires and `optimizer.step()` is
+# never called — the head is returned at its random initialisation. tuberlens' loop does this
+# too; it is not an artifact of the ragged transcription.
+MIN_TRAIN_FOR_A_STEP = 16 * 4
+
 ARM_LABEL = {
     "mixed": "mixed into the red-team training data",
     "finetune": "red-team first, then fine-tuned on the dev samples",
@@ -224,6 +231,21 @@ def main() -> int:
             lines.append(
                 f"| {ARM_LABEL[arm]} | {e['best_auroc']:.4f} | {e['best_n_dev']} | "
                 f"{e['n_at_gap_90']} | {e['n_at_gap_95']} | {e['n_within_tol']} |"
+            )
+        dead = df[df.n_train < MIN_TRAIN_FOR_A_STEP][["arm", "n_dev", "n_train"]]
+        if not dead.empty:
+            pts = sorted({(r.arm, int(r.n_dev), int(r.n_train)) for r in dead.itertuples()})
+            lines.append("")
+            lines.append(
+                f"> **Points that never take an optimizer step.** With the default "
+                f"`batch_size` 16 and `gradient_accumulation_steps` 4, a training set below "
+                f"{MIN_TRAIN_FOR_A_STEP} samples yields fewer batches per epoch than the "
+                f"accumulation period, so `optimizer.step()` is never called and the head is "
+                f"returned at its random initialisation. This is tuberlens' own loop, not an "
+                f"artifact of this analysis, and it applies to: "
+                + ", ".join(f"`{a}` at N={n} ({t} train rows)" for a, n, t in pts)
+                + ". Read those points as 'no training happened', not as 'the data did not "
+                  "help'. The `mixed` arm is unaffected — it always carries the red-team set."
             )
         refs = reference_rows(concept)
         if refs:
