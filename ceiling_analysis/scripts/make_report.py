@@ -41,6 +41,43 @@ ARM_LABEL = {
 ARM_COLOR = {"mixed": "#2f6fb5", "finetune": "#c8641c", "dev_only": "#6d6d6d"}
 
 
+REFERENCE = {
+    "highstakes": [
+        ("experiment19 gpt-oss-120b, ens3, dev-validated",
+         "exp19_hs_gptoss120b_ens3_comparison.csv"),
+        ("experiment18 gpt-oss-120b, single probe, dev-validated",
+         "exp18_hs_gptoss120b_devval_comparison.csv"),
+    ],
+    "hu_ha": [
+        ("experiment17 gpt-oss-120b, ens10, dev-validated",
+         "exp17_hu_harm_gptoss120b_ens10_devval_comparison.csv"),
+    ],
+}
+
+
+def reference_rows(concept: str) -> list[tuple[str, str, float]]:
+    """(run, round, mean eval AUROC) from the experiment runs' own comparison CSVs.
+
+    These probes were trained on base + red-team data with the whole dev set as validation —
+    i.e. they are the runs this analysis is trying to put a scale under. Their numbers are
+    not identical in setup to the N=0 point here (they are ensembles, and they early-stop
+    against all 1908/290 dev rows rather than the reserved 25%), so they are context, not a
+    control.
+    """
+    out = []
+    for label, name in REFERENCE.get(concept, []):
+        path = C.REPO / "ceiling_analysis/data/reference" / name
+        if not path.exists():
+            continue
+        df = pd.read_csv(path)
+        means = df[df.dataset == "mean"]
+        if means.empty:
+            means = df.groupby("round", as_index=False)["auroc"].mean()
+        for _, row in means.iterrows():
+            out.append((label, str(row["round"]), float(row["auroc"])))
+    return out
+
+
 def load_sweep(concept: str) -> pd.DataFrame:
     path = C.RESULTS / f"sweep_{concept}.jsonl"
     rows = []
@@ -174,6 +211,16 @@ def main() -> int:
                 f"| {ARM_LABEL[arm]} | {e['best_auroc']:.4f} | {e['best_n_dev']} | "
                 f"{e['n_at_gap_90']} | {e['n_at_gap_95']} | {e['n_within_tol']} |"
             )
+        refs = reference_rows(concept)
+        if refs:
+            lines.append("")
+            lines.append("For context, the probes those experiment runs actually produced "
+                         "(their own comparison CSVs, mean eval AUROC per retrain round):")
+            lines.append("")
+            lines.append("| run | round | mean eval AUROC |")
+            lines.append("| --- | --- | --- |")
+            for label, rnd, auroc in refs:
+                lines.append(f"| {label} | {rnd} | {auroc:.4f} |")
         lines.append("")
         lines.append(f"![{concept}](curve_{concept}.png)")
         lines.append("")
