@@ -29,8 +29,11 @@ mkdir -p ceiling_analysis/logs
   echo '```'
 } >> "$LOG"
 
-git add -A ceiling_analysis ceiling_acts 2>/dev/null
 git add -A ceiling_analysis
+# results/ matches the repo-wide `results*` ignore rule, so a plain `git add` skips it --
+# which is why the box that died took every ceiling number with it. They are ~200 KB of
+# JSON/CSV/PNG; force-add them so a snapshot actually preserves the run's output.
+git add -f ceiling_analysis/results 2>/dev/null
 if ! git diff --cached --quiet; then
   git commit -q -m "ceiling analysis: progress snapshot $(date -Is)"
 fi
