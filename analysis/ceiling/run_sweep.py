@@ -120,7 +120,12 @@ def main():
     seeds = list(H.ENSEMBLE_SEEDS[: args.ensemble])
 
     def emit(way, n, per, ft_lr=None, extra=None):
-        rec = {"arm": args.arm, "way": way, "n_dev": n, "ft_lr": ft_lr,
+        # With --no-redteam the arm is never loaded (rt_train is the base split
+        # alone), so every fit is arm-independent and stamping one would invite
+        # reading this as an arm-specific result. It is not: both arms produce
+        # bit-identical rows here.
+        rec = {"arm": None if args.no_redteam else args.arm,
+               "way": way, "n_dev": n, "ft_lr": ft_lr,
                "no_redteam": bool(args.no_redteam),
                "n_redteam_train": n_rt, "ensemble": args.ensemble,
                "per_split": per, "macro": H.macro(per)} | (extra or {})
