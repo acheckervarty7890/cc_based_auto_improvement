@@ -82,6 +82,19 @@ mkdir -p logs
 
 : "${OPENROUTER_API_KEY:?export OPENROUTER_API_KEY first (attacker, judge and preprocessing are all provider: openrouter)}"
 
+# Pin accelerate's per-device budget for EVERY extraction load. model_loading._resolve_max_memory
+# gives this var precedence over tuberlens' own MAX_MEMORY, and the load line prints which source
+# set it. UNPINNED (the default, and how this experiment's first launch ran) accelerate infers the
+# budget from whatever is FREE at load time and can silently fall back to CPU/disk offload — the
+# load then logs "max_memory unpinned" and extraction crawls. 22 GiB of the 24 GiB card leaves room
+# for the CUDA context and the forward's own activations; 45 GiB of the box's 62 GiB caps the CPU
+# spill. Note this does NOT bound the probe-fit staging, which happens after the model is released
+# and sizes itself from what is actually allocatable then (retrain._to_device_for_fit,
+# AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB). Export the var before launching to override.
+: "${AGENTIC_REDTEAM_MAX_MEMORY:=0=22GiB,cpu=45GiB}"
+export AGENTIC_REDTEAM_MAX_MEMORY
+echo ">>> extraction memory budget: AGENTIC_REDTEAM_MAX_MEMORY=$AGENTIC_REDTEAM_MAX_MEMORY"
+
 # --- preflight: model slugs are actually served -----------------------------------------------
 # OpenRouter's /models is unauthenticated, but the key is sent anyway so the same credential
 # problem shows up here rather than mid-run.
