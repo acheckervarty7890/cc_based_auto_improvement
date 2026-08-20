@@ -10,6 +10,7 @@ result worth reading — it produces a stack trace or nothing.
 from __future__ import annotations
 
 import argparse
+import copy
 import sys
 import tempfile
 from pathlib import Path
@@ -75,8 +76,14 @@ def main() -> int:
     print("fit ok; val AUROC", round(C.ragged_val_auroc(probe, val), 4), flush=True)
 
     dev_train = C.ragged_from_parts([(dev_src, pool_idx[:24])])
-    probe2, info = C.finetune(probe, dev_train, val)
-    print("finetune ok;", info, flush=True)
+    # the sweep fine-tunes a *copy* of the stage-1 probe once per point, so the copy has to
+    # be independent — a shared module would let each point train on top of the last
+    clone = copy.deepcopy(probe)
+    before = C.ragged_val_auroc(probe, val)
+    probe2, info = C.finetune(clone, dev_train, val)
+    after_original = C.ragged_val_auroc(probe, val)
+    assert before == after_original, "fine-tuning the copy mutated the original probe"
+    print("finetune (on a deepcopy) ok;", info, flush=True)
 
     name, src = next(iter(C.eval_sources(concept).items()))
     idx = np.arange(min(32, len(src)))
