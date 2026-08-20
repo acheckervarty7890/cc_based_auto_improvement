@@ -78,9 +78,22 @@ single-row extraction.
 set (stratified by label *and* dev split) is reserved as the validation set for *every* fit —
 both sweep arms, every `N`, and every ceiling CV fold — and is never trained on. This mirrors
 `validation.dev_data` in the experiment 17/18/19 configs, which early-stop against the whole
-dev set, while keeping the yardstick identical across points: tuberlens keeps the
-best-validation-AUROC checkpoint, so a validation set that moved with `N` would mean each
-point's checkpoint was selected against different data.
+dev set, while keeping the yardstick identical across points: a validation set that moved
+with `N` would mean each point stopped against different data.
+
+**What the validation set actually controls, precisely.** It controls *when training stops*,
+not *which weights are kept* — and that is a correction to what this repo's own notes claim.
+`PytorchAdamClassifier.train` saves its best checkpoint as `self.model.state_dict().copy()`,
+but `.copy()` on a state dict is **shallow**: the entries are the live parameter tensors,
+which go on training. Its closing `load_state_dict(best_model_state)` therefore copies every
+parameter onto itself, and the probe returned is the **last** epoch's, not `best_epoch`'s.
+`best_epoch` is recorded correctly and patience still stops training `patience` epochs after
+the best one, so validation is far from inert — but no checkpoint is ever restored. Every
+probe in the experiment runs was produced this way, so this analysis reproduces it rather
+than "fixing" it; a fixed version would not be comparable to the runs it is meant to explain.
+The one place the analysis adds a guard is the `finetune` arm, where the stage-1 weights are
+snapshotted and restored if fine-tuning ends up worse on the same validation set — otherwise
+that arm could only ever report its last epoch, however bad.
 
 | concept | dev rows | reserved validation | dev training pool | sweep points |
 | --- | --- | --- | --- | --- |

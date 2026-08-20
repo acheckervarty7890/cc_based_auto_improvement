@@ -499,10 +499,13 @@ def dev_partition(concept: Concept):
 
     Every fit in this analysis — both sweep arms, every point, and the ceiling CV — early-
     stops against the *same* validation slice, and no fit ever trains on it. That is what
-    makes the points comparable: tuberlens keeps the best-validation-AUROC checkpoint
-    (`pytorch_classifiers.py:358-405`), so a validation set that moved with `N` would mean
-    each point's checkpoint was selected against different data — the exact failure the
-    experiment 17/18/19 configs introduced `validation.dev_data` to avoid.
+    makes the points comparable: a validation set that moved with `N` would mean each point
+    stopped against different data — the failure the experiment 17/18/19 configs introduced
+    `validation.dev_data` to avoid.
+
+    Note what this does *not* buy. tuberlens does not restore its best checkpoint — it saves
+    `state_dict().copy()`, which aliases the live parameters — so validation governs the stop
+    epoch, not the weights. See the note at the top of `ca_fit`.
 
     The slice is stratified by (label, dev split) so its composition matches the dev set's,
     and it is a pure function of the dev files plus `DEV_PARTITION_SEED`.

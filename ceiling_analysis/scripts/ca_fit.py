@@ -22,10 +22,20 @@ on trust.
 
 The training loop is a transcription of `PytorchAdamClassifier.train`: same AdamW args, same
 cosine schedule to `final_lr`, same `BCEWithLogitsLoss`, same per-batch gradient clipping
-with `gradient_accumulation_steps`-wise stepping, same per-epoch validation AUROC with
-best-checkpoint retention and the same patience. Batch order is `torch.randperm` chunked by
-`batch_size`, which is exactly what `DataLoader(shuffle=True)`'s `RandomSampler` draws from
-the same global generator, so a given seed produces the same batches in both paths.
+with `gradient_accumulation_steps`-wise stepping, same per-epoch validation AUROC and the
+same patience. Batch order comes from a real `DataLoader` (see `index_loader` — reproducing
+it by hand is a trap), so a given seed produces the same batches in both paths.
+
+**The weights this returns are the last epoch's, not the best epoch's — matching tuberlens,
+which does not restore its best checkpoint.** `PytorchAdamClassifier.train` saves it as
+`self.model.state_dict().copy()`, and `.copy()` on a state dict is *shallow*: the entries are
+the live parameter tensors, which keep training. The closing `load_state_dict(best_model_state)`
+therefore copies each parameter onto itself. `best_epoch` is recorded faithfully, and patience
+still stops training `patience` epochs after the best one, but the probe you get is the one
+the last epoch produced. That is what every probe in this repo's experiments was trained with,
+so it is what this reproduces — a "fixed" one would not be comparable to them. It also means
+the validation set governs *when to stop*, not *which weights to keep*; the analysis's fixed
+validation slice is worth exactly that much and no more.
 """
 
 from __future__ import annotations
@@ -64,7 +74,7 @@ class RaggedActivations:
         # Packing and unpacking both assume each row's real tokens are a PREFIX, i.e. that
         # the tokenizer right-pads. It does (checked against the published blobs), but a
         # left-padded blob would pack silently and shift every row, so it is asserted.
-        prefix = torch.arange(mask.shape[1]).unsqueeze(0) < lengths.unsqueeze(1)
+        prefix = torch.arange(mask.shape[1], device=mask.device).unsqueeze(0) < lengths.unsqueeze(1)
         if not bool((prefix == mask).all()):
             raise ValueError("activations are not right-padded; ragged packing is unsafe")
         total = int(lengths.sum().item())
@@ -110,7 +120,8 @@ class RaggedActivations:
                 m = m.bool()
                 n = a.shape[0]
                 prefix = (
-                    torch.arange(m.shape[1]).unsqueeze(0) < m.sum(-1).unsqueeze(1)
+                    torch.arange(m.shape[1], device=m.device).unsqueeze(0)
+                    < m.sum(-1).unsqueeze(1)
                 )
                 if not bool((prefix == m).all()):
                     raise ValueError(
@@ -131,10 +142,26 @@ class RaggedActivations:
     def nbytes(self) -> int:
         return self.packed.element_size() * self.packed.nelement()
 
-    def batch(self, idx: torch.Tensor):
-        """Assemble rows `idx` as a padded `(activations, mask, y)` batch of their own width."""
+    @property
+    def max_len(self) -> int:
+        return int(self.lengths.max().item())
+
+    def batch(self, idx: torch.Tensor, width: int | None = None):
+        """Assemble rows `idx` as a `(activations, mask, y)` batch.
+
+        `width` defaults to the **pool's** longest row, not the batch's, so the tensor handed
+        to the head is byte-identical to the one the dense path would hand it. Trimming to
+        the batch's own width is mathematically a no-op — padded positions contribute exactly
+        0.0 through the masked softmax — but it is not a *numerical* no-op: a different
+        tensor shape selects a different cuBLAS kernel for the projection, and bf16 addition
+        is not associative, so the outputs differ in the last bits. Over ~70 epochs that
+        compounds into a visibly different probe (measured: 0.10 in per-split eval AUROC, a
+        different best epoch). The storage stays packed either way — which is the point, since
+        storage is what decides whether the pool fits on the card — so paying full width per
+        batch costs transient compute and buys exactness.
+        """
         lens = self.lengths[idx]
-        width = int(lens.max().item())
+        width = self.max_len if width is None else width
         n = idx.shape[0]
         out = torch.zeros((n, width, self.dim), dtype=self.dtype, device=self.device)
         mask = (
@@ -149,35 +176,60 @@ class RaggedActivations:
         return out, mask, self.y[idx]
 
 
-def _epoch_batches(n: int, batch_size: int):
-    """The exact index batches `DataLoader(shuffle=True)` would hand out for one epoch.
+class _IndexDataset(torch.utils.data.Dataset):
+    """A dataset of row indices, so a real `DataLoader` can produce the batch order."""
 
-    Built from torch's own `RandomSampler`/`BatchSampler` rather than reimplemented, because
-    reimplementing it is subtly wrong: `RandomSampler.__iter__` pulls a single int64 from the
-    **global** generator to seed a **fresh** one and permutes with that, so a plain
-    `torch.randperm(n)` both consumes a different amount of the global stream and yields a
-    different order. Using the real samplers means there is nothing left to get wrong — the
-    batch order here is the batch order tuberlens' loop sees, under the same seed.
+    def __init__(self, n: int):
+        self.n = n
+
+    def __len__(self) -> int:
+        return self.n
+
+    def __getitem__(self, i: int) -> int:
+        return i
+
+
+def index_loader(n: int, batch_size: int):
+    """A `DataLoader(shuffle=True)` over row indices, used purely for its batch order.
+
+    Reproducing that order by hand does not work, and the reason is a trap worth naming: it
+    takes **two** draws from the global RNG per epoch, not one. `_BaseDataLoaderIter.__init__`
+    first pulls an int64 for its `_base_seed`, and only then does `RandomSampler.__iter__`
+    pull another to seed the fresh generator it permutes with. A loop that calls
+    `torch.randperm(n)` — or even one that faithfully reimplements just the sampler — draws a
+    different amount of the stream and gets a different order from epoch 1 onward. On a
+    400-row fit that showed up as a 0.16 swing in per-split eval AUROC and a different best
+    epoch: exactly the size of "effect" this analysis is trying to measure.
+
+    So the order comes from the real thing. Construct once and iterate per epoch, which is
+    what `PytorchAdamClassifier.train` does with its own loader.
     """
-    from torch.utils.data import BatchSampler, RandomSampler
-
-    sampler = RandomSampler(range(n))
-    return list(BatchSampler(sampler, batch_size, drop_last=False))
+    return torch.utils.data.DataLoader(
+        _IndexDataset(n), batch_size=batch_size, shuffle=True
+    )
 
 
 
 def _probs(model, ragged: RaggedActivations, batch_size: int) -> np.ndarray:
+    """Score a packed set, mirroring `PytorchAdamClassifier.probs`.
+
+    Including its `DataLoader` — even at `shuffle=False`, constructing the iterator draws an
+    int64 from the global RNG for `_base_seed`, and `logits()` builds a fresh loader on every
+    call. Since this runs once per epoch during training, skipping it would shift the batch
+    order of every subsequent epoch. See `index_loader`.
+    """
     model.eval()
     out = np.empty(len(ragged), dtype=float)
+    loader = torch.utils.data.DataLoader(
+        _IndexDataset(len(ragged)), batch_size=batch_size, shuffle=False
+    )
     with torch.no_grad():
-        for start in range(0, len(ragged), batch_size):
-            idx = torch.arange(start, min(start + batch_size, len(ragged)),
-                               device=ragged.device)
+        at = 0
+        for batch in loader:
+            idx = batch.to(ragged.device)
             a, m, _ = ragged.batch(idx)
-            logits = model(a, m)
-            out[start : start + idx.shape[0]] = (
-                logits.float().sigmoid().cpu().numpy()
-            )
+            out[at : at + idx.shape[0]] = model(a, m).float().sigmoid().cpu().numpy()
+            at += idx.shape[0]
     model.train()
     return out
 
@@ -197,14 +249,15 @@ def train_head(train: RaggedActivations, val: RaggedActivations | None,
     patience = hyperparams["patience"]
 
     val_y = val.y.float().cpu().numpy() if val is not None else None
-    best_auroc, best_state, best_epoch, stale = 0.0, None, None, 0
+    best_auroc, best_epoch, stale = 0.0, None, 0
 
     n = len(train)
+    loader = index_loader(n, hyperparams["batch_size"])
     model.train()
     for epoch in range(hyperparams["epochs"]):
         opt.zero_grad()
-        for b, batch in enumerate(_epoch_batches(n, hyperparams["batch_size"])):
-            idx = torch.tensor(batch, device=train.device)
+        for b, batch in enumerate(loader):
+            idx = batch.to(train.device)
             a, m, y = train.batch(idx)
             loss = crit(model(a, m), y) / accum
             loss.backward()
@@ -219,35 +272,38 @@ def train_head(train: RaggedActivations, val: RaggedActivations | None,
         auroc = float(roc_auc_score(val_y, _probs(model, val, hyperparams["batch_size"])))
         if auroc > best_auroc:
             best_auroc, best_epoch, stale = auroc, epoch + 1, 0
-            best_state = copy.deepcopy(model.state_dict())
         else:
             stale += 1
             if stale >= patience:
                 if verbose:
                     print(f"    early stop after {epoch + 1} epochs", flush=True)
                 break
-    if best_state is not None:
-        model.load_state_dict(best_state)
+    # The weights returned are the LAST epoch's, not `best_epoch`'s — see the module
+    # docstring. This mirrors `PytorchAdamClassifier.train`, deliberately.
     return model, {"best_epoch": best_epoch, "best_val_auroc": best_auroc}
 
 
 def finetune_head(model, train: RaggedActivations, val: RaggedActivations,
                   hyperparams: dict, *, verbose: bool = False):
-    """Continue training an existing head, keeping the better of the two stages' checkpoints.
+    """Continue training an already-fit head, keeping the better of the two stages.
 
-    Mirrors `PytorchAdamClassifier.train(initialize_model=False)`: fresh optimizer and
-    schedule, same everything else. Its best-checkpoint tracking restarts at AUROC 0, so a
-    stage that only ever hurt would still return its least-bad epoch; since both stages
-    early-stop against the *same* fixed validation set the two are directly comparable, and
-    the incoming checkpoint is seeded in as the one to beat.
+    `PytorchAdamClassifier.train(initialize_model=False)` is tuberlens' own hook for this:
+    it reuses `self.model` instead of constructing a fresh one, so the second stage starts
+    from the first stage's weights. The loop below is the same faithful transcription
+    `train_head` uses, so the fine-tuned weights are what that hook would produce.
+
+    The one thing added on top is a guard tuberlens has no equivalent of. Its loop returns
+    the last epoch's weights whatever they score (see the module docstring), so a fine-tune
+    that only ever hurt would still be handed back. Since both stages early-stop against the
+    *same* fixed validation set, the two are directly comparable, so the incoming weights are
+    snapshotted and restored if the fine-tuned ones end up worse on it. Which one was kept is
+    reported, not hidden.
     """
     from sklearn.metrics import roc_auc_score
 
     val_y = val.y.float().cpu().numpy()
     before = float(roc_auc_score(val_y, _probs(model, val, hyperparams["batch_size"])))
-    best_auroc, best_state, best_epoch, stale = before, copy.deepcopy(
-        model.state_dict()
-    ), None, 0
+    stage1_state = copy.deepcopy(model.state_dict())
 
     opt = torch.optim.AdamW(model.parameters(), **hyperparams["optimizer_args"])
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -256,11 +312,13 @@ def finetune_head(model, train: RaggedActivations, val: RaggedActivations,
     crit = torch.nn.BCEWithLogitsLoss()
     accum = hyperparams.get("gradient_accumulation_steps", 1)
     n = len(train)
+    loader = index_loader(n, hyperparams["batch_size"])
+    best_auroc, best_epoch, stale = 0.0, None, 0
     model.train()
     for epoch in range(hyperparams["epochs"]):
         opt.zero_grad()
-        for b, batch in enumerate(_epoch_batches(n, hyperparams["batch_size"])):
-            idx = torch.tensor(batch, device=train.device)
+        for b, batch in enumerate(loader):
+            idx = batch.to(train.device)
             a, m, y = train.batch(idx)
             loss = crit(model(a, m), y) / accum
             loss.backward()
@@ -273,16 +331,19 @@ def finetune_head(model, train: RaggedActivations, val: RaggedActivations,
         auroc = float(roc_auc_score(val_y, _probs(model, val, hyperparams["batch_size"])))
         if auroc > best_auroc:
             best_auroc, best_epoch, stale = auroc, epoch + 1, 0
-            best_state = copy.deepcopy(model.state_dict())
         else:
             stale += 1
             if stale >= hyperparams["patience"]:
                 break
-    model.load_state_dict(best_state)
+    after = float(roc_auc_score(val_y, _probs(model, val, hyperparams["batch_size"])))
+    kept = "finetuned"
+    if after < before:
+        model.load_state_dict(stage1_state)
+        kept = "stage1"
     return model, {
         "val_auroc_stage1": before,
-        "val_auroc_finetuned": best_auroc,
-        "checkpoint_kept": "stage1" if best_epoch is None else "finetuned",
+        "val_auroc_finetuned": after,
+        "checkpoint_kept": kept,
         "finetune_best_epoch": best_epoch,
     }
 
