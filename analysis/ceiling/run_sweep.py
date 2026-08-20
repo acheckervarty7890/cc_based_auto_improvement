@@ -55,6 +55,10 @@ def main():
                     help="comma list; 'default' keeps the probe's own 5e-3")
     ap.add_argument("--iteration", type=int, default=5)
     ap.add_argument("--grid-step", type=int, default=GRID_STEP)
+    ap.add_argument("--no-redteam", action="store_true",
+                    help="drop the red-team rows entirely: train on base + dev[:N] only. "
+                         "Gives the exchange rate between labelled dev rows and the whole "
+                         "red-teaming loop, since the N=0 point is then just the iter0 probe.")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -81,8 +85,11 @@ def main():
     ev = H.load_eval_splits()
     dev = H.load_dev()
     base = H.load_base()
-    rt = H.load_redteam(args.arm, args.iteration)
-    rt_train = H.concat(base, rt)          # stays on the HOST: every fit takes a copy
+    if args.no_redteam:
+        rt_train = base
+    else:
+        rt = H.load_redteam(args.arm, args.iteration)
+        rt_train = H.concat(base, rt)      # stays on the HOST: every fit takes a copy
     n_rt = len(rt_train)
     for d in ev.values():                  # eval is scored ~50 times; park it once
         H.stage(d)
@@ -114,6 +121,7 @@ def main():
 
     def emit(way, n, per, ft_lr=None, extra=None):
         rec = {"arm": args.arm, "way": way, "n_dev": n, "ft_lr": ft_lr,
+               "no_redteam": bool(args.no_redteam),
                "n_redteam_train": n_rt, "ensemble": args.ensemble,
                "per_split": per, "macro": H.macro(per)} | (extra or {})
         with out_path.open("a", encoding="utf-8") as f:
