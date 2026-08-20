@@ -546,3 +546,60 @@ FileNotFoundError: [Errno 2] No such file or directory: '/workspace/cc_based_aut
                      ^^^^^^^^^^^^^^^^
 FileNotFoundError: [Errno 2] No such file or directory: '/workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt'
 ```
+
+## 2026-08-20T10:04:34+00:00
+
+```
+gpu: 22669 MiB, 37 % 
+acts on disk: 8.8G
+highstakes: 0 red-team/base conversations extracted
+hu_ha: 601 red-team/base conversations extracted
+--- ceiling_highstakes.log ---
+--- ceiling_hu_ha.log ---
+--- extract_redteam.log ---
+  [red-team activations] 580/928 (3.0s/sample, ~17 min left)
+  [red-team activations] 590/928 (3.0s/sample, ~17 min left)
+  [red-team activations] 600/928 (3.0s/sample, ~16 min left)
+--- fetch_gemma.log ---
+███████████████████████████████████████████████████████████████████████████████████| 25/25 [31:47<00:00, 76.29s/it]
+/home/ubuntu/.cache/huggingface/hub/models--google--gemma-3-27b-it/snapshots/005ad3404e59d6023443cb575daa05336842228a
+--- fetch_kaggle.log ---
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_highstakes_dev.log ---
+c_hh_balanced-gemmadev.pt
+GET   anku7890/anthropic-hh-balanced-gemmadevpt :: anthropic_hh_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/anthropic_hh_balanced-gemmadev.pt
+GET   anku7890/anthropic-hh-balanced-gemmadevpt :: anthropic_hh_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/anthropic_hh_balanced-gemmadev.pt
+--- fetch_kaggle_highstakes_eval.log ---
+nced-gemmaeval.pt
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_hu_ha_dev.log ---
+GET   anku7890/dev-daily-dilemmas-gemmadevpt :: dev_daily_dilemmas-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt
+Dataset URL: https://www.kaggle.com/datasets/anku7890/dev-daily-dilemmas-gemmadevpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt  (0.09 GB)
+--- fetch_kaggle_hu_ha_eval.log ---
+Dataset URL: https://www.kaggle.com/datasets/anku7890/eval-ant-hh-gemmaevalpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_ant_hh-gemmaeval.pt  (0.42 GB)
+GET   anku7890/eval-balanced-refusal-gemmaevalpt :: eval_balanced_refusal-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_balanced_refusal-gemmaeval.pt
+--- fetch_supervisor.log ---
+2026-08-20T09:50:48+00:00 [gemma] progress: 7977 kB/s
+2026-08-20T09:55:48+00:00 [gemma] progress: 9176 kB/s
+2026-08-20T09:55:48+00:00 [gemma] all 12 shards present
+--- make_report.log ---
+skipping highstakes: missing results
+skipping hu_ha: missing results
+wrote /workspace/cc_based_auto_improvement/ceiling_analysis/results/SUMMARY.md
+--- progress_loop.log ---
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+--- run_all.log ---
+>>> 2026-08-20T09:22:42+00:00  DONE(rc=0)  make_report
+>>> 2026-08-20T09:22:42+00:00  ALLDONE  chain
+>>> 2026-08-20T09:36:39+00:00  WAIT  extract_partial
+--- sweep_highstakes.log ---
+--- sweep_hu_ha.log ---
+--- verify_batch_padding.log ---
+--- verify_extraction_noise.log ---
+--- verify_fast_fit.log ---
+```
