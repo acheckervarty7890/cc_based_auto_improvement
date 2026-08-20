@@ -439,3 +439,32 @@ ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denie
 --- run_all.log ---
 >>> 2026-08-20T07:34:19+00:00  WAIT  gemma_download
 ```
+
+## 2026-08-20T09:04:30+00:00
+
+```
+gpu: 219 MiB, 1 % 
+acts on disk: 778M
+highstakes: 0 red-team/base conversations extracted
+hu_ha: 0 red-team/base conversations extracted
+--- fetch_gemma.log ---
+ /home/ubuntu/.cache/huggingface/hub/models--google--gemma-3-27b-it/blobs/91ae339063266e0c12da89af8aa0cfdb3f9dc9bb1b4b2678863793a28026dbe7
+Fetching 25 files:  48%|████████████████████████████████████████████████▍                                                    | 12/25 [1:14:49<1:02:37, 289.07s/it]--- fetch_kaggle.log ---
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_highstakes_dev.log ---
+GET   anku7890/anthropic-hh-balanced-gemmadevpt :: anthropic_hh_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/anthropic_hh_balanced-gemmadev.pt
+--- fetch_kaggle_highstakes_eval.log ---
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_hu_ha_dev.log ---
+Dataset URL: https://www.kaggle.com/datasets/anku7890/dev-ant-hh-gemmadevpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_ant_hh-gemmadev.pt  (0.12 GB)
+GET   anku7890/dev-balanced-refusal-gemmadevpt :: dev_balanced_refusal-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_balanced_refusal-gemmadev.pt
+--- fetch_kaggle_hu_ha_eval.log ---
+GET   anku7890/eval-ai-dilemmas-gemmaevalpt :: eval_ai_dilemmas-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_ai_dilemmas-gemmaeval.pt
+--- progress_loop.log ---
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+--- run_all.log ---
+>>> 2026-08-20T07:34:19+00:00  WAIT  gemma_download
+```
