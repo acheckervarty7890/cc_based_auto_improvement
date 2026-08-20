@@ -36,6 +36,11 @@ from dataclasses import dataclass
 import numpy as np
 import torch
 
+# Overridable so the whole path can be exercised on the CPU (smoke tests, or a box whose
+# card is busy) without touching any call site.
+DEVICE = "cuda"
+DTYPE = torch.bfloat16
+
 
 @dataclass
 class RaggedActivations:
@@ -50,8 +55,9 @@ class RaggedActivations:
     device: str
 
     @classmethod
-    def from_dataset(cls, dataset, device: str = "cuda",
-                     dtype: torch.dtype = torch.bfloat16, slab: int = 64):
+    def from_dataset(cls, dataset, device: str | None = None,
+                     dtype: torch.dtype | None = None, slab: int = 64):
+        device, dtype = device or DEVICE, dtype or DTYPE
         acts = dataset.other_fields["activations"]
         mask = dataset.other_fields["attention_mask"].bool()
         lengths = mask.sum(-1).to(torch.int64)
@@ -80,8 +86,8 @@ class RaggedActivations:
         return cls(packed, offsets.to(device), lengths.to(device), y, dim, dtype, device)
 
     @classmethod
-    def from_parts(cls, parts, labels, device: str = "cuda",
-                   dtype: torch.dtype = torch.bfloat16):
+    def from_parts(cls, parts, labels, device: str | None = None,
+                   dtype: torch.dtype | None = None):
         """Pack `(source, row indices)` parts straight onto the card, with no dense pool.
 
         The dense intermediate is what makes the high-stakes side expensive: the full
@@ -89,6 +95,7 @@ class RaggedActivations:
         which ~14 GB is real. Streaming each source's slabs through to the packed buffer
         keeps the host-side peak at one slab.
         """
+        device, dtype = device or DEVICE, dtype or DTYPE
         lengths_np = np.concatenate([src.lengths()[list(idx)] for src, idx in parts])
         lengths = torch.tensor(lengths_np, dtype=torch.int64)
         total = int(lengths.sum().item())
@@ -283,6 +290,8 @@ def wrap_probe(model, hyperparams: dict, *, model_name: str, layer: int,
         training_args=dict(hyperparams),
         probe_architecture=LinearThenSoftmax,
         model=model,
+        device=DEVICE,
+        dtype=DTYPE,
     )
     classifier.best_epoch = best_epoch
     return PytorchProbe(

@@ -236,10 +236,23 @@ def redteam_source(concept: Concept) -> D.BlobSource:
 def build_redteam_pool_blob(concept: Concept, merged) -> None:
     """Consolidate the per-conversation red-team/base cache into one mmap-able blob.
 
-    The extraction writes one `.pt` per conversation (that is what makes it resumable and
-    what lets a conversation first seen in iteration k be reused by every later retrain).
-    Reading ~900 of those on every pool build is pure syscall overhead, so they are folded
-    once into a single file, trimmed to the widest real row.
+    The extraction writes one `.pt` per conversation — that is what makes it resumable and
+    what lets a conversation first seen in iteration k be reused by every later retrain.
+    Reading ~1000 of those on every pool build is pure syscall overhead, so they are folded
+    once into a single file.
+
+    **Rows are left-compacted on the way in**, i.e. each conversation's real tokens are
+    moved to positions `0..L-1`. They do not necessarily arrive that way: `tokenize_inputs`
+    pads with the tokenizer's own `padding_side`, which for gemma-3-it is *left*, so any
+    chunk of more than one conversation comes back left-padded — while the published eval
+    and dev blobs, extracted one row at a time, are right-padded. Mixing the two would
+    silently corrupt every width trim in this analysis (slicing `[:w]` off a left-padded row
+    cuts real tokens, not padding).
+
+    Compacting is safe because a padding position carries no information downstream: the
+    probe head masks per-token outputs to 0 and fills masked positions with `-inf` before
+    the softmax, so where the padding sits cannot change a score. Only the *order* of the
+    real tokens matters, and that is preserved.
     """
     from tuberlens.model import LLMModel
 
@@ -251,16 +264,17 @@ def build_redteam_pool_blob(concept: Concept, merged) -> None:
             f"{concept.redteam_cache_dir} — run extract_redteam_activations.py"
         )
     loaded = [LLMModel.load_activations(p) for p in paths]
-    width = max(int(a.attention_mask.sum(-1).max().item()) for a in loaded)
+    lengths = [int(a.attention_mask[0].sum().item()) for a in loaded]
+    width = max(lengths)
     dim = loaded[0].activations.shape[2]
     acts = torch.zeros((len(loaded), width, dim), dtype=loaded[0].activations.dtype)
     mask = torch.zeros((len(loaded), width), dtype=loaded[0].attention_mask.dtype)
     ids = torch.zeros((len(loaded), width), dtype=loaded[0].input_ids.dtype)
-    for i, a in enumerate(loaded):
-        w = min(width, a.activations.shape[1])
-        acts[i, :w] = a.activations[0, :w]
-        mask[i, :w] = a.attention_mask[0, :w]
-        ids[i, :w] = a.input_ids[0, :w]
+    for i, (a, n) in enumerate(zip(loaded, lengths)):
+        keep = a.attention_mask[0].bool()
+        acts[i, :n] = a.activations[0][keep]
+        mask[i, :n] = a.attention_mask[0][keep]
+        ids[i, :n] = a.input_ids[0][keep]
     concept.redteam_pool_blob.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {"activations": acts, "attention_mask": mask, "input_ids": ids,
@@ -279,7 +293,7 @@ def nbytes(dataset) -> int:
     )
 
 
-def to_device(datasets, device: str = "cuda", *, headroom: float = 0.15):
+def to_device(datasets, device: str | None = None, *, headroom: float = 0.15):
     """Park activation tensors on the GPU when they fit, else leave them on the host.
 
     Same values, same indices, same order — the only thing that changes is where
@@ -288,6 +302,9 @@ def to_device(datasets, device: str = "cuda", *, headroom: float = 0.15):
     fall back rather than fail: the high-stakes training pool outgrows a 24 GB card at the
     top of the sweep, and a slow fit beats a dead one.
     """
+    import ca_fit as F
+
+    device = device or F.DEVICE
     if not torch.cuda.is_available() or device == "cpu":
         return list(datasets), False
     need = sum(nbytes(d) for d in datasets if d is not None)
