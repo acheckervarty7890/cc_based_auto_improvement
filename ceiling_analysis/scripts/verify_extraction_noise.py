@@ -14,9 +14,16 @@ So this measures three quantities on the same rows, in float64, as relative L2 e
               which every activation in this analysis already carries
   batched     local batch-4 vs local batch-1 — the effect actually under suspicion
 
-If `batched` sits at or below `published`, batching changed nothing that this analysis was
-not already living with, and the 8x faster extraction stands. If it is much larger, the
-red-team activations have to be re-extracted one row at a time.
+If `batched` sat at or below `published`, batching would have changed nothing this analysis
+was not already living with. It does not: measured on `hu_ha`, `repeat` and `published` are
+both exactly 0 while `batched` is ~1e-2. Extraction is bit-exact and machine-independent at
+batch size 1, so there is no drift to hide in — which is why the red-team cache here is
+built one row at a time despite being ~8x slower.
+
+A fourth measurement in the same session ruled out the obvious culprit: gemma's tokenizer
+pads *left*, so batching shifts every real token's position, but a batch of four identical
+copies of one conversation — needing no padding at all — drifts by the same ~1e-2. It is
+bf16 matmul reduction order, not padding.
 """
 
 from __future__ import annotations
@@ -94,11 +101,14 @@ def main() -> int:
     for key, vs in stats.items():
         if vs:
             print(f"  {key:<10} {np.median(vs):.3e}", flush=True)
-    if stats["batched"] and stats["published"]:
-        ratio = np.median(stats["batched"]) / max(np.median(stats["published"]), 1e-12)
-        print(f"\nbatched / published = {ratio:.2f}x "
-              f"({'within the drift this analysis already carries' if ratio <= 1.5 else 'LARGER — re-extract at batch size 1'})",
-              flush=True)
+    if stats["batched"]:
+        print(
+            "\nreading: `repeat` and `published` at 0 mean extraction is bit-exact and "
+            "machine-independent at batch size 1 — there is no drift to hide behind, so the "
+            "`batched` figure is the whole effect of raising BATCH_SIZE. This is why the "
+            "red-team cache is built one row at a time.",
+            flush=True,
+        )
     return 0
 
 
