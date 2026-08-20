@@ -1,0 +1,718 @@
+Preprocessing enabled: filter_dataset + generate_contrastive_dataset (openai/gpt-5.1 via openrouter)
+Deep ensemble enabled: every train/retrain fits 10 probes on the same activations under the pinned training seeds [3699, 14431, 23529, 26229, 26660, 42624, 43521, 54184, 65963, 69051]; their mean score is the probe's score. (--seed still governs the train/val split and eval subsampling.)
+Validation: held-out dev data at /workspace/cc_based_auto_improvement/dev_samples/instructions (base training data and red-team successes train in full; --test-size/--split-field ignored)
+Dataset message transforms (training + eval + red-team scoring): combine_consecutive_messages=True, convert_tool_to_assistant=True
+[kaggle] dev: already assembled at /workspace/cc_based_auto_improvement/results_instructions_gemma27b_shared/base_activations/dev_acts_google_gemma-3-27b-it_L32_ec4c593286eb316d.pt (436 rows)
+Training initial probe → probes/instructions_gemma27b_ens10dev_nemotron/probe_iter0.pkl
+Initial samples before split: 50
+Label distribution (total: 50 examples):
+  negative: 25 examples (50.00%)
+  positive: 25 examples (50.00%)
+Validation set: held-out dev data at /workspace/cc_based_auto_improvement/dev_samples/instructions
+  dev split anthropic_harmless_refusal.jsonl: 68 samples
+  dev split bbq_substitution.jsonl: 68 samples
+  dev split hc_context_drift.jsonl: 66 samples
+  dev split hc_contradiction.jsonl: 68 samples
+  dev split mm_substitution.jsonl: 68 samples
+  dev split oig_context_drift.jsonl: 66 samples
+  dev split oig_omission.jsonl: 32 samples
+Dev validation samples: 436 (base data all trains, nothing held out)
+Training a 10-member score-averaging deep ensemble (training seeds [3699, 14431, 23529, 26229, 26660, 42624, 43521, 54184, 65963, 69051])
+Loaded cached base activations: /workspace/cc_based_auto_improvement/results_instructions_gemma27b_shared/base_activations/base_acts_google_gemma-3-27b-it_L32_f6846de1f21808b3_train.pt
+Loaded cached base activations: /workspace/cc_based_auto_improvement/results_instructions_gemma27b_shared/base_activations/dev_acts_google_gemma-3-27b-it_L32_ec4c593286eb316d.pt
+Train/validation: 50 train, 436 validation (base 50+0; red-team 0+0; dev 436)
+Staged 2.0 GiB of activations on cuda for the probe fits (no host->device copy per epoch)
+
+--- Ensemble member 1/10 (training seed 3699) ---
+Training probe...
+Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6289]Epoch 1/200:  25%|██▌       | 1/4 [00:00<00:00,  3.45it/s, loss=0.6289]Epoch 1/200:  25%|██▌       | 1/4 [00:00<00:00,  3.45it/s, loss=0.6465]Epoch 1/200:  25%|██▌       | 1/4 [00:00<00:00,  3.45it/s, loss=0.6654]Epoch 1/200:  25%|██▌       | 1/4 [00:00<00:00,  3.45it/s, loss=0.7070]Epoch 1/200: 100%|██████████| 4/4 [00:00<00:00, 12.05it/s, loss=0.7070]
+Epoch 1 - Average loss: 0.7070
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 706.37it/s]
+Validation AUROC: 0.50309
+Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6094]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6895]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.7435]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.7188]Epoch 2/200: 100%|██████████| 4/4 [00:00<00:00, 614.01it/s, loss=0.7188]
+Epoch 2 - Average loss: 0.7188
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1042.71it/s]
+Validation AUROC: 0.54850
+Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5352]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5107]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4993]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4502]Epoch 3/200: 100%|██████████| 4/4 [00:00<00:00, 710.51it/s, loss=0.4502]
+Epoch 3 - Average loss: 0.4502
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1046.32it/s]
+Validation AUROC: 0.59794
+Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2617]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4121]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4232]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.3652]Epoch 4/200: 100%|██████████| 4/4 [00:00<00:00, 673.35it/s, loss=0.3652]
+Epoch 4 - Average loss: 0.3652
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1033.51it/s]
+Validation AUROC: 0.65335
+Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2754]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1975]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1948]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1557]Epoch 5/200: 100%|██████████| 4/4 [00:00<00:00, 711.83it/s, loss=0.1557]
+Epoch 5 - Average loss: 0.1557
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1033.05it/s]
+Validation AUROC: 0.69633
+Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0347]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1531]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2056]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1588]Epoch 6/200: 100%|██████████| 4/4 [00:00<00:00, 741.24it/s, loss=0.1588]
+Epoch 6 - Average loss: 0.1588
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1032.35it/s]
+Validation AUROC: 0.70531
+Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5273]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2919]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2232]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1674]Epoch 7/200: 100%|██████████| 4/4 [00:00<00:00, 534.26it/s, loss=0.1674]
+Epoch 7 - Average loss: 0.1674
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 979.80it/s]
+Validation AUROC: 0.72005
+Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.3203]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1685]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1152]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0864]Epoch 8/200: 100%|██████████| 4/4 [00:00<00:00, 557.79it/s, loss=0.0864]
+Epoch 8 - Average loss: 0.0864
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1005.08it/s]
+Validation AUROC: 0.74236
+Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0098]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0060]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0100]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0075]Epoch 9/200: 100%|██████████| 4/4 [00:00<00:00, 664.50it/s, loss=0.0075]
+Epoch 9 - Average loss: 0.0075
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1037.63it/s]
+Validation AUROC: 0.76670
+Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0019]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0019]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0014]Epoch 10/200: 100%|██████████| 4/4 [00:00<00:00, 682.22it/s, loss=0.0014]
+Epoch 10 - Average loss: 0.0014
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1038.15it/s]
+Validation AUROC: 0.78437
+Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0023]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0053]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0169]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0127]Epoch 11/200: 100%|██████████| 4/4 [00:00<00:00, 712.95it/s, loss=0.0127]
+Epoch 11 - Average loss: 0.0127
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1033.91it/s]
+Validation AUROC: 0.78336
+Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0010]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0006]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0041]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0031]Epoch 12/200: 100%|██████████| 4/4 [00:00<00:00, 679.73it/s, loss=0.0031]
+Epoch 12 - Average loss: 0.0031
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1037.44it/s]
+Validation AUROC: 0.77717
+Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0008]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0006]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0004]Epoch 13/200: 100%|██████████| 4/4 [00:00<00:00, 713.56it/s, loss=0.0004]
+Epoch 13 - Average loss: 0.0004
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1029.75it/s]
+Validation AUROC: 0.77120
+Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0002]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0001]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0001]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0001]Epoch 14/200: 100%|██████████| 4/4 [00:00<00:00, 645.60it/s, loss=0.0001]
+Epoch 14 - Average loss: 0.0001
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1019.17it/s]
+Validation AUROC: 0.76497
+Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 15/200: 100%|██████████| 4/4 [00:00<00:00, 678.50it/s, loss=0.0000]
+Epoch 15 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.15it/s]
+Validation AUROC: 0.75690
+Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 16/200: 100%|██████████| 4/4 [00:00<00:00, 679.85it/s, loss=0.0000]
+Epoch 16 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1036.27it/s]
+Validation AUROC: 0.75279
+Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 17/200: 100%|██████████| 4/4 [00:00<00:00, 674.14it/s, loss=0.0000]
+Epoch 17 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1038.10it/s]
+Validation AUROC: 0.74925
+Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 18/200: 100%|██████████| 4/4 [00:00<00:00, 701.36it/s, loss=0.0000]
+Epoch 18 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1048.78it/s]
+Validation AUROC: 0.74481
+Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 19/200: 100%|██████████| 4/4 [00:00<00:00, 736.97it/s, loss=0.0000]
+Epoch 19 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1041.73it/s]
+Validation AUROC: 0.74040
+Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 20/200: 100%|██████████| 4/4 [00:00<00:00, 703.71it/s, loss=0.0000]
+Epoch 20 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1051.72it/s]
+Validation AUROC: 0.73903
+Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200: 100%|██████████| 4/4 [00:00<00:00, 723.78it/s, loss=0.0000]
+Epoch 21 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1048.29it/s]
+Validation AUROC: 0.74092
+Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 22/200: 100%|██████████| 4/4 [00:00<00:00, 704.69it/s, loss=0.0000]
+Epoch 22 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1034.71it/s]
+Validation AUROC: 0.74049
+Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200: 100%|██████████| 4/4 [00:00<00:00, 718.63it/s, loss=0.0000]
+Epoch 23 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1040.15it/s]
+Validation AUROC: 0.73069
+Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200: 100%|██████████| 4/4 [00:00<00:00, 780.41it/s, loss=0.0000]
+Epoch 24 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1044.22it/s]
+Validation AUROC: 0.72879
+Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200: 100%|██████████| 4/4 [00:00<00:00, 743.21it/s, loss=0.0000]
+Epoch 25 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1041.36it/s]
+Validation AUROC: 0.72402
+Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200: 100%|██████████| 4/4 [00:00<00:00, 699.34it/s, loss=0.0000]
+Epoch 26 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1023.13it/s]
+Validation AUROC: 0.71676
+Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200: 100%|██████████| 4/4 [00:00<00:00, 690.11it/s, loss=0.0000]
+Epoch 27 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1039.20it/s]
+Validation AUROC: 0.71494
+Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200: 100%|██████████| 4/4 [00:00<00:00, 728.97it/s, loss=0.0000]
+Epoch 28 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1040.45it/s]
+Validation AUROC: 0.71031
+Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200: 100%|██████████| 4/4 [00:00<00:00, 724.31it/s, loss=0.0000]
+Epoch 29 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1041.31it/s]
+Validation AUROC: 0.70717
+Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200: 100%|██████████| 4/4 [00:00<00:00, 692.90it/s, loss=0.0000]
+Epoch 30 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1040.20it/s]
+Validation AUROC: 0.70564
+Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200: 100%|██████████| 4/4 [00:00<00:00, 734.23it/s, loss=0.0000]
+Epoch 31 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1049.65it/s]
+Validation AUROC: 0.70472
+Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200: 100%|██████████| 4/4 [00:00<00:00, 698.67it/s, loss=0.0000]
+Epoch 32 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1037.95it/s]
+Validation AUROC: 0.70384
+Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200: 100%|██████████| 4/4 [00:00<00:00, 707.06it/s, loss=0.0000]
+Epoch 33 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1043.50it/s]
+Validation AUROC: 0.70091
+Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200: 100%|██████████| 4/4 [00:00<00:00, 721.41it/s, loss=0.0000]
+Epoch 34 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1047.01it/s]
+Validation AUROC: 0.69928
+Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200: 100%|██████████| 4/4 [00:00<00:00, 706.53it/s, loss=0.0000]
+Epoch 35 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1049.45it/s]
+Validation AUROC: 0.70096
+Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200: 100%|██████████| 4/4 [00:00<00:00, 642.93it/s, loss=0.0000]
+Epoch 36 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1005.36it/s]
+Validation AUROC: 0.69925
+Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200: 100%|██████████| 4/4 [00:00<00:00, 523.27it/s, loss=0.0000]
+Epoch 37 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 996.99it/s]
+Validation AUROC: 0.69306
+Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200: 100%|██████████| 4/4 [00:00<00:00, 577.47it/s, loss=0.0000]
+Epoch 38 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1038.99it/s]
+Validation AUROC: 0.69463
+Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200: 100%|██████████| 4/4 [00:00<00:00, 709.85it/s, loss=0.0000]
+Epoch 39 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1049.16it/s]
+Validation AUROC: 0.69452
+Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200: 100%|██████████| 4/4 [00:00<00:00, 719.50it/s, loss=0.0000]
+Epoch 40 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1043.53it/s]
+Validation AUROC: 0.69274
+Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200: 100%|██████████| 4/4 [00:00<00:00, 516.84it/s, loss=0.0000]
+Epoch 41 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1050.13it/s]
+Validation AUROC: 0.69279
+Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200: 100%|██████████| 4/4 [00:00<00:00, 743.47it/s, loss=0.0000]
+Epoch 42 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1054.45it/s]
+Validation AUROC: 0.69351
+Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200: 100%|██████████| 4/4 [00:00<00:00, 756.82it/s, loss=0.0000]
+Epoch 43 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1051.97it/s]
+Validation AUROC: 0.69352
+Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200: 100%|██████████| 4/4 [00:00<00:00, 714.38it/s, loss=0.0000]
+Epoch 44 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1043.79it/s]
+Validation AUROC: 0.69347
+Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200: 100%|██████████| 4/4 [00:00<00:00, 748.48it/s, loss=0.0000]
+Epoch 45 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1051.96it/s]
+Validation AUROC: 0.69349
+Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200: 100%|██████████| 4/4 [00:00<00:00, 748.72it/s, loss=0.0000]
+Epoch 46 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1051.98it/s]
+Validation AUROC: 0.69347
+Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200: 100%|██████████| 4/4 [00:00<00:00, 734.20it/s, loss=0.0000]
+Epoch 47 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1050.21it/s]
+Validation AUROC: 0.69345
+Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200: 100%|██████████| 4/4 [00:00<00:00, 727.17it/s, loss=0.0000]
+Epoch 48 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1042.01it/s]
+Validation AUROC: 0.69339
+Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200: 100%|██████████| 4/4 [00:00<00:00, 733.11it/s, loss=0.0000]
+Epoch 49 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 886.06it/s]
+Validation AUROC: 0.69343
+Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 50/200: 100%|██████████| 4/4 [00:00<00:00, 509.03it/s, loss=0.0000]
+Epoch 50 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1010.12it/s]
+Validation AUROC: 0.69342
+Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 51/200: 100%|██████████| 4/4 [00:00<00:00, 630.58it/s, loss=0.0000]
+Epoch 51 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1042.15it/s]
+Validation AUROC: 0.69343
+Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 52/200: 100%|██████████| 4/4 [00:00<00:00, 726.48it/s, loss=0.0000]
+Epoch 52 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1029.59it/s]
+Validation AUROC: 0.69338
+Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 53/200: 100%|██████████| 4/4 [00:00<00:00, 699.72it/s, loss=0.0000]
+Epoch 53 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1041.05it/s]
+Validation AUROC: 0.69334
+Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 54/200: 100%|██████████| 4/4 [00:00<00:00, 714.96it/s, loss=0.0000]
+Epoch 54 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1049.17it/s]
+Validation AUROC: 0.69333
+Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 55/200: 100%|██████████| 4/4 [00:00<00:00, 716.03it/s, loss=0.0000]
+Epoch 55 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1040.21it/s]
+Validation AUROC: 0.69341
+Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 56/200: 100%|██████████| 4/4 [00:00<00:00, 703.15it/s, loss=0.0000]
+Epoch 56 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1049.77it/s]
+Validation AUROC: 0.69341
+Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 57/200: 100%|██████████| 4/4 [00:00<00:00, 694.59it/s, loss=0.0000]
+Epoch 57 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1046.12it/s]
+Validation AUROC: 0.69341
+Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 58/200: 100%|██████████| 4/4 [00:00<00:00, 726.79it/s, loss=0.0000]
+Epoch 58 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1031.46it/s]
+Validation AUROC: 0.69338
+Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 59/200: 100%|██████████| 4/4 [00:00<00:00, 745.69it/s, loss=0.0000]
+Epoch 59 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1048.01it/s]
+Validation AUROC: 0.69337
+Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 60/200: 100%|██████████| 4/4 [00:00<00:00, 754.07it/s, loss=0.0000]
+Epoch 60 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1047.78it/s]
+Validation AUROC: 0.69339
+Early stopping triggered after 60 epochs
+
+--- Ensemble member 2/10 (training seed 14431) ---
+Training probe...
+Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.7031]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6973]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6992]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6475]Epoch 1/200: 100%|██████████| 4/4 [00:00<00:00, 737.56it/s, loss=0.6475]
+Epoch 1 - Average loss: 0.6475
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1031.22it/s]
+Validation AUROC: 0.55647
+Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6953]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.0547]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.0859]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.0137]Epoch 2/200: 100%|██████████| 4/4 [00:00<00:00, 686.49it/s, loss=1.0137]
+Epoch 2 - Average loss: 1.0137
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1041.52it/s]
+Validation AUROC: 0.60160
+Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.2266]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.8076]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.7298]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6841]Epoch 3/200: 100%|██████████| 4/4 [00:00<00:00, 743.57it/s, loss=0.6841]
+Epoch 3 - Average loss: 0.6841
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.19it/s]
+Validation AUROC: 0.60411
+Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.3750]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4629]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5716]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4418]Epoch 4/200: 100%|██████████| 4/4 [00:00<00:00, 740.85it/s, loss=0.4418]
+Epoch 4 - Average loss: 0.4418
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1036.47it/s]
+Validation AUROC: 0.61577
+Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6445]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5410]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4642]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4800]Epoch 5/200: 100%|██████████| 4/4 [00:00<00:00, 701.33it/s, loss=0.4800]
+Epoch 5 - Average loss: 0.4800
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 938.19it/s]
+Validation AUROC: 0.63634
+Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.3477]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.3066]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2656]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2441]Epoch 6/200: 100%|██████████| 4/4 [00:00<00:00, 566.47it/s, loss=0.2441]
+Epoch 6 - Average loss: 0.2441
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1027.08it/s]
+Validation AUROC: 0.67731
+Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1621]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1611]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1227]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0923]Epoch 7/200: 100%|██████████| 4/4 [00:00<00:00, 679.76it/s, loss=0.0923]
+Epoch 7 - Average loss: 0.0923
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1050.58it/s]
+Validation AUROC: 0.72757
+Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0386]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0540]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0439]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0466]Epoch 8/200: 100%|██████████| 4/4 [00:00<00:00, 710.45it/s, loss=0.0466]
+Epoch 8 - Average loss: 0.0466
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1047.35it/s]
+Validation AUROC: 0.71761
+Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0237]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0133]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0120]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2648]Epoch 9/200: 100%|██████████| 4/4 [00:00<00:00, 726.82it/s, loss=0.2648]
+Epoch 9 - Average loss: 0.2648
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1049.57it/s]
+Validation AUROC: 0.72481
+Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0090]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0128]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0089]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0066]Epoch 10/200: 100%|██████████| 4/4 [00:00<00:00, 689.63it/s, loss=0.0066]
+Epoch 10 - Average loss: 0.0066
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1053.63it/s]
+Validation AUROC: 0.73295
+Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0085]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0043]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0029]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0022]Epoch 11/200: 100%|██████████| 4/4 [00:00<00:00, 674.38it/s, loss=0.0022]
+Epoch 11 - Average loss: 0.0022
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1052.61it/s]
+Validation AUROC: 0.73845
+Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0089]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0065]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0043]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0033]Epoch 12/200: 100%|██████████| 4/4 [00:00<00:00, 694.51it/s, loss=0.0033]
+Epoch 12 - Average loss: 0.0033
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1049.93it/s]
+Validation AUROC: 0.74009
+Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0062]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0049]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0040]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0030]Epoch 13/200: 100%|██████████| 4/4 [00:00<00:00, 680.01it/s, loss=0.0030]
+Epoch 13 - Average loss: 0.0030
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1050.72it/s]
+Validation AUROC: 0.73927
+Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0034]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0017]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0022]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0017]Epoch 14/200: 100%|██████████| 4/4 [00:00<00:00, 696.18it/s, loss=0.0017]
+Epoch 14 - Average loss: 0.0017
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1046.58it/s]
+Validation AUROC: 0.73751
+Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0011]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0005]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0009]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0013]Epoch 15/200: 100%|██████████| 4/4 [00:00<00:00, 701.45it/s, loss=0.0013]
+Epoch 15 - Average loss: 0.0013
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1045.47it/s]
+Validation AUROC: 0.73330
+Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0001]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0003]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0002]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0013]Epoch 16/200: 100%|██████████| 4/4 [00:00<00:00, 719.19it/s, loss=0.0013]
+Epoch 16 - Average loss: 0.0013
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1051.55it/s]
+Validation AUROC: 0.73131
+Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0001]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0001]Epoch 17/200: 100%|██████████| 4/4 [00:00<00:00, 743.21it/s, loss=0.0001]
+Epoch 17 - Average loss: 0.0001
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 986.61it/s]
+Validation AUROC: 0.72774
+Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 18/200: 100%|██████████| 4/4 [00:00<00:00, 620.73it/s, loss=0.0000]
+Epoch 18 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1023.03it/s]
+Validation AUROC: 0.72695
+Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 19/200: 100%|██████████| 4/4 [00:00<00:00, 610.19it/s, loss=0.0000]
+Epoch 19 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 967.73it/s]
+Validation AUROC: 0.71823
+Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 20/200: 100%|██████████| 4/4 [00:00<00:00, 675.11it/s, loss=0.0000]
+Epoch 20 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1029.22it/s]
+Validation AUROC: 0.71556
+Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200: 100%|██████████| 4/4 [00:00<00:00, 666.00it/s, loss=0.0000]
+Epoch 21 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1041.28it/s]
+Validation AUROC: 0.70956
+Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 22/200: 100%|██████████| 4/4 [00:00<00:00, 710.72it/s, loss=0.0000]
+Epoch 22 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1044.39it/s]
+Validation AUROC: 0.70703
+Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200: 100%|██████████| 4/4 [00:00<00:00, 706.50it/s, loss=0.0000]
+Epoch 23 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.20it/s]
+Validation AUROC: 0.70402
+Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200: 100%|██████████| 4/4 [00:00<00:00, 723.44it/s, loss=0.0000]
+Epoch 24 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1032.51it/s]
+Validation AUROC: 0.70361
+Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200: 100%|██████████| 4/4 [00:00<00:00, 681.36it/s, loss=0.0000]
+Epoch 25 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1045.40it/s]
+Validation AUROC: 0.70264
+Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200: 100%|██████████| 4/4 [00:00<00:00, 694.97it/s, loss=0.0000]
+Epoch 26 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1033.63it/s]
+Validation AUROC: 0.70333
+Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200: 100%|██████████| 4/4 [00:00<00:00, 669.40it/s, loss=0.0000]
+Epoch 27 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 983.74it/s]
+Validation AUROC: 0.70388
+Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200: 100%|██████████| 4/4 [00:00<00:00, 721.72it/s, loss=0.0000]
+Epoch 28 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1043.19it/s]
+Validation AUROC: 0.70137
+Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200: 100%|██████████| 4/4 [00:00<00:00, 708.80it/s, loss=0.0000]
+Epoch 29 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1049.17it/s]
+Validation AUROC: 0.70783
+Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200: 100%|██████████| 4/4 [00:00<00:00, 721.41it/s, loss=0.0000]
+Epoch 30 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1044.50it/s]
+Validation AUROC: 0.70813
+Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200: 100%|██████████| 4/4 [00:00<00:00, 727.77it/s, loss=0.0000]
+Epoch 31 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1050.44it/s]
+Validation AUROC: 0.70860
+Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200: 100%|██████████| 4/4 [00:00<00:00, 717.43it/s, loss=0.0000]
+Epoch 32 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1042.57it/s]
+Validation AUROC: 0.71309
+Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200: 100%|██████████| 4/4 [00:00<00:00, 704.07it/s, loss=0.0000]
+Epoch 33 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.99it/s]
+Validation AUROC: 0.71316
+Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200: 100%|██████████| 4/4 [00:00<00:00, 731.54it/s, loss=0.0000]
+Epoch 34 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1048.60it/s]
+Validation AUROC: 0.71289
+Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200: 100%|██████████| 4/4 [00:00<00:00, 690.99it/s, loss=0.0000]
+Epoch 35 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 993.89it/s]
+Validation AUROC: 0.71348
+Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200: 100%|██████████| 4/4 [00:00<00:00, 676.17it/s, loss=0.0000]
+Epoch 36 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 997.52it/s]
+Validation AUROC: 0.71325
+Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200: 100%|██████████| 4/4 [00:00<00:00, 571.37it/s, loss=0.0000]
+Epoch 37 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1014.32it/s]
+Validation AUROC: 0.71388
+Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200: 100%|██████████| 4/4 [00:00<00:00, 653.75it/s, loss=0.0000]
+Epoch 38 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1045.81it/s]
+Validation AUROC: 0.71431
+Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200: 100%|██████████| 4/4 [00:00<00:00, 701.33it/s, loss=0.0000]
+Epoch 39 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1045.82it/s]
+Validation AUROC: 0.71441
+Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200: 100%|██████████| 4/4 [00:00<00:00, 692.53it/s, loss=0.0000]
+Epoch 40 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1042.79it/s]
+Validation AUROC: 0.71544
+Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200: 100%|██████████| 4/4 [00:00<00:00, 739.90it/s, loss=0.0000]
+Epoch 41 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1045.84it/s]
+Validation AUROC: 0.71717
+Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200: 100%|██████████| 4/4 [00:00<00:00, 711.62it/s, loss=0.0000]
+Epoch 42 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1051.33it/s]
+Validation AUROC: 0.71720
+Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200: 100%|██████████| 4/4 [00:00<00:00, 747.15it/s, loss=0.0000]
+Epoch 43 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1040.25it/s]
+Validation AUROC: 0.71722
+Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200: 100%|██████████| 4/4 [00:00<00:00, 727.83it/s, loss=0.0000]
+Epoch 44 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1033.53it/s]
+Validation AUROC: 0.71674
+Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200: 100%|██████████| 4/4 [00:00<00:00, 658.11it/s, loss=0.0000]
+Epoch 45 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1041.25it/s]
+Validation AUROC: 0.71960
+Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200: 100%|██████████| 4/4 [00:00<00:00, 698.21it/s, loss=0.0000]
+Epoch 46 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1033.17it/s]
+Validation AUROC: 0.71982
+Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200: 100%|██████████| 4/4 [00:00<00:00, 690.93it/s, loss=0.0000]
+Epoch 47 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1031.88it/s]
+Validation AUROC: 0.71928
+Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200: 100%|██████████| 4/4 [00:00<00:00, 690.56it/s, loss=0.0000]
+Epoch 48 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1043.13it/s]
+Validation AUROC: 0.71932
+Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200: 100%|██████████| 4/4 [00:00<00:00, 683.78it/s, loss=0.0000]
+Epoch 49 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 856.98it/s]
+Validation AUROC: 0.72065
+Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 50/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 50/200: 100%|██████████| 4/4 [00:00<00:00, 480.43it/s, loss=0.0000]
+Epoch 50 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 984.64it/s]
+Validation AUROC: 0.72055
+Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 51/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 51/200: 100%|██████████| 4/4 [00:00<00:00, 656.39it/s, loss=0.0000]
+Epoch 51 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1034.07it/s]
+Validation AUROC: 0.72069
+Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 52/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 52/200: 100%|██████████| 4/4 [00:00<00:00, 759.73it/s, loss=0.0000]
+Epoch 52 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1042.28it/s]
+Validation AUROC: 0.72060
+Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 53/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 53/200: 100%|██████████| 4/4 [00:00<00:00, 744.96it/s, loss=0.0000]
+Epoch 53 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1028.87it/s]
+Validation AUROC: 0.72074
+Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 54/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 54/200: 100%|██████████| 4/4 [00:00<00:00, 656.05it/s, loss=0.0000]
+Epoch 54 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1018.83it/s]
+Validation AUROC: 0.72064
+Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 55/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 55/200: 100%|██████████| 4/4 [00:00<00:00, 684.37it/s, loss=0.0000]
+Epoch 55 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.18it/s]
+Validation AUROC: 0.72068
+Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 56/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 56/200: 100%|██████████| 4/4 [00:00<00:00, 695.26it/s, loss=0.0000]
+Epoch 56 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1032.82it/s]
+Validation AUROC: 0.72067
+Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 57/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 57/200: 100%|██████████| 4/4 [00:00<00:00, 702.00it/s, loss=0.0000]
+Epoch 57 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1040.89it/s]
+Validation AUROC: 0.72079
+Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 58/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 58/200: 100%|██████████| 4/4 [00:00<00:00, 706.32it/s, loss=0.0000]
+Epoch 58 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1042.93it/s]
+Validation AUROC: 0.72076
+Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 59/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 59/200: 100%|██████████| 4/4 [00:00<00:00, 714.93it/s, loss=0.0000]
+Epoch 59 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1038.01it/s]
+Validation AUROC: 0.72078
+Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 60/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 60/200: 100%|██████████| 4/4 [00:00<00:00, 714.23it/s, loss=0.0000]
+Epoch 60 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1040.36it/s]
+Validation AUROC: 0.72074
+Epoch 61/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 61/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 61/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 61/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 61/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 61/200: 100%|██████████| 4/4 [00:00<00:00, 691.70it/s, loss=0.0000]
+Epoch 61 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1034.19it/s]
+Validation AUROC: 0.72075
+Epoch 62/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 62/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 62/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 62/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 62/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 62/200: 100%|██████████| 4/4 [00:00<00:00, 712.77it/s, loss=0.0000]
+Epoch 62 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1028.88it/s]
+Validation AUROC: 0.72076
+Early stopping triggered after 62 epochs
+
+--- Ensemble member 3/10 (training seed 23529) ---
+Training probe...
+Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6328]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6270]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6680]Epoch 1/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6123]Epoch 1/200: 100%|██████████| 4/4 [00:00<00:00, 679.65it/s, loss=0.6123]
+Epoch 1 - Average loss: 0.6123
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1025.06it/s]
+Validation AUROC: 0.58751
+Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.6094]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.0430]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.4453]Epoch 2/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.3018]Epoch 2/200: 100%|██████████| 4/4 [00:00<00:00, 691.13it/s, loss=1.3018]
+Epoch 2 - Average loss: 1.3018
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 955.69it/s]
+Validation AUROC: 0.59396
+Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=2.4219]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.4609]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.2539]Epoch 3/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.8389]Epoch 3/200: 100%|██████████| 4/4 [00:00<00:00, 576.30it/s, loss=1.8389]
+Epoch 3 - Average loss: 1.8389
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1036.47it/s]
+Validation AUROC: 0.60060
+Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6094]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6719]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.7122]Epoch 4/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=1.4561]Epoch 4/200: 100%|██████████| 4/4 [00:00<00:00, 606.84it/s, loss=1.4561]
+Epoch 4 - Average loss: 1.4561
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1036.77it/s]
+Validation AUROC: 0.61759
+Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2041]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6216]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5837]Epoch 5/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5037]Epoch 5/200: 100%|██████████| 4/4 [00:00<00:00, 717.83it/s, loss=0.5037]
+Epoch 5 - Average loss: 0.5037
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.08it/s]
+Validation AUROC: 0.66455
+Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4648]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4609]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.8646]Epoch 6/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6486]Epoch 6/200: 100%|██████████| 4/4 [00:00<00:00, 727.01it/s, loss=0.6486]
+Epoch 6 - Average loss: 0.6486
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.53it/s]
+Validation AUROC: 0.68393
+Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.8789]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5503]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.9502]Epoch 7/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.9216]Epoch 7/200: 100%|██████████| 4/4 [00:00<00:00, 719.25it/s, loss=0.9216]
+Epoch 7 - Average loss: 0.9216
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1005.46it/s]
+Validation AUROC: 0.68869
+Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1816]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.3877]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.8861]Epoch 8/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.8950]Epoch 8/200: 100%|██████████| 4/4 [00:00<00:00, 686.30it/s, loss=0.8950]
+Epoch 8 - Average loss: 0.8950
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1032.49it/s]
+Validation AUROC: 0.69700
+Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2041]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1831]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.7054]Epoch 9/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.5408]Epoch 9/200: 100%|██████████| 4/4 [00:00<00:00, 712.83it/s, loss=0.5408]
+Epoch 9 - Average loss: 0.5408
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1028.28it/s]
+Validation AUROC: 0.71247
+Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4219]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2666]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4954]Epoch 10/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.4028]Epoch 10/200: 100%|██████████| 4/4 [00:00<00:00, 705.99it/s, loss=0.4028]
+Epoch 10 - Average loss: 0.4028
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1031.48it/s]
+Validation AUROC: 0.73052
+Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0320]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0250]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.3656]Epoch 11/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2742]Epoch 11/200: 100%|██████████| 4/4 [00:00<00:00, 722.91it/s, loss=0.2742]
+Epoch 11 - Average loss: 0.2742
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1032.00it/s]
+Validation AUROC: 0.74891
+Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.6211]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.3209]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.2413]Epoch 12/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1809]Epoch 12/200: 100%|██████████| 4/4 [00:00<00:00, 573.54it/s, loss=0.1809]
+Epoch 12 - Average loss: 0.1809
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1016.21it/s]
+Validation AUROC: 0.75544
+Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0217]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1886]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1508]Epoch 13/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.1292]Epoch 13/200: 100%|██████████| 4/4 [00:00<00:00, 650.66it/s, loss=0.1292]
+Epoch 13 - Average loss: 0.1292
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1031.97it/s]
+Validation AUROC: 0.76330
+Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0527]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0747]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0788]Epoch 14/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0591]Epoch 14/200: 100%|██████████| 4/4 [00:00<00:00, 658.45it/s, loss=0.0591]
+Epoch 14 - Average loss: 0.0591
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1019.25it/s]
+Validation AUROC: 0.76970
+Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0021]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0165]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0251]Epoch 15/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0209]Epoch 15/200: 100%|██████████| 4/4 [00:00<00:00, 666.77it/s, loss=0.0209]
+Epoch 15 - Average loss: 0.0209
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1023.54it/s]
+Validation AUROC: 0.76654
+Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0042]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0047]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0038]Epoch 16/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0028]Epoch 16/200: 100%|██████████| 4/4 [00:00<00:00, 700.63it/s, loss=0.0028]
+Epoch 16 - Average loss: 0.0028
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1029.85it/s]
+Validation AUROC: 0.75325
+Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0011]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0014]Epoch 17/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0011]Epoch 17/200: 100%|██████████| 4/4 [00:00<00:00, 675.41it/s, loss=0.0011]
+Epoch 17 - Average loss: 0.0011
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1032.54it/s]
+Validation AUROC: 0.74302
+Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0020]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0029]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0020]Epoch 18/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0015]Epoch 18/200: 100%|██████████| 4/4 [00:00<00:00, 643.25it/s, loss=0.0015]
+Epoch 18 - Average loss: 0.0015
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1012.09it/s]
+Validation AUROC: 0.72945
+Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0068]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0034]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0036]Epoch 19/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0027]Epoch 19/200: 100%|██████████| 4/4 [00:00<00:00, 495.24it/s, loss=0.0027]
+Epoch 19 - Average loss: 0.0027
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 987.07it/s]
+Validation AUROC: 0.72372
+Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0068]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0068]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0046]Epoch 20/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0034]Epoch 20/200: 100%|██████████| 4/4 [00:00<00:00, 672.73it/s, loss=0.0034]
+Epoch 20 - Average loss: 0.0034
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 955.72it/s]
+Validation AUROC: 0.71755
+Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0054]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0042]Epoch 21/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0032]Epoch 21/200: 100%|██████████| 4/4 [00:00<00:00, 526.99it/s, loss=0.0032]
+Epoch 21 - Average loss: 0.0032
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 869.13it/s]
+Validation AUROC: 0.72110
+Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0059]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0029]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0020]Epoch 22/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0015]Epoch 22/200: 100%|██████████| 4/4 [00:00<00:00, 466.77it/s, loss=0.0015]
+Epoch 22 - Average loss: 0.0015
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 886.63it/s]
+Validation AUROC: 0.72919
+Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0010]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0013]Epoch 23/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0010]Epoch 23/200: 100%|██████████| 4/4 [00:00<00:00, 660.75it/s, loss=0.0010]
+Epoch 23 - Average loss: 0.0010
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1021.63it/s]
+Validation AUROC: 0.73652
+Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 24/200: 100%|██████████| 4/4 [00:00<00:00, 655.08it/s, loss=0.0000]
+Epoch 24 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1017.28it/s]
+Validation AUROC: 0.74133
+Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 25/200: 100%|██████████| 4/4 [00:00<00:00, 727.20it/s, loss=0.0000]
+Epoch 25 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1036.57it/s]
+Validation AUROC: 0.74704
+Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 26/200: 100%|██████████| 4/4 [00:00<00:00, 655.16it/s, loss=0.0000]
+Epoch 26 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.36it/s]
+Validation AUROC: 0.74998
+Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 27/200: 100%|██████████| 4/4 [00:00<00:00, 676.15it/s, loss=0.0000]
+Epoch 27 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.19it/s]
+Validation AUROC: 0.75470
+Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 28/200: 100%|██████████| 4/4 [00:00<00:00, 673.35it/s, loss=0.0000]
+Epoch 28 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1035.86it/s]
+Validation AUROC: 0.76157
+Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 29/200: 100%|██████████| 4/4 [00:00<00:00, 733.75it/s, loss=0.0000]
+Epoch 29 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1022.78it/s]
+Validation AUROC: 0.76417
+Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 30/200: 100%|██████████| 4/4 [00:00<00:00, 654.34it/s, loss=0.0000]
+Epoch 30 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1024.07it/s]
+Validation AUROC: 0.76648
+Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 31/200: 100%|██████████| 4/4 [00:00<00:00, 609.59it/s, loss=0.0000]
+Epoch 31 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 917.51it/s]
+Validation AUROC: 0.76836
+Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 32/200: 100%|██████████| 4/4 [00:00<00:00, 581.01it/s, loss=0.0000]
+Epoch 32 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 989.12it/s]
+Validation AUROC: 0.77182
+Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 33/200: 100%|██████████| 4/4 [00:00<00:00, 609.97it/s, loss=0.0000]
+Epoch 33 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1014.01it/s]
+Validation AUROC: 0.77204
+Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 34/200: 100%|██████████| 4/4 [00:00<00:00, 662.24it/s, loss=0.0000]
+Epoch 34 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1029.06it/s]
+Validation AUROC: 0.77400
+Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 35/200: 100%|██████████| 4/4 [00:00<00:00, 643.67it/s, loss=0.0000]
+Epoch 35 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1002.97it/s]
+Validation AUROC: 0.77446
+Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 36/200: 100%|██████████| 4/4 [00:00<00:00, 667.86it/s, loss=0.0000]
+Epoch 36 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1014.02it/s]
+Validation AUROC: 0.77554
+Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 37/200: 100%|██████████| 4/4 [00:00<00:00, 678.47it/s, loss=0.0000]
+Epoch 37 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1022.18it/s]
+Validation AUROC: 0.77682
+Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 38/200: 100%|██████████| 4/4 [00:00<00:00, 664.60it/s, loss=0.0000]
+Epoch 38 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1032.95it/s]
+Validation AUROC: 0.77807
+Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 39/200: 100%|██████████| 4/4 [00:00<00:00, 667.17it/s, loss=0.0000]
+Epoch 39 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1018.20it/s]
+Validation AUROC: 0.77807
+Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 40/200: 100%|██████████| 4/4 [00:00<00:00, 674.46it/s, loss=0.0000]
+Epoch 40 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1023.63it/s]
+Validation AUROC: 0.78082
+Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 41/200: 100%|██████████| 4/4 [00:00<00:00, 690.65it/s, loss=0.0000]
+Epoch 41 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1019.48it/s]
+Validation AUROC: 0.78089
+Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 42/200: 100%|██████████| 4/4 [00:00<00:00, 681.20it/s, loss=0.0000]
+Epoch 42 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1017.43it/s]
+Validation AUROC: 0.78185
+Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 43/200: 100%|██████████| 4/4 [00:00<00:00, 662.42it/s, loss=0.0000]
+Epoch 43 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1009.11it/s]
+Validation AUROC: 0.78177
+Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 44/200: 100%|██████████| 4/4 [00:00<00:00, 604.98it/s, loss=0.0000]
+Epoch 44 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1031.50it/s]
+Validation AUROC: 0.78159
+Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 45/200: 100%|██████████| 4/4 [00:00<00:00, 713.74it/s, loss=0.0000]
+Epoch 45 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 876.64it/s]
+Validation AUROC: 0.78192
+Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 46/200: 100%|██████████| 4/4 [00:00<00:00, 427.18it/s, loss=0.0000]
+Epoch 46 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1023.54it/s]
+Validation AUROC: 0.78200
+Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 47/200: 100%|██████████| 4/4 [00:00<00:00, 654.77it/s, loss=0.0000]
+Epoch 47 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 1023.43it/s]
+Validation AUROC: 0.78336
+Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 48/200: 100%|██████████| 4/4 [00:00<00:00, 662.90it/s, loss=0.0000]
+Epoch 48 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]Processing batches: 100%|██████████| 28/28 [00:00<00:00, 973.71it/s]
+Validation AUROC: 0.78413
+Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200:   0%|          | 0/4 [00:00<?, ?it/s, loss=0.0000]Epoch 49/200: 100%|██████████| 4/4 [00:00<00:00, 601.94it/s, loss=0.0000]
+Epoch 49 - Average loss: 0.0000
+Processing batches:   0%|          | 0/28 [00:00<?, ?it/s]
