@@ -110,6 +110,14 @@ Required environment variables:
   `AGENTIC_REDTEAM_STAGE_ACTIVATIONS` (default on; `0` fits host-resident) and
   `AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB` (default 2 — GPU headroom left for the fit's
   own activations and gradients).
+- Optional probe-fit tuning, read from tuberlens' settings (see
+  `tuberlens/probes/fused_ensemble.py`): `PROBE_FUSED_ENSEMBLE` (default on — fit ensemble
+  members together; turning it off only costs speed), `PROBE_FUSED_MAX_MEMBERS` (default 0
+  = all; cap how many members are stepped together when a fused step's
+  `(members, batch, seq, embed)` gather is too big for the card — an OOM halves it
+  automatically), `PROBE_EVAL_BATCH_SIZE` (default 0 = the training batch size; raising it
+  speeds up every no-grad pass but changes the matmul reduction order, so a near-tied best
+  epoch can flip) and `PROBE_RESTORE_BEST_CHECKPOINT` (default **off**, see below).
 - Also read from tuberlens' own settings (`tuberlens.config.global_settings`, populated
   from the environment): `MAX_MEMORY` (same `"0=21GiB,cpu=45GiB"` form) and per-model
   `MODEL_MAX_MEMORY` pin the budget for **every** tuberlens load — including
@@ -164,9 +172,9 @@ is instead a held-out **dev set** used whole, and *nothing* is held out of the b
 or the red-team successes — both train in full, and `--test-size` / `--split-field` are
 ignored. The dev path exists because the default split makes the validation set move: a
 share of every iteration's red-team successes lands in it, so the set the probe
-early-stops against (tuberlens keeps the **best-val-AUROC checkpoint** — see
-`pytorch_classifiers.py:358-405`) changes shape at every retrain and the checkpoints are
-not comparable across iterations. `--dev-data` takes a JSONL or a **directory** whose
+early-stops against (tuberlens *selects* the best-val-AUROC epoch — but see the
+checkpoint note below for what it actually returns) changes shape at every retrain and
+the checkpoints are not comparable across iterations. `--dev-data` takes a JSONL or a **directory** whose
 `*.jsonl` files are each a split, auto-discovered and concatenated (column intersection)
 the way `evaluate_probe` discovers eval splits; every row's `labels` must be one of the
 probe's two class labels, or the load raises rather than silently handing the fit
@@ -1079,6 +1087,14 @@ ordinary `probe_iter{N}.pkl` path, and read back by everything that consumes a p
   member as a pre-activated `Dataset`. Delegating to the members' own
   `predict_proba_from_inputs` would run `n` forward passes of a gemma-sized model per
   submission — the dominant cost of scoring — for zero benefit.
+- **`_mean_proba` scores every member in one pass** via `_fused_proba` → tuberlens'
+  `stacked_probs`, which stacks the members' weights and vmaps a single forward instead
+  of walking the activations once per member (5-14x measured on the real eval splits;
+  AUROC moves in the 4th decimal and no prediction flipped). It returns `None` — and the
+  caller falls back to the per-member loop — whenever the members are not a stack of
+  identical pytorch heads, or if the fused pass raises (an OOM, an architecture vmap
+  can't trace). The fallback is the behaviour this path has always had, so the fast path
+  can only cost speed, never a score.
 - **`per_token_predictions` raises.** The per-token output is architecture-dependent
   (`PytorchAdamClassifier` returns a 3-tuple), so there is no averaging rule correct
   across architectures. Nothing here calls it; iterate `.members` if you need it.
@@ -1132,8 +1148,16 @@ rather than hardcoded.
 
 **Deep ensembles (`ensemble_size`).** Both entry points take an ensemble size and turn
 it into `_resolve_ensemble_seeds(seed, n)`, which `_train_with_cached_base_activations`
-runs as one `ProbeFactory.build` per seed over the *same* pre-activated datasets,
-wrapped in an `EnsembleProbe`. Only the **fit** repeats — the split, the extraction,
+hands to `ProbeFactory.build_ensemble` over the *same* pre-activated datasets, wrapped
+in an `EnsembleProbe`. That call **fits the members in one pass where it can** (tuberlens'
+`probes/fused_ensemble.py` stacks their parameters and steps them under `vmap`) and falls
+back to one `ProbeFactory.build` per seed where it can't — a closed-form architecture, one
+member, a torch without `torch.func`, `PROBE_FUSED_ENSEMBLE=0`, or an OOM. Members come
+back as ordinary independent probes either way, so the pickle and every consumer are
+unchanged, and the call is reached through `getattr` so a tuberlens predating it still
+trains ensembles the old way. Measured on this repo's own gemma-3-27b retrains: 3.8x at
+228 train / 436 dev, and **14x** on the high-stakes shape where the 19.6 GiB dev set does
+not fit the card and the members would otherwise each re-read it every epoch. Only the **fit** repeats — the split, the extraction,
 the caches and the merge are all shared — so member `k > 0` costs a probe-head fit,
 not another pass through the extraction LLM (the model is released once, before the
 first fit, exactly as before). For `n > 1` the seeds are the **repo-pinned**
@@ -1174,10 +1198,25 @@ change which rows it holds. `_train_with_cached_base_activations` takes it as `d
 `dev_val_cache` and folds it into `validation_dataset` alongside the (now empty) base and
 red-team val sides, so the non-dev path is byte-for-byte unchanged.
 
-Note tuberlens uses the validation set to keep the **best-val-AUROC checkpoint** and to
-early-stop (`pytorch_classifiers.py:358-405`), so which set this is materially changes the
-probe — but only for the pytorch architectures. `SklearnProbe.fit` prints
-"does not use a validation dataset" and ignores it.
+Note tuberlens uses the validation set to select a best-val-AUROC epoch and to
+early-stop, so which set this is materially changes the probe — but only for the pytorch
+architectures. `SklearnProbe.fit` prints "does not use a validation dataset" and ignores it.
+
+**What a fit returns is the LAST epoch, not the best one — and that is deliberate now.**
+`PytorchAdamClassifier.train` recorded its best checkpoint as
+`self.model.state_dict().copy()`, a *shallow* dict copy whose values are the live
+parameter tensors the optimizer keeps updating in place; the closing `load_state_dict`
+therefore restored the weights the fit ended on. With `patience: 50` that is a probe fifty
+epochs past its selected checkpoint, and `best_epoch` records an epoch whose weights were
+never kept. Every probe in this project was trained that way. The copy is now a real
+clone, but **restoring it is opt-in** (`PROBE_RESTORE_BEST_CHECKPOINT=1`): flipping the
+default would silently make every cross-iteration comparison incommensurable with the runs
+that produced it, and it is not a free win — measured on a real 10-member instruction
+retrain, restoring the best checkpoint moves the dev AUROC the members were selected on
+(0.740 → 0.774) but is a wash on the held-out eval splits (mean 0.819 → 0.813, with one
+split falling 0.79 → 0.55). It is a *different* probe, not a better one. Both the fused
+and the per-member trainer read the same setting, so the two can never disagree about what
+an early stop hands back.
 
 **Activation caching (base-blob + red-team per-sample).** Because the base split is
 fixed, the base train/val activations are cached on disk and reused across the whole

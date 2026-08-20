@@ -699,6 +699,37 @@ def _staging_reserve_bytes() -> int:
     return int(_DEFAULT_STAGING_RESERVE_GIB * 2**30)
 
 
+def _fit_dtype_for(name: str, tensor: "torch.Tensor"):
+    """The dtype to stage `name` in — the fit's own, when that is not a size increase.
+
+    Activations are extracted and cached in fp16 while the fit runs in tuberlens'
+    `DTYPE` (bf16 on a GPU), and `ActivationDataset.__getitems__` closes with
+    `.to(self.device).to(self.dtype)` — so every batch of every epoch of every member
+    re-converts the same rows. Converting once here removes that per-batch cast for
+    the ordinary and the fused trainer alike, and costs nothing: fp16 and bf16 are
+    both 2 bytes, so the staged tensor is exactly the size it would have been.
+
+    The conversion is elementwise, so it produces the values the per-batch cast
+    produced, in the same order — the probes come out bit-identical, verified member
+    for member. Guarded on itemsize because the rule must not silently double a
+    tensor: a float32 fit dtype (a CPU-only box) leaves fp16 alone, and only the
+    activations are cast at all — `attention_mask` and `input_ids` are integer
+    columns whose dtype the dataset relies on.
+    """
+    if name != "activations":
+        return tensor.dtype
+    try:
+        from tuberlens.config import global_settings
+    except Exception:
+        return tensor.dtype
+    fit_dtype = getattr(global_settings, "DTYPE", None)
+    if fit_dtype is None or not fit_dtype.is_floating_point:
+        return tensor.dtype
+    if fit_dtype.itemsize > tensor.dtype.itemsize:
+        return tensor.dtype
+    return fit_dtype
+
+
 def _to_device_for_fit(
     datasets, *, verbose: bool = True, reserve_bytes: int | None = None
 ) -> bool:
@@ -819,7 +850,7 @@ def _to_device_for_fit(
                 continue
             for name, tensor in pending:
                 original.append((fields, name, tensor))
-                fields[name] = tensor.to(device)
+                fields[name] = tensor.to(device, _fit_dtype_for(name, tensor))
             moved_bytes += size
     except Exception as exc:  # torch.cuda.OutOfMemoryError is a RuntimeError subclass
         for fields, name, tensor in original:
@@ -1096,14 +1127,46 @@ def _train_with_cached_base_activations(
         return _build(ensemble_seeds[0] if ensemble_seeds else seed)
 
     _warn_if_deterministic_arch(probe_spec, len(ensemble_seeds))
-    members = []
-    for i, fit_seed in enumerate(ensemble_seeds):
-        if verbose:
-            print(
-                f"\n--- Ensemble member {i + 1}/{len(ensemble_seeds)} "
-                f"(training seed {fit_seed}) ---"
-            )
-        members.append(_build(fit_seed))
+    # The members share their activations, so fitting them one at a time re-reads
+    # those activations once per member — and for a head that is a single linear
+    # projection, reading them is nearly all of the wall-clock. tuberlens'
+    # `build_ensemble` steps the members together under vmap where it can and
+    # hands back ordinary independent probes, so `EnsembleProbe`, the pickle and
+    # every consumer are unchanged. It falls back to exactly this loop whenever
+    # fusion does not apply, and it reads the activations from wherever
+    # `_to_device_for_fit` left them rather than staging a second copy.
+    #
+    # `getattr` rather than a direct call: a tuberlens checkout predating
+    # `build_ensemble` must still train ensembles, just one member at a time.
+    build_ensemble = getattr(ProbeFactory, "build_ensemble", None)
+    if build_ensemble is not None:
+        # Seed once for the whole fused fit, for the same reason `_build` reseeds
+        # per member: what the members are must depend on their own seeds and the
+        # data, not on how far the ambient RNG advanced through earlier red-teaming
+        # or an earlier retrain in this process. `build_ensemble` then re-seeds per
+        # member internally.
+        seed_everything(ensemble_seeds[0])
+        members = build_ensemble(
+            probe_spec=probe_spec,
+            train_dataset=train_dataset,
+            model_name=model_name,
+            layer=layer,
+            seeds=list(ensemble_seeds),
+            validation_dataset=validation_dataset,
+            pos_class_label=pos_class_label,
+            neg_class_label=neg_class_label,
+            probe_description=probe_description,
+            verbose=verbose,
+        )
+    else:
+        members = []
+        for i, fit_seed in enumerate(ensemble_seeds):
+            if verbose:
+                print(
+                    f"\n--- Ensemble member {i + 1}/{len(ensemble_seeds)} "
+                    f"(training seed {fit_seed}) ---"
+                )
+            members.append(_build(fit_seed))
     if verbose:
         print(
             f"Built a {len(members)}-member score-averaging ensemble "
