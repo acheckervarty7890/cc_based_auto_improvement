@@ -378,3 +378,33 @@ ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denie
 --- run_all.log ---
 >>> 2026-08-20T07:34:19+00:00  WAIT  gemma_download
 ```
+
+## 2026-08-20T08:04:21+00:00
+
+```
+gpu: 219 MiB, 0 % 
+acts on disk: 778M
+highstakes: 0 red-team/base conversations extracted
+hu_ha: 0 red-team/base conversations extracted
+--- fetch_gemma.log ---
+b9a020df7
+Fetching 25 files:  12%|████████████▊                                                                                              | 3/25 [00:00<00:04,  4.92it/s]Downloading 'model-00008-of-00012.safetensors' to '/home/ubuntu/.cache/huggingface/hub/models--google--gemma-3-27b-it/blobs/9061b71b9cc82e187bd72c8f4594c5c1d900b0bc98c416d72902209514cf8ac4.incomplete'
+--- fetch_kaggle.log ---
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_highstakes_dev.log ---
+GET   anku7890/anthropic-hh-balanced-gemmadevpt :: anthropic_hh_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/anthropic_hh_balanced-gemmadev.pt
+--- fetch_kaggle_highstakes_eval.log ---
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_hu_ha_dev.log ---
+Dataset URL: https://www.kaggle.com/datasets/anku7890/dev-ant-hh-gemmadevpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_ant_hh-gemmadev.pt  (0.12 GB)
+GET   anku7890/dev-balanced-refusal-gemmadevpt :: dev_balanced_refusal-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_balanced_refusal-gemmadev.pt
+--- fetch_kaggle_hu_ha_eval.log ---
+GET   anku7890/eval-ai-dilemmas-gemmaevalpt :: eval_ai_dilemmas-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_ai_dilemmas-gemmaeval.pt
+--- progress_loop.log ---
+
+fatal: unable to auto-detect email address (got 'ubuntu@fac24dfb-e90c-4b58-ab0b-c483b8f0af74.(none)')
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+--- run_all.log ---
+>>> 2026-08-20T07:34:19+00:00  WAIT  gemma_download
+```
