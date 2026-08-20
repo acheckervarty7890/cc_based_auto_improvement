@@ -212,3 +212,67 @@ reference fit 9.5s   ragged fit 7.5s   speedup 1.3x
 max |AUROC difference| = 6.87e-02
 best_epoch: reference 18, ragged 37
 ```
+
+## 2026-08-20T01:56:07+00:00
+
+```
+gpu: 1164 MiB, 15 % 
+acts on disk: 86G
+highstakes: 892 red-team/base conversations extracted
+hu_ha: 978 red-team/base conversations extracted
+hu_ha: 4 rows in ceiling_hu_ha.jsonl
+hu_ha: 48 rows in sweep_hu_ha.jsonl
+--- ceiling_hu_ha.log ---
+[hu_ha] size=693+dev218 fold 4 done in 12s
+[hu_ha] size=693+dev218: MEAN eval AUROC 0.9844 | eval_ai_dilemmas=0.9994 eval_ant_hh=0.9542 eval_balanced_refusal=0.9935 eval_daily_dilemmas=0.9906
+[hu_ha] wrote /workspace/cc_based_auto_improvement/ceiling_analysis/results/ceiling_hu_ha.json
+--- chain.log ---
+>>> 2026-08-20T01:22:22+00:00  START verify_fast_fit
+>>> 2026-08-20T01:23:19+00:00  DONE  verify_fast_fit
+>>> 2026-08-20T01:23:19+00:00  START ceiling_hu_ha
+--- extract_redteam.log ---
+  model loaded in 41s
+  [red-team activations] 10/928 (7.4s/sample, ~113 min left)
+  [red-team activations] 20/928 (4.8s/sample, ~72 min left)
+--- extract_redteam_b1.log ---
+  [red-team activations] 40/50 (2.1s/sample, ~0 min left)
+  [red-team activations] 50/50 (2.1s/sample, ~0 min left)
+  highstakes/base: done in 103s
+--- extract_redteam_b4.log ---
+  [red-team activations] 40/50 (0.5s/sample, ~0 min left)
+  [red-team activations] 50/50 (0.6s/sample, ~0 min left)
+  highstakes/base: done in 28s
+--- fetch_gemma.log ---
+████████████████████████████████████████████████████████████████████████████████| 25/25 [04:22<00:00, 10.52s/it]
+SNAPSHOT /home/ubuntu/.cache/huggingface/hub/models--google--gemma-3-27b-it/snapshots/005ad3404e59d6023443cb575daa05336842228a
+--- fetch_kaggle.log ---
+GET   anku7890/toolace-balanced-gemmadevpt :: toolace_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/toolace_balanced-gemmadev.pt
+Dataset URL: https://www.kaggle.com/datasets/anku7890/toolace-balanced-gemmadevpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/toolace_balanced-gemmadev.pt  (3.62 GB)
+--- progress_loop.log ---
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+--- run_all.log ---
+>>> 2026-08-20T01:44:06+00:00  START ceiling_hu_ha
+>>> 2026-08-20T01:47:10+00:00  DONE  ceiling_hu_ha
+>>> 2026-08-20T01:47:10+00:00  START sweep_hu_ha
+--- run_all_stdout.log ---
+>>> 2026-08-20T01:44:06+00:00  START ceiling_hu_ha
+>>> 2026-08-20T01:47:10+00:00  DONE  ceiling_hu_ha
+>>> 2026-08-20T01:47:10+00:00  START sweep_hu_ha
+--- sweep_hu_ha.log ---
+  | 0/1 [00:00<?, ?it/s]Processing batches: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 447.44it/s]
+--- verify_batch_padding.log ---
+
+worst relative deviation: 0.00e+00
+exact match: the cache reproduces a fresh single-row extraction
+--- verify_extraction_noise.log ---
+  batched    1.042e-02
+
+reading: `repeat` and `published` at 0 mean extraction is bit-exact and machine-independent at batch size 1 — there is no drift to hide behind, so the `batched` figure is the whole effect of raising BATCH_SIZE. This is why the red-team cache is built one row at a time.
+--- verify_fast_fit.log ---
+reference fit 10.6s   ragged fit 6.1s   speedup 1.7x
+max |AUROC difference| = 0.00e+00
+best_epoch: reference 18, ragged 18
+```
