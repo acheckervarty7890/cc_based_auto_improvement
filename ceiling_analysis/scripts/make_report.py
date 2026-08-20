@@ -190,7 +190,12 @@ def main() -> int:
             print(f"skipping {concept}: missing results", flush=True)
             continue
         ceil = json.loads(cpath.read_text())
-        ceiling = float(ceil["ceiling"]["auroc"])
+        # The ceiling is the BEST rung, not the last one. The dev-pool rung adds training
+        # data but is not guaranteed to score higher — on high-stakes it lands 0.001 below
+        # the eval-only rung, which is the saturation signal, not a worse ceiling.
+        rung_scores = {k: float(v["mean"]["auroc"]) for k, v in ceil["by_train_size"].items()}
+        best_rung = max(rung_scores, key=rung_scores.get)
+        ceiling = rung_scores[best_rung]
         df = load_sweep(concept)
         df.to_csv(C.RESULTS / f"sweep_{concept}.csv", index=False)
         for arm in ("mixed", "finetune", "dev_only"):
@@ -202,8 +207,8 @@ def main() -> int:
         summaries.append(s)
 
         lines = [f"### {concept}", ""]
-        lines.append(f"* ceiling (eval-trained {ceil['n_folds']}-fold CV): "
-                     f"**{ceiling:.4f}** mean eval AUROC")
+        lines.append(f"* ceiling (eval-trained {ceil['n_folds']}-fold CV, best rung "
+                     f"`{best_rung}`): **{ceiling:.4f}** mean eval AUROC")
         lines.append(f"* red-team only (N=0): **{s['redteam_only']:.4f}** "
                      f"— gap {s['gap']:+.4f}")
         rungs = list(ceil["by_train_size"].items())
@@ -211,7 +216,8 @@ def main() -> int:
             lines.append(f"* ceiling CV at {size} training rows/fold: "
                          f"{entry['mean']['auroc']:.4f}")
         if len(rungs) >= 2:
-            climb = rungs[-1][1]["mean"]["auroc"] - rungs[-2][1]["mean"]["auroc"]
+            ordered = sorted(rung_scores.items(), key=lambda kv: kv[1])
+            climb = ordered[-1][1] - ordered[-2][1]
             if climb > 0.005:
                 lines.append(
                     f"* **the ladder is still climbing** (+{climb:.4f} on the top step), so "
