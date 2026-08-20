@@ -149,7 +149,24 @@ class RaggedActivations:
         return out, mask, self.y[idx]
 
 
-def _probs(model, ragged: RaggedActivations, batch_size: int = 32) -> np.ndarray:
+def _epoch_batches(n: int, batch_size: int):
+    """The exact index batches `DataLoader(shuffle=True)` would hand out for one epoch.
+
+    Built from torch's own `RandomSampler`/`BatchSampler` rather than reimplemented, because
+    reimplementing it is subtly wrong: `RandomSampler.__iter__` pulls a single int64 from the
+    **global** generator to seed a **fresh** one and permutes with that, so a plain
+    `torch.randperm(n)` both consumes a different amount of the global stream and yields a
+    different order. Using the real samplers means there is nothing left to get wrong — the
+    batch order here is the batch order tuberlens' loop sees, under the same seed.
+    """
+    from torch.utils.data import BatchSampler, RandomSampler
+
+    sampler = RandomSampler(range(n))
+    return list(BatchSampler(sampler, batch_size, drop_last=False))
+
+
+
+def _probs(model, ragged: RaggedActivations, batch_size: int) -> np.ndarray:
     model.eval()
     out = np.empty(len(ragged), dtype=float)
     with torch.no_grad():
@@ -185,10 +202,9 @@ def train_head(train: RaggedActivations, val: RaggedActivations | None,
     n = len(train)
     model.train()
     for epoch in range(hyperparams["epochs"]):
-        perm = torch.randperm(n)  # matches DataLoader(shuffle=True)'s RandomSampler
         opt.zero_grad()
-        for b, start in enumerate(range(0, n, hyperparams["batch_size"])):
-            idx = perm[start : start + hyperparams["batch_size"]].to(train.device)
+        for b, batch in enumerate(_epoch_batches(n, hyperparams["batch_size"])):
+            idx = torch.tensor(batch, device=train.device)
             a, m, y = train.batch(idx)
             loss = crit(model(a, m), y) / accum
             loss.backward()
@@ -200,7 +216,7 @@ def train_head(train: RaggedActivations, val: RaggedActivations | None,
         sched.step()
         if val is None:
             continue
-        auroc = float(roc_auc_score(val_y, _probs(model, val)))
+        auroc = float(roc_auc_score(val_y, _probs(model, val, hyperparams["batch_size"])))
         if auroc > best_auroc:
             best_auroc, best_epoch, stale = auroc, epoch + 1, 0
             best_state = copy.deepcopy(model.state_dict())
@@ -228,7 +244,7 @@ def finetune_head(model, train: RaggedActivations, val: RaggedActivations,
     from sklearn.metrics import roc_auc_score
 
     val_y = val.y.float().cpu().numpy()
-    before = float(roc_auc_score(val_y, _probs(model, val)))
+    before = float(roc_auc_score(val_y, _probs(model, val, hyperparams["batch_size"])))
     best_auroc, best_state, best_epoch, stale = before, copy.deepcopy(
         model.state_dict()
     ), None, 0
@@ -242,10 +258,9 @@ def finetune_head(model, train: RaggedActivations, val: RaggedActivations,
     n = len(train)
     model.train()
     for epoch in range(hyperparams["epochs"]):
-        perm = torch.randperm(n)
         opt.zero_grad()
-        for b, start in enumerate(range(0, n, hyperparams["batch_size"])):
-            idx = perm[start : start + hyperparams["batch_size"]].to(train.device)
+        for b, batch in enumerate(_epoch_batches(n, hyperparams["batch_size"])):
+            idx = torch.tensor(batch, device=train.device)
             a, m, y = train.batch(idx)
             loss = crit(model(a, m), y) / accum
             loss.backward()
@@ -255,7 +270,7 @@ def finetune_head(model, train: RaggedActivations, val: RaggedActivations,
                 opt.zero_grad()
             del a, m, y
         sched.step()
-        auroc = float(roc_auc_score(val_y, _probs(model, val)))
+        auroc = float(roc_auc_score(val_y, _probs(model, val, hyperparams["batch_size"])))
         if auroc > best_auroc:
             best_auroc, best_epoch, stale = auroc, epoch + 1, 0
             best_state = copy.deepcopy(model.state_dict())

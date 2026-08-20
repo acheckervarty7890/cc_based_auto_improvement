@@ -617,7 +617,7 @@ def ragged_val_auroc(probe, val_ragged) -> float:
     import ca_fit as F
     from sklearn.metrics import roc_auc_score
 
-    probs = F._probs(probe._classifier.model, val_ragged)
+    probs = F._probs(probe._classifier.model, val_ragged, hyperparams()["batch_size"])
     return float(roc_auc_score(val_ragged.y.float().cpu().numpy(), probs))
 
 
