@@ -122,6 +122,10 @@ def main():
         per = rec["per_split"]
         log(f">>> {rec['condition']:14s} macro AUROC {rec['macro']['auroc']:.4f}  "
             f"acc {rec['macro']['accuracy']:.4f}  TPR@1%FPR {rec['macro']['tpr_at_fpr']:.4f} (<=1%: {rec['macro']['tpr_at_fpr_le']:.4f})")
+        if "macro_within_fold" in rec:
+            mw = rec["macro_within_fold"]
+            log(f"    within-fold (no score-pooling): AUROC {mw['auroc']:.4f}  "
+                f"TPR@FPR<=1% {mw['tpr_at_fpr_le']:.4f}")
         for k in split_names:
             log(f"      {k:32s} auroc {per[k]['auroc']:.4f}  tpr {per[k]['tpr_at_fpr']:.4f}")
 
@@ -141,6 +145,7 @@ def main():
         if cond not in conditions:
             continue
         oof = np.zeros(len(eval_pool))
+        per_fold = []          # metrics computed WITHIN each fold, by that fold's probe
         for k in range(args.folds):
             tr_idx = np.where(fold_of != k)[0]
             te_idx = np.where(fold_of == k)[0]
@@ -153,13 +158,32 @@ def main():
                 f" | {H.gpu_free_gib():.1f} GiB allocatable")
             probe, _ = fit_ensemble(train, dev, args.ensemble, f"{cond}/f{k}", log)
             held = H.take(eval_pool, te_idx)
-            oof[te_idx] = np.asarray(probe.predict_proba(held))
+            scores = np.asarray(probe.predict_proba(held))
+            oof[te_idx] = scores
+            # Per-fold metrics as well as pooled. Pooling mixes scores from `folds`
+            # separately-calibrated probes into one ranking, which depresses AUROC for
+            # reasons that have nothing to do with the probes' quality; the average of
+            # the per-fold AUROCs has no such artifact. Both are recorded so the size
+            # of the artifact is visible rather than assumed.
+            fm = {}
+            for n in split_names:
+                sel = row_split[te_idx] == n
+                if sel.sum() >= 2 and len(set(y_pool[te_idx][sel])) == 2:
+                    fm[n] = H.split_metrics(y_pool[te_idx][sel], scores[sel])
+            per_fold.append(fm)
             del train, probe, held
             H.free()
         per = {n: H.split_metrics(y_pool[row_split == n], oof[row_split == n])
                for n in split_names}
+        per_fold_avg = {
+            n: {k: float(np.mean([f[n][k] for f in per_fold if n in f]))
+                for k in ("auroc", "accuracy", "tpr_at_fpr", "tpr_at_fpr_le")}
+            for n in split_names
+        }
         emit({"condition": cond, "arm": args.arm, "folds": args.folds,
-              "per_split": per, "macro": H.macro(per)})
+              "per_split": per, "macro": H.macro(per),
+              "per_split_within_fold": per_fold_avg,
+              "macro_within_fold": H.macro(per_fold_avg)})
 
     # ---------------------------------------------------------------- oracle
     if "oracle" in conditions:

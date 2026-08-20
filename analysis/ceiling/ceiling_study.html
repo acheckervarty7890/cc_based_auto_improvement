@@ -1,0 +1,580 @@
+<title>The Instruction Probe Ceiling</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@400;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+:root{
+  --paper:#F2F3F7; --surface:#FFFFFF; --surface-2:#EAECF3; --rule:#D3D7E4;
+  --ink:#16192B; --muted:#5B6076; --faint:#878CA3;
+  --accent:#2F4B99; --accent-soft:#8FA3D8;
+  --limit:#A8761C; --limit-soft:#E3C98B;
+  --good:#1F7A5C; --warn:#9C3B34;
+  --s1:#2F4B99; --s2:#1F7A5C; --s3:#9AA0B8; --s4:#7A3E9C; --s5:#B4562A;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#10121C; --surface:#171A26; --surface-2:#1E2231; --rule:#2C3145;
+    --ink:#E8EAF2; --muted:#9AA0B8; --faint:#767C93;
+    --accent:#8AA6FF; --accent-soft:#3C4A75;
+    --limit:#E0A93E; --limit-soft:#6B5526;
+    --good:#4FCFA6; --warn:#E4736E;
+    --s1:#8AA6FF; --s2:#4FCFA6; --s3:#767C93; --s4:#C79BE8; --s5:#E8956A;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#10121C; --surface:#171A26; --surface-2:#1E2231; --rule:#2C3145;
+  --ink:#E8EAF2; --muted:#9AA0B8; --faint:#767C93;
+  --accent:#8AA6FF; --accent-soft:#3C4A75;
+  --limit:#E0A93E; --limit-soft:#6B5526;
+  --good:#4FCFA6; --warn:#E4736E;
+  --s1:#8AA6FF; --s2:#4FCFA6; --s3:#767C93; --s4:#C79BE8; --s5:#E8956A;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  font-size:17px; line-height:1.62;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:0 28px 96px}
+.measure{max-width:65ch}
+
+h1,h2,h3,.eyebrow,.tick,.rowlab,.barval,.legend,th,.num,.kpi-v,.pill,.axis,.ceiling-label{
+  font-family:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+}
+h1{font-size:clamp(2.4rem,5.2vw,3.6rem);line-height:1.04;font-weight:600;
+   letter-spacing:-.015em;margin:0 0 .5rem;text-wrap:balance}
+h2{font-size:1.85rem;font-weight:600;letter-spacing:-.01em;margin:0;text-wrap:balance}
+h3{font-size:1.12rem;font-weight:600;margin:0 0 .35rem;text-wrap:balance}
+p{margin:0}
+a{color:var(--accent)}
+code,.mono,.num,.kpi-v,td.n,th.n{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  font-variant-numeric:tabular-nums}
+code{font-size:.86em;background:var(--surface-2);padding:.1em .35em;border-radius:3px}
+
+.eyebrow{font-size:.7rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--faint);font-weight:600}
+
+header.hero{padding:76px 0 40px;border-bottom:1px solid var(--rule)}
+.hero .sub{font-size:1.2rem;color:var(--muted);max-width:60ch;margin-top:.7rem}
+.meta{display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:26px;
+  font-family:"IBM Plex Mono",monospace;font-size:.78rem;color:var(--faint)}
+
+section{padding:52px 0;border-bottom:1px solid var(--rule);
+  display:flex;flex-direction:column;gap:22px}
+section:last-of-type{border-bottom:none}
+.sec-head{display:flex;flex-direction:column;gap:6px}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:14px}
+.kpi{background:var(--surface);border:1px solid var(--rule);border-radius:5px;
+  padding:16px 18px;display:flex;flex-direction:column;gap:3px}
+.kpi-v{font-size:1.95rem;font-weight:600;letter-spacing:-.02em;line-height:1}
+.kpi-k{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+  font-family:"IBM Plex Sans Condensed",sans-serif;font-weight:600}
+.kpi-n{font-size:.84rem;color:var(--muted);line-height:1.45;
+  font-family:"IBM Plex Serif",serif}
+.kpi.is-limit .kpi-v{color:var(--limit)}
+.kpi.is-good .kpi-v{color:var(--good)}
+
+figure{margin:0;background:var(--surface);border:1px solid var(--rule);
+  border-radius:5px;padding:20px 20px 14px;display:flex;flex-direction:column;gap:12px}
+figcaption{font-size:.85rem;color:var(--muted);line-height:1.5}
+.scroll{overflow-x:auto}
+.chart{display:block;width:100%;min-width:520px;height:auto}
+.grid{stroke:var(--rule);stroke-width:1}
+.tick{fill:var(--faint);font-size:11px;text-anchor:middle}
+.ytick{text-anchor:end}
+.axis{fill:var(--faint);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.ceiling{stroke:var(--limit);stroke-width:1.5;stroke-dasharray:7 5}
+.ceiling-label{fill:var(--limit);font-size:11px;letter-spacing:.06em}
+.series{fill:none;stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round}
+.dot{stroke:var(--surface);stroke-width:1.5}
+.s-joint{stroke:var(--s1)} circle.s-joint{fill:var(--s1)}
+.s-ft{stroke:var(--s2)} circle.s-ft{fill:var(--s2)}
+.s-ftlow{stroke:var(--s3);stroke-dasharray:4 4} circle.s-ftlow{fill:var(--s3)}
+.s-nojoint{stroke:var(--s4)} circle.s-nojoint{fill:var(--s4)}
+.s-noft{stroke:var(--s5)} circle.s-noft{fill:var(--s5)}
+.legend{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px 20px;
+  font-size:.78rem;color:var(--muted)}
+.legend li{display:flex;align-items:center;gap:7px}
+.swatch{width:15px;height:3px;border-radius:2px;background:var(--muted);display:inline-block}
+.legend .s-joint .swatch{background:var(--s1)}
+.legend .s-ft .swatch{background:var(--s2)}
+.legend .s-ftlow .swatch{background:var(--s3)}
+.legend .s-nojoint .swatch{background:var(--s4)}
+.legend .s-noft .swatch{background:var(--s5)}
+
+.track{fill:var(--surface-2)}
+.achieved{fill:var(--accent)}
+.gap{fill:var(--limit-soft)}
+.ceilmark{stroke:var(--limit);stroke-width:2}
+.rowlab{fill:var(--ink);font-size:12.5px}
+.barval{fill:var(--muted);font-size:11.5px;font-family:"IBM Plex Mono",monospace}
+
+table{border-collapse:collapse;width:100%;font-size:.85rem;min-width:560px}
+th,td{padding:8px 11px;text-align:right;border-bottom:1px solid var(--rule);
+  white-space:nowrap}
+th:first-child,td:first-child{text-align:left;white-space:normal}
+thead th{font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--faint);font-weight:600;border-bottom:1px solid var(--ink)}
+td.n{font-size:.84rem}
+tr.hi td{background:var(--surface-2);font-weight:600}
+td.best{color:var(--good);font-weight:600}
+.foot td{border-bottom:none;color:var(--faint);font-size:.78rem}
+.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+
+.findings{display:flex;flex-direction:column;gap:0}
+.finding{display:grid;grid-template-columns:118px 1fr;gap:26px;
+  padding:22px 0;border-top:1px solid var(--rule)}
+.finding:first-child{border-top:none}
+.pill{font-size:.66rem;letter-spacing:.11em;text-transform:uppercase;font-weight:600;
+  padding:4px 9px;border-radius:3px;align-self:start;text-align:center;
+  border:1px solid currentColor}
+.p-result{color:var(--accent)}
+.p-bug{color:var(--warn)}
+.p-method{color:var(--muted)}
+.finding p{color:var(--muted);font-size:.93rem;margin-top:.3rem}
+.finding strong{color:var(--ink);font-weight:600}
+
+.callout{background:var(--surface);border:1px solid var(--rule);
+  border-left:3px solid var(--limit);border-radius:4px;padding:16px 20px;
+  font-size:.92rem;color:var(--muted)}
+.callout strong{color:var(--ink)}
+
+footer{padding:40px 0 0;color:var(--faint);font-size:.8rem;
+  font-family:"IBM Plex Mono",monospace;line-height:1.7}
+
+@media (max-width:640px){
+  body{font-size:16px}
+  .finding{grid-template-columns:1fr;gap:8px}
+  header.hero{padding:48px 0 30px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .series{stroke-dasharray:2200;stroke-dashoffset:2200;
+    animation:draw 1.15s cubic-bezier(.4,0,.2,1) forwards}
+  .s-ftlow{animation:none;stroke-dasharray:4 4}
+  @keyframes draw{to{stroke-dashoffset:0}}
+}
+</style>
+
+<div class="wrap">
+<header class="hero">
+  <div class="eyebrow">gemma-3-27b &#183; layer 32 &#183; instruction-following probe</div>
+  <h1>How high could this probe actually go?</h1>
+  <p class="sub">Five iterations of automated red-teaming moved a linear probe from
+  0.7714 to 0.8595 macro AUROC. This measures the number it was climbing toward &#8212;
+  and what it would have cost to get there another way.</p>
+  <div class="meta">
+    <span>1302 eval rows &#183; 7 splits</span>
+    <span>436 held-out dev rows</span>
+    <span>10-member deep ensembles throughout</span>
+    <span>all figures recomputed from cached activations</span>
+  </div>
+</header>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Part 1 &#8212; the ceiling</div>
+    <h2>There is no representational barrier</h2>
+  </div>
+  <p class="measure">Fit the same probe head on all 1302 eval rows and score those same
+  rows and it separates them perfectly. Layer 32 already carries the whole signal;
+  nothing about the architecture or the layer is what holds the run back. Every point
+  below the oracle is a generalization gap, not a capacity gap.</p>
+
+  <div class="kpis">
+    <div class="kpi"><span class="kpi-k">achieved</span>
+      <span class="kpi-v">0.8595</span>
+      <span class="kpi-n">best published probe, after 5 red-team iterations</span></div>
+    <div class="kpi is-limit"><span class="kpi-k">ceiling</span>
+      <span class="kpi-v">0.9435</span>
+      <span class="kpi-n">5-fold CV inside the eval set, no test leakage</span></div>
+    <div class="kpi"><span class="kpi-k">separability</span>
+      <span class="kpi-v">1.0000</span>
+      <span class="kpi-n">oracle: fit and scored on the same rows</span></div>
+    <div class="kpi is-good"><span class="kpi-k">headroom captured</span>
+      <span class="kpi-v">51%</span>
+      <span class="kpi-n">of the distance from iteration 0 to the ceiling</span></div>
+  </div>
+
+  <div class="scroll"><table><thead><tr><th>condition</th><th class="n">macro AUROC</th><th class="n">TPR @ FPR &#8804; 1%</th></tr></thead><tbody><tr class=""><td>iteration 0 &#8212; base data only, no red-teaming</td><td class="n">0.7714</td><td class="n">&#8212;</td></tr><tr class=""><td>best published probe (gpt-oss arm, iter 4)</td><td class="n">0.8252</td><td class="n">&#8212;</td></tr><tr class=""><td>best published probe (nemotron arm, iter 5)</td><td class="n">0.8595</td><td class="n">&#8212;</td></tr><tr class=""><td>red-team only, refit here (gpt-oss)</td><td class="n">0.8272</td><td class="n">0.2812</td></tr><tr class=""><td>red-team only, refit here (nemotron)</td><td class="n">0.8586</td><td class="n">0.2075</td></tr><tr class=""><td>5-fold CV inside eval, pooled out-of-fold</td><td class="n">0.9416</td><td class="n">0.7755</td></tr><tr class="hi"><td>5-fold CV inside eval, averaged within fold</td><td class="n">0.9435</td><td class="n">0.8327</td></tr><tr class=""><td>CV inside eval + red-team data (gpt-oss)</td><td class="n">0.9456</td><td class="n">0.6958</td></tr><tr class=""><td>CV inside eval + red-team data (nemotron)</td><td class="n">0.9248</td><td class="n">0.6270</td></tr><tr class="hi"><td>trained on 436 dev rows only, tested on all 1302 eval rows</td><td class="n">0.9613</td><td class="n">0.7677</td></tr><tr class=""><td>oracle &#8212; fit and scored on the same 1302 eval rows</td><td class="n">1.0000</td><td class="n">1.0000</td></tr></tbody></table></div>
+
+  <div class="callout"><strong>The ceiling is a band, not a point.</strong>
+  Cross-validating inside eval gives 0.9435; training on the 436 dev rows and
+  testing on all 1302 eval rows gives 0.9613.
+  The 0.018 between them sits barely above the 0.0146 noise floor measured below, so
+  the two estimates agree about as well as this metric can resolve. Read the ceiling as
+  roughly 0.94&#8211;0.96.</div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">where the gap lives</div>
+    <h2>Six splits are nearly solved. One is not.</h2>
+  </div>
+  <p class="measure">The macro average hides the shape of the problem. Under
+  cross-validation six of the seven eval splits reach 0.95 or better; <span
+  class="mono">oig_omission</span> reaches 0.676 and drags the
+  mean down on its own. Drop it and the ceiling is
+  0.988. It is also the
+  smallest split &#8212; 114 eval rows and 32 dev rows &#8212; so it is as likely to be a
+  data problem as a hard one.</p>
+  <figure>
+    <div class="scroll"><svg viewBox="0 0 760 311" role="img" class="chart" aria-label="achieved versus ceiling AUROC per eval split">
+<text class="rowlab" x="162" y="30" text-anchor="end">anthropic harmless refusal</text>
+<rect class="track" x="176" y="10" width="520" height="30" rx="2"/>
+<rect class="gap" x="358.4" y="10" width="337.6" height="30" rx="2"/>
+<rect class="achieved" x="176" y="10" width="182.4" height="30" rx="2"/>
+<line class="ceilmark" x1="696.0" y1="7" x2="696.0" y2="43"/>
+<text class="barval" x="706" y="30">0.675 &#8594; 1.000</text>
+<text class="rowlab" x="162" y="73" text-anchor="end">bbq substitution</text>
+<rect class="track" x="176" y="53" width="520" height="30" rx="2"/>
+<rect class="gap" x="631.3" y="53" width="60.0" height="30" rx="2"/>
+<rect class="achieved" x="176" y="53" width="455.3" height="30" rx="2"/>
+<line class="ceilmark" x1="691.3" y1="50" x2="691.3" y2="86"/>
+<text class="barval" x="706" y="73">0.938 &#8594; 0.996</text>
+<text class="rowlab" x="162" y="116" text-anchor="end">hc context drift</text>
+<rect class="track" x="176" y="96" width="520" height="30" rx="2"/>
+<rect class="gap" x="669.2" y="96" width="26.2" height="30" rx="2"/>
+<rect class="achieved" x="176" y="96" width="493.2" height="30" rx="2"/>
+<line class="ceilmark" x1="695.4" y1="93" x2="695.4" y2="129"/>
+<text class="barval" x="706" y="116">0.974 &#8594; 0.999</text>
+<text class="rowlab" x="162" y="159" text-anchor="end">hc contradiction</text>
+<rect class="track" x="176" y="139" width="520" height="30" rx="2"/>
+<rect class="gap" x="629.0" y="139" width="50.3" height="30" rx="2"/>
+<rect class="achieved" x="176" y="139" width="453.0" height="30" rx="2"/>
+<line class="ceilmark" x1="679.4" y1="136" x2="679.4" y2="172"/>
+<text class="barval" x="706" y="159">0.936 &#8594; 0.984</text>
+<text class="rowlab" x="162" y="202" text-anchor="end">mm substitution</text>
+<rect class="track" x="176" y="182" width="520" height="30" rx="2"/>
+<rect class="gap" x="628.3" y="182" width="50.3" height="30" rx="2"/>
+<rect class="achieved" x="176" y="182" width="452.3" height="30" rx="2"/>
+<line class="ceilmark" x1="678.6" y1="179" x2="678.6" y2="215"/>
+<text class="barval" x="706" y="202">0.935 &#8594; 0.983</text>
+<text class="rowlab" x="162" y="245" text-anchor="end">oig context drift</text>
+<rect class="track" x="176" y="225" width="520" height="30" rx="2"/>
+<rect class="gap" x="289.5" y="225" width="371.2" height="30" rx="2"/>
+<rect class="achieved" x="176" y="225" width="113.5" height="30" rx="2"/>
+<line class="ceilmark" x1="660.7" y1="222" x2="660.7" y2="258"/>
+<text class="barval" x="706" y="245">0.609 &#8594; 0.966</text>
+<text class="rowlab" x="162" y="288" text-anchor="end">oig omission</text>
+<rect class="track" x="176" y="268" width="520" height="30" rx="2"/>
+<rect class="gap" x="359.1" y="268" width="49.1" height="30" rx="2"/>
+<rect class="achieved" x="176" y="268" width="232.2" height="30" rx="2"/>
+<line class="ceilmark" x1="359.1" y1="265" x2="359.1" y2="301"/>
+<text class="barval" x="706" y="288">0.723 &#8594; 0.676</text>
+</svg></div>
+    <figcaption>Solid bar: what the gpt-oss red-team probe reached. Gold segment and tick:
+    the distance to the cross-validated ceiling for that split. The probe is already at
+    ceiling on <span class="mono">hc_context_drift</span>, and 0.3&#8201;AUROC short on
+    <span class="mono">anthropic_harmless_refusal</span> and
+    <span class="mono">oig_context_drift</span> &#8212; that pair is where the remaining
+    headroom actually is.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">Part 2 &#8212; the dev sweep</div>
+    <h2>What labelled in-distribution data buys</h2>
+  </div>
+  <p class="measure">The 436 dev rows were cut once into a 100-row validation holdout &#8212;
+  never trained on, in any condition, so early stopping is identical at every point &#8212;
+  and a 336-row pool. N runs 0 to 336 in equal steps, and each prefix is stratified, so
+  N&#8239;=&#8239;42 means six rows from each of the seven splits, half positive. Two ways
+  of spending them, as asked: fold them into the red-team training set and retrain from
+  scratch, or train on red-team data first and then finetune on the dev rows alone.</p>
+
+  <figure>
+    <div class="scroll"><svg viewBox="0 0 760 330" role="img" class="chart" aria-label="macro AUROC against dev samples used for training">
+<line class="grid" x1="54" y1="286.0" x2="742" y2="286.0"/>
+<text class="tick ytick" x="45" y="290.0">0.80</text>
+<line class="grid" x1="54" y1="252.5" x2="742" y2="252.5"/>
+<text class="tick ytick" x="45" y="256.5">0.82</text>
+<line class="grid" x1="54" y1="219.0" x2="742" y2="219.0"/>
+<text class="tick ytick" x="45" y="223.0">0.84</text>
+<line class="grid" x1="54" y1="185.5" x2="742" y2="185.5"/>
+<text class="tick ytick" x="45" y="189.5">0.86</text>
+<line class="grid" x1="54" y1="152.0" x2="742" y2="152.0"/>
+<text class="tick ytick" x="45" y="156.0">0.88</text>
+<line class="grid" x1="54" y1="118.5" x2="742" y2="118.5"/>
+<text class="tick ytick" x="45" y="122.5">0.90</text>
+<line class="grid" x1="54" y1="85.0" x2="742" y2="85.0"/>
+<text class="tick ytick" x="45" y="89.0">0.92</text>
+<line class="grid" x1="54" y1="51.5" x2="742" y2="51.5"/>
+<text class="tick ytick" x="45" y="55.5">0.94</text>
+<line class="grid" x1="54" y1="18.0" x2="742" y2="18.0"/>
+<text class="tick ytick" x="45" y="22.0">0.96</text>
+<text class="tick" x="54.0" y="306">0</text>
+<text class="tick" x="140.0" y="306">42</text>
+<text class="tick" x="226.0" y="306">84</text>
+<text class="tick" x="312.0" y="306">126</text>
+<text class="tick" x="398.0" y="306">168</text>
+<text class="tick" x="484.0" y="306">210</text>
+<text class="tick" x="570.0" y="306">252</text>
+<text class="tick" x="656.0" y="306">294</text>
+<text class="tick" x="742.0" y="306">336</text>
+<line class="ceiling" x1="54" y1="45.7" x2="742" y2="45.7"/>
+<text class="ceiling-label" x="742" y="37.7" text-anchor="end">ceiling 0.9435</text>
+<path class="series s-joint" d="M54.0,236.0 L140.0,223.1 L226.0,216.3 L312.0,155.1 L398.0,108.0 L484.0,84.8 L570.0,68.8 L656.0,56.9 L742.0,49.8"/>
+<circle class="dot s-joint" cx="54.0" cy="236.0" r="3"/>
+<circle class="dot s-joint" cx="140.0" cy="223.1" r="3"/>
+<circle class="dot s-joint" cx="226.0" cy="216.3" r="3"/>
+<circle class="dot s-joint" cx="312.0" cy="155.1" r="3"/>
+<circle class="dot s-joint" cx="398.0" cy="108.0" r="3"/>
+<circle class="dot s-joint" cx="484.0" cy="84.8" r="3"/>
+<circle class="dot s-joint" cx="570.0" cy="68.8" r="3"/>
+<circle class="dot s-joint" cx="656.0" cy="56.9" r="3"/>
+<circle class="dot s-joint" cx="742.0" cy="49.8" r="3"/>
+<path class="series s-ft" d="M54.0,236.0 L140.0,236.0 L226.0,146.9 L312.0,120.2 L398.0,96.3 L484.0,75.9 L570.0,78.9 L656.0,50.6 L742.0,52.7"/>
+<circle class="dot s-ft" cx="54.0" cy="236.0" r="3"/>
+<circle class="dot s-ft" cx="140.0" cy="236.0" r="3"/>
+<circle class="dot s-ft" cx="226.0" cy="146.9" r="3"/>
+<circle class="dot s-ft" cx="312.0" cy="120.2" r="3"/>
+<circle class="dot s-ft" cx="398.0" cy="96.3" r="3"/>
+<circle class="dot s-ft" cx="484.0" cy="75.9" r="3"/>
+<circle class="dot s-ft" cx="570.0" cy="78.9" r="3"/>
+<circle class="dot s-ft" cx="656.0" cy="50.6" r="3"/>
+<circle class="dot s-ft" cx="742.0" cy="52.7" r="3"/>
+<path class="series s-ftlow" d="M54.0,236.0 L140.0,236.0 L226.0,251.5 L312.0,257.8 L398.0,259.1 L484.0,262.6 L570.0,266.5 L656.0,266.4 L742.0,264.9"/>
+<circle class="dot s-ftlow" cx="54.0" cy="236.0" r="3"/>
+<circle class="dot s-ftlow" cx="140.0" cy="236.0" r="3"/>
+<circle class="dot s-ftlow" cx="226.0" cy="251.5" r="3"/>
+<circle class="dot s-ftlow" cx="312.0" cy="257.8" r="3"/>
+<circle class="dot s-ftlow" cx="398.0" cy="259.1" r="3"/>
+<circle class="dot s-ftlow" cx="484.0" cy="262.6" r="3"/>
+<circle class="dot s-ftlow" cx="570.0" cy="266.5" r="3"/>
+<circle class="dot s-ftlow" cx="656.0" cy="266.4" r="3"/>
+<circle class="dot s-ftlow" cx="742.0" cy="264.9" r="3"/>
+<text class="axis" x="398" y="324" text-anchor="middle">dev samples used for training</text>
+</svg></div>
+    <ul class="legend"><li class="s-joint"><span class="swatch"></span>joint retrain (red-team &#8746; dev)</li><li class="s-ft"><span class="swatch"></span>finetune after red-team</li><li class="s-ftlow"><span class="swatch"></span>finetune, lr 1e-4</li></ul>
+    <figcaption>gpt-oss arm. Finetuning after red-teaming leads joint retraining across the
+    data-scarce middle of the range; both converge on the ceiling once the whole pool is
+    used. The flat grey line is a 10&#215; lower finetune learning rate, which does nothing
+    here &#8212; at one optimizer step per epoch, 1e-4 cannot move the head.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="scroll"><svg viewBox="0 0 760 330" role="img" class="chart" aria-label="macro AUROC against dev samples used for training">
+<line class="grid" x1="54" y1="286.0" x2="742" y2="286.0"/>
+<text class="tick ytick" x="45" y="290.0">0.80</text>
+<line class="grid" x1="54" y1="252.5" x2="742" y2="252.5"/>
+<text class="tick ytick" x="45" y="256.5">0.82</text>
+<line class="grid" x1="54" y1="219.0" x2="742" y2="219.0"/>
+<text class="tick ytick" x="45" y="223.0">0.84</text>
+<line class="grid" x1="54" y1="185.5" x2="742" y2="185.5"/>
+<text class="tick ytick" x="45" y="189.5">0.86</text>
+<line class="grid" x1="54" y1="152.0" x2="742" y2="152.0"/>
+<text class="tick ytick" x="45" y="156.0">0.88</text>
+<line class="grid" x1="54" y1="118.5" x2="742" y2="118.5"/>
+<text class="tick ytick" x="45" y="122.5">0.90</text>
+<line class="grid" x1="54" y1="85.0" x2="742" y2="85.0"/>
+<text class="tick ytick" x="45" y="89.0">0.92</text>
+<line class="grid" x1="54" y1="51.5" x2="742" y2="51.5"/>
+<text class="tick ytick" x="45" y="55.5">0.94</text>
+<line class="grid" x1="54" y1="18.0" x2="742" y2="18.0"/>
+<text class="tick ytick" x="45" y="22.0">0.96</text>
+<text class="tick" x="54.0" y="306">0</text>
+<text class="tick" x="140.0" y="306">42</text>
+<text class="tick" x="226.0" y="306">84</text>
+<text class="tick" x="312.0" y="306">126</text>
+<text class="tick" x="398.0" y="306">168</text>
+<text class="tick" x="484.0" y="306">210</text>
+<text class="tick" x="570.0" y="306">252</text>
+<text class="tick" x="656.0" y="306">294</text>
+<text class="tick" x="742.0" y="306">336</text>
+<line class="ceiling" x1="54" y1="45.7" x2="742" y2="45.7"/>
+<text class="ceiling-label" x="742" y="37.7" text-anchor="end">ceiling 0.9435</text>
+<path class="series s-joint" d="M54.0,182.3 L140.0,208.7 L226.0,162.5 L312.0,137.8 L398.0,121.4 L484.0,87.0 L570.0,68.6 L656.0,64.6 L742.0,56.6"/>
+<circle class="dot s-joint" cx="54.0" cy="182.3" r="3"/>
+<circle class="dot s-joint" cx="140.0" cy="208.7" r="3"/>
+<circle class="dot s-joint" cx="226.0" cy="162.5" r="3"/>
+<circle class="dot s-joint" cx="312.0" cy="137.8" r="3"/>
+<circle class="dot s-joint" cx="398.0" cy="121.4" r="3"/>
+<circle class="dot s-joint" cx="484.0" cy="87.0" r="3"/>
+<circle class="dot s-joint" cx="570.0" cy="68.6" r="3"/>
+<circle class="dot s-joint" cx="656.0" cy="64.6" r="3"/>
+<circle class="dot s-joint" cx="742.0" cy="56.6" r="3"/>
+<path class="series s-ft" d="M54.0,182.3 L140.0,182.3 L226.0,154.0 L312.0,112.8 L398.0,101.2 L484.0,68.3 L570.0,67.4 L656.0,59.6 L742.0,47.7"/>
+<circle class="dot s-ft" cx="54.0" cy="182.3" r="3"/>
+<circle class="dot s-ft" cx="140.0" cy="182.3" r="3"/>
+<circle class="dot s-ft" cx="226.0" cy="154.0" r="3"/>
+<circle class="dot s-ft" cx="312.0" cy="112.8" r="3"/>
+<circle class="dot s-ft" cx="398.0" cy="101.2" r="3"/>
+<circle class="dot s-ft" cx="484.0" cy="68.3" r="3"/>
+<circle class="dot s-ft" cx="570.0" cy="67.4" r="3"/>
+<circle class="dot s-ft" cx="656.0" cy="59.6" r="3"/>
+<circle class="dot s-ft" cx="742.0" cy="47.7" r="3"/>
+<path class="series s-ftlow" d="M54.0,182.3 L140.0,182.3 L226.0,197.2 L312.0,206.2 L398.0,205.3 L484.0,200.8 L570.0,209.8 L656.0,210.7 L742.0,207.4"/>
+<circle class="dot s-ftlow" cx="54.0" cy="182.3" r="3"/>
+<circle class="dot s-ftlow" cx="140.0" cy="182.3" r="3"/>
+<circle class="dot s-ftlow" cx="226.0" cy="197.2" r="3"/>
+<circle class="dot s-ftlow" cx="312.0" cy="206.2" r="3"/>
+<circle class="dot s-ftlow" cx="398.0" cy="205.3" r="3"/>
+<circle class="dot s-ftlow" cx="484.0" cy="200.8" r="3"/>
+<circle class="dot s-ftlow" cx="570.0" cy="209.8" r="3"/>
+<circle class="dot s-ftlow" cx="656.0" cy="210.7" r="3"/>
+<circle class="dot s-ftlow" cx="742.0" cy="207.4" r="3"/>
+<text class="axis" x="398" y="324" text-anchor="middle">dev samples used for training</text>
+</svg></div>
+    <ul class="legend"><li class="s-joint"><span class="swatch"></span>joint retrain (red-team &#8746; dev)</li><li class="s-ft"><span class="swatch"></span>finetune after red-team</li><li class="s-ftlow"><span class="swatch"></span>finetune, lr 1e-4</li></ul>
+    <figcaption>nemotron arm. It starts 0.032 higher and finishes in the same place, which
+    is the first hint that at the top of these curves it is the dev labels doing the work,
+    not the red-team data underneath them.</figcaption>
+  </figure>
+
+  <div class="scroll"><table><caption class="visually-hidden">gpt-oss arm &#183; macro AUROC</caption><thead><tr><th>gpt-oss arm &#183; macro AUROC</th><th class="n">0</th><th class="n">42</th><th class="n">84</th><th class="n">126</th><th class="n">168</th><th class="n">210</th><th class="n">252</th><th class="n">294</th><th class="n">336</th></tr></thead><tbody><tr><td>joint retrain</td><td class="n best">0.8298</td><td class="n best">0.8376</td><td class="n">0.8416</td><td class="n">0.8781</td><td class="n">0.9063</td><td class="n">0.9201</td><td class="n best">0.9297</td><td class="n">0.9368</td><td class="n best">0.9410</td></tr><tr><td>finetune (lr 5e-3)</td><td class="n best">0.8298</td><td class="n">0.8298</td><td class="n best">0.8831</td><td class="n best">0.8990</td><td class="n best">0.9132</td><td class="n best">0.9254</td><td class="n">0.9237</td><td class="n best">0.9405</td><td class="n">0.9393</td></tr><tr><td>finetune (lr 1e-4)</td><td class="n best">0.8298</td><td class="n">0.8298</td><td class="n">0.8206</td><td class="n">0.8169</td><td class="n">0.8160</td><td class="n">0.8140</td><td class="n">0.8117</td><td class="n">0.8117</td><td class="n">0.8126</td></tr></tbody></table></div>
+  <div class="scroll"><table><caption class="visually-hidden">nemotron arm &#183; macro AUROC</caption><thead><tr><th>nemotron arm &#183; macro AUROC</th><th class="n">0</th><th class="n">42</th><th class="n">84</th><th class="n">126</th><th class="n">168</th><th class="n">210</th><th class="n">252</th><th class="n">294</th><th class="n">336</th></tr></thead><tbody><tr><td>joint retrain</td><td class="n best">0.8619</td><td class="n">0.8462</td><td class="n">0.8737</td><td class="n">0.8885</td><td class="n">0.8983</td><td class="n">0.9188</td><td class="n">0.9298</td><td class="n">0.9322</td><td class="n">0.9370</td></tr><tr><td>finetune (lr 5e-3)</td><td class="n best">0.8619</td><td class="n best">0.8619</td><td class="n best">0.8788</td><td class="n best">0.9034</td><td class="n best">0.9104</td><td class="n best">0.9300</td><td class="n best">0.9305</td><td class="n best">0.9352</td><td class="n best">0.9423</td></tr><tr><td>finetune (lr 1e-4)</td><td class="n best">0.8619</td><td class="n best">0.8619</td><td class="n">0.8530</td><td class="n">0.8476</td><td class="n">0.8482</td><td class="n">0.8508</td><td class="n">0.8455</td><td class="n">0.8449</td><td class="n">0.8469</td></tr></tbody></table></div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">the control that reframes it</div>
+    <h2>Dev labels alone do better than dev labels plus red-teaming</h2>
+  </div>
+  <p class="measure">Running the same sweep with the red-team data removed entirely &#8212;
+  50 base rows plus N dev rows, nothing else &#8212; starts at iteration 0's own score and
+  overtakes the finished red-team probe by N&#8239;=&#8239;84. At the full pool it reaches
+  0.9613, above every condition that included red-team data. The red-team samples are not
+  merely redundant once in-distribution labels exist; they cost about a point.</p>
+  <figure>
+    <div class="scroll"><svg viewBox="0 0 760 330" role="img" class="chart" aria-label="macro AUROC against dev samples used for training">
+<line class="grid" x1="54" y1="286.0" x2="742" y2="286.0"/>
+<text class="tick ytick" x="45" y="290.0">0.76</text>
+<line class="grid" x1="54" y1="261.6" x2="742" y2="261.6"/>
+<text class="tick ytick" x="45" y="265.6">0.78</text>
+<line class="grid" x1="54" y1="237.3" x2="742" y2="237.3"/>
+<text class="tick ytick" x="45" y="241.3">0.80</text>
+<line class="grid" x1="54" y1="212.9" x2="742" y2="212.9"/>
+<text class="tick ytick" x="45" y="216.9">0.82</text>
+<line class="grid" x1="54" y1="188.5" x2="742" y2="188.5"/>
+<text class="tick ytick" x="45" y="192.5">0.84</text>
+<line class="grid" x1="54" y1="164.2" x2="742" y2="164.2"/>
+<text class="tick ytick" x="45" y="168.2">0.86</text>
+<line class="grid" x1="54" y1="139.8" x2="742" y2="139.8"/>
+<text class="tick ytick" x="45" y="143.8">0.88</text>
+<line class="grid" x1="54" y1="115.5" x2="742" y2="115.5"/>
+<text class="tick ytick" x="45" y="119.5">0.90</text>
+<line class="grid" x1="54" y1="91.1" x2="742" y2="91.1"/>
+<text class="tick ytick" x="45" y="95.1">0.92</text>
+<line class="grid" x1="54" y1="66.7" x2="742" y2="66.7"/>
+<text class="tick ytick" x="45" y="70.7">0.94</text>
+<line class="grid" x1="54" y1="42.4" x2="742" y2="42.4"/>
+<text class="tick ytick" x="45" y="46.4">0.96</text>
+<line class="grid" x1="54" y1="18.0" x2="742" y2="18.0"/>
+<text class="tick ytick" x="45" y="22.0">0.98</text>
+<text class="tick" x="54.0" y="306">0</text>
+<text class="tick" x="140.0" y="306">42</text>
+<text class="tick" x="226.0" y="306">84</text>
+<text class="tick" x="312.0" y="306">126</text>
+<text class="tick" x="398.0" y="306">168</text>
+<text class="tick" x="484.0" y="306">210</text>
+<text class="tick" x="570.0" y="306">252</text>
+<text class="tick" x="656.0" y="306">294</text>
+<text class="tick" x="742.0" y="306">336</text>
+<line class="ceiling" x1="54" y1="62.5" x2="742" y2="62.5"/>
+<text class="ceiling-label" x="742" y="54.5" text-anchor="end">ceiling 0.9435</text>
+<path class="series s-nojoint" d="M54.0,272.2 L140.0,242.3 L226.0,157.7 L312.0,122.9 L398.0,96.8 L484.0,73.5 L570.0,61.1 L656.0,57.1 L742.0,53.5"/>
+<circle class="dot s-nojoint" cx="54.0" cy="272.2" r="3"/>
+<circle class="dot s-nojoint" cx="140.0" cy="242.3" r="3"/>
+<circle class="dot s-nojoint" cx="226.0" cy="157.7" r="3"/>
+<circle class="dot s-nojoint" cx="312.0" cy="122.9" r="3"/>
+<circle class="dot s-nojoint" cx="398.0" cy="96.8" r="3"/>
+<circle class="dot s-nojoint" cx="484.0" cy="73.5" r="3"/>
+<circle class="dot s-nojoint" cx="570.0" cy="61.1" r="3"/>
+<circle class="dot s-nojoint" cx="656.0" cy="57.1" r="3"/>
+<circle class="dot s-nojoint" cx="742.0" cy="53.5" r="3"/>
+<path class="series s-noft" d="M54.0,272.2 L140.0,272.2 L226.0,124.2 L312.0,88.5 L398.0,70.0 L484.0,65.7 L570.0,57.3 L656.0,48.7 L742.0,40.8"/>
+<circle class="dot s-noft" cx="54.0" cy="272.2" r="3"/>
+<circle class="dot s-noft" cx="140.0" cy="272.2" r="3"/>
+<circle class="dot s-noft" cx="226.0" cy="124.2" r="3"/>
+<circle class="dot s-noft" cx="312.0" cy="88.5" r="3"/>
+<circle class="dot s-noft" cx="398.0" cy="70.0" r="3"/>
+<circle class="dot s-noft" cx="484.0" cy="65.7" r="3"/>
+<circle class="dot s-noft" cx="570.0" cy="57.3" r="3"/>
+<circle class="dot s-noft" cx="656.0" cy="48.7" r="3"/>
+<circle class="dot s-noft" cx="742.0" cy="40.8" r="3"/>
+<text class="axis" x="398" y="324" text-anchor="middle">dev samples used for training</text>
+</svg></div>
+    <ul class="legend"><li class="s-nojoint"><span class="swatch"></span>dev only, joint</li><li class="s-noft"><span class="swatch"></span>dev only, finetune</li></ul>
+    <figcaption>No red-team data at any point on these curves. N&#8239;=&#8239;0 reproduces
+    the published iteration-0 probe (0.7713 against 0.7714), which is what makes this
+    directly comparable to the red-teaming loop: same start, different way of spending
+    effort.</figcaption>
+  </figure>
+  <div class="scroll"><table><caption class="visually-hidden">dev only &#183; macro AUROC</caption><thead><tr><th>dev only &#183; macro AUROC</th><th class="n">0</th><th class="n">42</th><th class="n">84</th><th class="n">126</th><th class="n">168</th><th class="n">210</th><th class="n">252</th><th class="n">294</th><th class="n">336</th></tr></thead><tbody><tr><td>dev only, joint retrain</td><td class="n best">0.7713</td><td class="n best">0.7959</td><td class="n">0.8653</td><td class="n">0.8939</td><td class="n">0.9154</td><td class="n">0.9344</td><td class="n">0.9446</td><td class="n">0.9479</td><td class="n">0.9509</td></tr><tr><td>dev only, finetune</td><td class="n best">0.7713</td><td class="n">0.7713</td><td class="n best">0.8928</td><td class="n best">0.9221</td><td class="n best">0.9373</td><td class="n best">0.9408</td><td class="n best">0.9477</td><td class="n best">0.9548</td><td class="n best">0.9613</td></tr></tbody></table></div>
+  <div class="callout"><strong>The exchange rate.</strong> Five iterations,
+  ~2500 attacker conversations, a GPT-5.1 judge and preprocessor on every success and
+  2&#8239;h&#8239;15 of wall clock bought 0.7714&#8239;&#8594;&#8239;0.8595. Eighty-four
+  labelled in-distribution examples bought 0.7713&#8239;&#8594;&#8239;0.8928, in six
+  minutes of fitting on already-cached activations.</div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <div class="eyebrow">findings</div>
+    <h2>What to take away</h2>
+  </div>
+  <div class="findings">
+    <div class="finding"><span class="pill p-result">result</span><div>
+      <h3>Red-teaming captured about half the available headroom</h3>
+      <p>51% in the nemotron arm and
+      31% in the gpt-oss arm, measured from iteration 0 to
+      the cross-validated ceiling. Real progress, and roughly half the distance left
+      unwalked.</p></div></div>
+    <div class="finding"><span class="pill p-result">result</span><div>
+      <h3>In-distribution labels dominate red-team samples, sample for sample</h3>
+      <p>84 dev rows beat 812 red-team rows. 336 dev rows beat every condition that
+      included red-team data. Where labels are obtainable, obtaining them is the higher
+      -leverage move; red-teaming's value is in the case where they are not.</p></div></div>
+    <div class="finding"><span class="pill p-result">result</span><div>
+      <h3>Finetuning afterwards beats folding the data in</h3>
+      <p>Finetune leads joint retraining in 12 of 14 valid comparisons across both arms,
+      and by most at small N &#8212; up to +0.042. Individual gaps are mostly inside the
+      noise floor, so read the direction rather than any single number. The mechanism is
+      plain: 84 dev rows are a rounding error inside 812 red-team rows, but they are the
+      entire signal in a finetune.</p></div></div>
+    <div class="finding"><span class="pill p-bug">bug</span><div>
+      <h3>Training sets under 64 rows take zero optimizer steps</h3>
+      <p><code>batch_size&#8239;16</code> with
+      <code>gradient_accumulation_steps&#8239;4</code> means <code>optimizer.step()</code>
+      only fires when <code>(batch_idx+1) % 4 == 0</code>. At 42 rows that is three
+      batches, the condition never holds, and the fit runs its whole epoch budget while
+      changing nothing &#8212; scores come back bit-identical to the starting probe.
+      PyTorch says so in the log: <em>"Detected call of lr_scheduler.step() before
+      optimizer.step()"</em>. This affects any small-data fit in the repo.</p></div></div>
+    <div class="finding"><span class="pill p-bug">bug</span><div>
+      <h3>The TPR@FPR metric reads the wrong ROC point</h3>
+      <p><code>tpr_at_fixed_fpr_score</code> takes the point <em>nearest</em> 1% FPR
+      rather than the best point at or below it. On a well-separated probe the nearest
+      point is often (0,&#8239;0): the oracle scores TPR 0.0000 at AUROC 1.0. Every
+      TPR figure here is the corrected definition; the original is kept alongside it in
+      the result files for comparability.</p></div></div>
+    <div class="finding"><span class="pill p-method">method</span><div>
+      <h3>A retrain is not reproducible from its own snapshot</h3>
+      <p>Refitting iteration 5 from the saved training data gave 0.8272, not the published
+      0.8126 &#8212; while two refits in one process agreed bit for bit. The cause is row
+      order: <code>_activate_redteam_cached</code> emits already-cached conversations
+      first and appends newly-computed ones, so the training set's order encodes the
+      box's cache history. Rebuilding that partition from the blob mtimes (614 hits,
+      148 computed) reproduced the published probe exactly &#8212; 10/10 members
+      bit-identical, AUROC to six decimals.</p></div></div>
+    <div class="finding"><span class="pill p-method">method</span><div>
+      <h3>The noise floor is 0.0146 macro AUROC</h3>
+      <p>That same finding supplies a calibration: identical data, identical seeds, three
+      different row orders &#8212; 0.8126, 0.8249, 0.8272. Differences smaller than this
+      should not be read as effects. It is why "red-team data adds nothing once you have
+      dev labels" is stated as a null rather than as a small positive or negative.</p></div></div>
+  </div>
+</section>
+
+<footer>
+  every number recomputed offline from the run's cached activations &#183; no LLM loaded<br>
+  harness validated against all 12 published probe scores to six decimal places<br>
+  analysis/ceiling &#183; branch experiment_instruction_cloud_3
+</footer>
+</div>
