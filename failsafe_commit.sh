@@ -117,6 +117,9 @@ REMOTE="origin"
 BRANCH=""   # set at startup to the CURRENTLY checked-out branch — never switched
 PY="${REPO_ROOT}/.venv_claude/bin/python"
 
+CLOSE_ON_FINISH=0       # --close-on-finish: run CLOSE_SCRIPT once every stage has finished
+CLOSE_SCRIPT="close_this.sh"   # --close-script: what to run then (here: stops the Salad container)
+
 POLL_INTERVAL=30        # seconds between marker checks
 PERIODIC_INTERVAL=2400  # 40 min between fallback snapshots (captures in-progress JSONL).
                         #   The marker/probe poll above is the PRIMARY checkpoint trigger and
@@ -141,6 +144,11 @@ in launch order; the first use of any of them clears the built-in defaults):
   --remote NAME            git remote (default: $REMOTE)
   --poll-interval SEC      marker poll cadence (default: $POLL_INTERVAL)
   --periodic-interval SEC  fallback snapshot cadence (default: $PERIODIC_INTERVAL)
+  --close-on-finish        after the LAST stage finishes and the final commit is
+                           confirmed on the remote, run --close-script to shut the
+                           box down. Never fires on Ctrl-C/SIGTERM, on a crashed
+                           run, or while HEAD is unpushed.
+  --close-script PATH      what --close-on-finish runs (default: $CLOSE_SCRIPT)
   -h, --help               show this help
 EOF
 }
@@ -162,6 +170,8 @@ while [[ $# -gt 0 ]]; do
         --remote)            REMOTE="$2"; shift 2;;
         --poll-interval)     POLL_INTERVAL="$2"; shift 2;;
         --periodic-interval) PERIODIC_INTERVAL="$2"; shift 2;;
+        --close-on-finish)   CLOSE_ON_FINISH=1; shift;;
+        --close-script)      CLOSE_SCRIPT="$2"; shift 2;;
         -h|--help)           usage; exit 0;;
         *) echo "Unknown arg: $1" >&2; usage; exit 2;;
     esac
@@ -267,6 +277,16 @@ for i in $(seq 0 $((N_STAGES - 1))); do
     log "      NOT committed: activation caches (*.pt) — base=${BASE_ACT_DIRS[$i]:-<none>} eval=${EVAL_ACT_DIRS[$i]:-<none>}"
 done
 log "branch:        $BRANCH -> $REMOTE   (current branch; not switched)"
+if [[ "$CLOSE_ON_FINISH" -eq 1 ]]; then
+    # Checked NOW, not at the end: the end is hours or days away and unattended, and a
+    # missing close script discovered then means the box just stays up burning money.
+    if [[ ! -f "$CLOSE_SCRIPT" ]]; then
+        log "ERROR: --close-on-finish given but $CLOSE_SCRIPT does not exist"; exit 1
+    fi
+    log "close-on-finish: ENABLED -> $CLOSE_SCRIPT (only after ALL stages finish AND HEAD is on $REMOTE/$BRANCH)"
+else
+    log "close-on-finish: disabled (box stays up when the last stage finishes)"
+fi
 
 # --------------------------------------------------------------------------- #
 # Commit helper: force-add the resume-critical paths and push. No-op when
@@ -384,12 +404,59 @@ stage_finished() {  # $1 = csv path, $2 = log file
 # Final commit on any exit (Ctrl-C, SIGTERM, or the last stage finishing).
 # --------------------------------------------------------------------------- #
 FINALIZED=0
+ALL_STAGES_DONE=0   # set ONLY on normal completion of the last stage — see maybe_close_box
+
+# Shut the box down, but only when it is genuinely safe to lose it.
+#
+# Three guards, and every one of them exists because the failure it prevents is
+# unrecoverable — the box is destroyed, not paused:
+#
+#   1. ALL_STAGES_DONE. Set only where the poller decides every stage finished. So a
+#      Ctrl-C, a SIGTERM, or the poller dying for any other reason runs finalize() and
+#      exits WITHOUT closing. Killing the failsafe must never kill the box.
+#   2. HEAD is on the remote. Compared against the remote-TRACKING ref, which only our
+#      own successful pushes advance, so this is a real "the results are off this
+#      machine" check rather than a "we tried" one. A push can fail for hours (the
+#      100 MB GitHub limit did exactly that on 2026-08-19) — closing then would
+#      destroy the only copy of the run.
+#   3. The commit set is what do_commit stages: probes, markers, JSONL successes and
+#      sidecars. Activation caches are deliberately NOT pushed, so closing the box does
+#      lose those — they are recompute-only by design, which is the whole reason they
+#      are excluded.
+#
+# A crashed run never reaches ALL_STAGES_DONE either: the poller just keeps polling, so
+# the box stays up for inspection. That is the intended asymmetry — an unfinished run is
+# worth more than the machine time.
+maybe_close_box() {
+    [[ "$CLOSE_ON_FINISH" -eq 1 ]] || return 0
+    if [[ "$ALL_STAGES_DONE" -ne 1 ]]; then
+        log "NOT closing the box: the poller is exiting without every stage having finished."
+        return 0
+    fi
+    local head remote_head
+    head="$(git rev-parse HEAD 2>/dev/null)"
+    # --verify -q: a plain `git rev-parse badref` ECHOES THE REF BACK, which would then be
+    # compared against a sha and (harmlessly) never match — but it also lands a nonsense
+    # string in the log. --verify makes a missing ref produce empty output instead.
+    remote_head="$(git rev-parse --verify -q "$REMOTE/$BRANCH^{commit}" 2>/dev/null)"
+    if [[ -z "$remote_head" || "$head" != "$remote_head" ]]; then
+        local shown="${remote_head:0:7}"
+        log "REFUSING to close the box: HEAD ${head:0:7} is NOT on $REMOTE/$BRANCH (remote-tracking ref: ${shown:-<none>})."
+        log "REFUSING:   the run's results exist only on this machine. Push by hand, then close it."
+        return 0
+    fi
+    log "all stages finished and ${head:0:7} is on $REMOTE/$BRANCH — closing the box via $CLOSE_SCRIPT"
+    bash "$CLOSE_SCRIPT" 2>&1 | while IFS= read -r line; do log "close: $line"; done
+    log "close request sent."
+}
+
 finalize() {
     [[ "$FINALIZED" -eq 1 ]] && return
     FINALIZED=1
     log "finalizing: capturing latest state before exit"
     do_commit "final snapshot"
     log "done."
+    maybe_close_box
 }
 trap 'finalize; exit 0' INT TERM
 trap 'finalize' EXIT
@@ -405,6 +472,7 @@ while [[ "$STAGE" -lt "$N_STAGES" ]] && stage_finished "${CSV_PATHS[$STAGE]}" "$
 done
 if [[ "$STAGE" -ge "$N_STAGES" ]]; then
     log "all $N_STAGES stage(s) already finished — committing final state and exiting"
+    ALL_STAGES_DONE=1
     finalize
     exit 0
 fi
@@ -441,7 +509,8 @@ while true; do
         STAGE=$((STAGE + 1))
         if [[ "$STAGE" -ge "$N_STAGES" ]]; then
             log "last stage finished — exiting after final commit"
-            exit 0   # EXIT trap runs finalize()
+            ALL_STAGES_DONE=1
+            exit 0   # EXIT trap runs finalize() -> maybe_close_box()
         fi
         log "handing over to stage $((STAGE + 1))/$N_STAGES: ${CONFIGS[$STAGE]} (${PROBE_DIRS[$STAGE]})"
         last_sig="$(checkpoint_signature "${PROBE_DIRS[$STAGE]}")"
