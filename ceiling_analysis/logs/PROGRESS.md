@@ -863,3 +863,76 @@ reference fit 13.6s   ragged fit 9.0s   speedup 1.5x
 max |AUROC difference| = 0.00e+00
 best_epoch: reference 18, ragged 18
 ```
+
+## 2026-08-20T12:34:45+00:00
+
+```
+gpu: 210 MiB, 1 % 
+acts on disk: 86G
+highstakes: 892 red-team/base conversations extracted
+hu_ha: 978 red-team/base conversations extracted
+hu_ha: 4 rows in ceiling_hu_ha.jsonl
+hu_ha: 83 rows in sweep_hu_ha.jsonl
+--- ceiling_highstakes.log ---
+--- ceiling_hu_ha.log ---
+[hu_ha] size=693+dev218 fold 4 done in 17s
+[hu_ha] size=693+dev218: MEAN eval AUROC 0.9844 | eval_ai_dilemmas=0.9994 eval_ant_hh=0.9542 eval_balanced_refusal=0.9935 eval_daily_dilemmas=0.9906
+[hu_ha] wrote /workspace/cc_based_auto_improvement/ceiling_analysis/results/ceiling_hu_ha.json
+--- extract_redteam.log ---
+=== highstakes ===
+  highstakes/redteam: 842 rows, 0 uncached
+  highstakes/base: 50 rows, 0 uncached
+--- fetch_gemma.log ---
+███████████████████████████████████████████████████████████████████████████████████| 25/25 [31:47<00:00, 76.29s/it]
+/home/ubuntu/.cache/huggingface/hub/models--google--gemma-3-27b-it/snapshots/005ad3404e59d6023443cb575daa05336842228a
+--- fetch_kaggle.log ---
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_highstakes_dev.log ---
+GET   anku7890/toolace-balanced-gemmadevpt :: toolace_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/toolace_balanced-gemmadev.pt
+Dataset URL: https://www.kaggle.com/datasets/anku7890/toolace-balanced-gemmadevpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/toolace_balanced-gemmadev.pt  (3.62 GB)
+--- fetch_kaggle_highstakes_eval.log ---
+GET   anku7890/toolace-balanced-gemmaevalpt :: toolace_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/toolace_balanced-gemmaeval.pt
+Dataset URL: https://www.kaggle.com/datasets/anku7890/toolace-balanced-gemmaevalpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/toolace_balanced-gemmaeval.pt  (8.09 GB)
+--- fetch_kaggle_hu_ha_dev.log ---
+GET   anku7890/dev-daily-dilemmas-gemmadevpt :: dev_daily_dilemmas-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt
+Dataset URL: https://www.kaggle.com/datasets/anku7890/dev-daily-dilemmas-gemmadevpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt  (0.09 GB)
+--- fetch_kaggle_hu_ha_eval.log ---
+GET   anku7890/eval-daily-dilemmas-gemmaevalpt :: eval_daily_dilemmas-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_daily_dilemmas-gemmaeval.pt
+Dataset URL: https://www.kaggle.com/datasets/anku7890/eval-daily-dilemmas-gemmaevalpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_daily_dilemmas-gemmaeval.pt  (0.26 GB)
+--- fetch_supervisor.log ---
+2026-08-20T11:24:35+00:00 kaggle highstakes/dev complete (attempt 1)
+2026-08-20T12:34:03+00:00 kaggle highstakes/eval complete (attempt 1)
+2026-08-20T12:34:03+00:00 all downloads complete
+--- make_report.log ---
+skipping highstakes: missing results
+skipping hu_ha: missing results
+wrote /workspace/cc_based_auto_improvement/ceiling_analysis/results/SUMMARY.md
+--- progress_loop.log ---
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+--- run_all.log ---
+>>> 2026-08-20T11:28:21+00:00  START  sweep_hu_ha
+>>> 2026-08-20T11:49:53+00:00  DONE  sweep_hu_ha
+>>> 2026-08-20T11:49:53+00:00  WAIT  kaggle_blobs_highstakes
+--- sweep_highstakes.log ---
+--- sweep_hu_ha.log ---
+��███████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00, 410.04it/s]
+[hu_ha] dev_only seed=2 N=218: eval AUROC 0.9534  val 0.9390  (7.7s)
+--- verify_batch_padding.log ---
+
+worst relative deviation: 0.00e+00
+exact match: the cache reproduces a fresh single-row extraction
+--- verify_extraction_noise.log ---
+  batched    1.042e-02
+
+reading: `repeat` and `published` at 0 mean extraction is bit-exact and machine-independent at batch size 1 — there is no drift to hide behind, so the `batched` figure is the whole effect of raising BATCH_SIZE. This is why the red-team cache is built one row at a time.
+--- verify_fast_fit.log ---
+reference fit 13.6s   ragged fit 9.0s   speedup 1.5x
+max |AUROC difference| = 0.00e+00
+best_epoch: reference 18, ragged 18
+```
