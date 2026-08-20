@@ -468,3 +468,81 @@ ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denie
 --- run_all.log ---
 >>> 2026-08-20T07:34:19+00:00  WAIT  gemma_download
 ```
+
+## 2026-08-20T09:34:32+00:00
+
+```
+gpu: 219 MiB, 1 % 
+acts on disk: 1.2G
+highstakes: 0 red-team/base conversations extracted
+hu_ha: 0 red-team/base conversations extracted
+--- ceiling_highstakes.log ---
+    super().__init__(open(name, mode))  # noqa: SIM115
+                     ^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt'
+--- ceiling_hu_ha.log ---
+    super().__init__(open(name, mode))  # noqa: SIM115
+                     ^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_ant_hh-gemmaeval.pt'
+--- extract_redteam.log ---
+  File "/workspace/cc_based_auto_improvement/.venv_claude/src/tuberlens/src/tuberlens/utils.py", line 24, in hf_login
+    raise ValueError("No HuggingFace token found")
+ValueError: No HuggingFace token found
+--- fetch_gemma.log ---
+fetensors' to '/home/ubuntu/.cache/huggingface/hub/models--google--gemma-3-27b-it/blobs/9061b71b9cc82e187bd72c8f4594c5c1d900b0bc98c416d72902209514cf8ac4.incomplete' (resume from 67030601/4954793016)
+Downloading 'model-00010-of-00012.safetensors' to '/home/ubuntu/.cache/huggingface/hub/models--google--gemma-3-27b-it/blobs/d651ceb24678d80796a36f9a026f7178631b44e9d86f6f87e52093d915f702ad.incomplete'
+--- fetch_kaggle.log ---
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_highstakes_dev.log ---
+c_hh_balanced-gemmadev.pt
+GET   anku7890/anthropic-hh-balanced-gemmadevpt :: anthropic_hh_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/anthropic_hh_balanced-gemmadev.pt
+GET   anku7890/anthropic-hh-balanced-gemmadevpt :: anthropic_hh_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/anthropic_hh_balanced-gemmadev.pt
+--- fetch_kaggle_highstakes_eval.log ---
+nced-gemmaeval.pt
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+GET   anku7890/anthropic-hh-balanced-gemmaevalpt :: anthropic_hh_balanced-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt
+--- fetch_kaggle_hu_ha_dev.log ---
+GET   anku7890/dev-daily-dilemmas-gemmadevpt :: dev_daily_dilemmas-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt
+Dataset URL: https://www.kaggle.com/datasets/anku7890/dev-daily-dilemmas-gemmadevpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt  (0.09 GB)
+--- fetch_kaggle_hu_ha_eval.log ---
+GET   anku7890/eval-ant-hh-gemmaevalpt :: eval_ant_hh-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_ant_hh-gemmaeval.pt
+OK    hu_ha/eval/eval_ai_dilemmas-gemmaeval.pt  (0.21 GB, cached)
+GET   anku7890/eval-ant-hh-gemmaevalpt :: eval_ant_hh-gemmaeval.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_ant_hh-gemmaeval.pt
+--- fetch_supervisor.log ---
+2026-08-20T09:24:53+00:00 gemma snapshot complete
+2026-08-20T09:30:48+00:00 [gemma] progress: 10297 kB/s
+2026-08-20T09:32:38+00:00 kaggle hu_ha/dev complete (attempt 1)
+--- make_report.log ---
+skipping highstakes: missing results
+skipping hu_ha: missing results
+wrote /workspace/cc_based_auto_improvement/ceiling_analysis/results/SUMMARY.md
+--- progress_loop.log ---
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+--- run_all.log ---
+>>> 2026-08-20T09:22:39+00:00  START  make_report
+>>> 2026-08-20T09:22:42+00:00  DONE(rc=0)  make_report
+>>> 2026-08-20T09:22:42+00:00  ALLDONE  chain
+--- sweep_highstakes.log ---
+    super().__init__(open(name, mode))  # noqa: SIM115
+                     ^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/workspace/cc_based_auto_improvement/ceiling_acts/highstakes/eval/anthropic_hh_balanced-gemmaeval.pt'
+--- sweep_hu_ha.log ---
+    super().__init__(open(name, mode))  # noqa: SIM115
+                     ^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/eval/eval_ant_hh-gemmaeval.pt'
+--- verify_batch_padding.log ---
+  File "/workspace/cc_based_auto_improvement/.venv_claude/src/tuberlens/src/tuberlens/utils.py", line 24, in hf_login
+    raise ValueError("No HuggingFace token found")
+ValueError: No HuggingFace token found
+--- verify_extraction_noise.log ---
+    super().__init__(open(name, mode))  # noqa: SIM115
+                     ^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt'
+--- verify_fast_fit.log ---
+    super().__init__(open(name, mode))  # noqa: SIM115
+                     ^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/workspace/cc_based_auto_improvement/ceiling_acts/hu_ha/dev/dev_daily_dilemmas-gemmadev.pt'
+```
