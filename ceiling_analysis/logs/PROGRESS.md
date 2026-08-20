@@ -51,3 +51,53 @@ DONE  /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/toolace_b
 ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
 ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
 ```
+
+## 2026-08-20T00:26:01+00:00
+
+```
+gpu: 22933 MiB, 46 % 
+acts on disk: 71G
+highstakes: 0 red-team/base conversations extracted
+hu_ha: 361 red-team/base conversations extracted
+--- chain.log ---
+/tmp/claude-1000/-workspace-cc-based-auto-improvement/c574b66f-9441-4065-b7af-743fff1e8af0/scratchpad/chain.sh: /root/.bash_env: Permission denied
+--- extract_redteam.log ---
+  model loaded in 41s
+  [red-team activations] 10/928 (7.4s/sample, ~113 min left)
+  [red-team activations] 20/928 (4.8s/sample, ~72 min left)
+--- extract_redteam_b1.log ---
+  [red-team activations] 340/928 (2.1s/sample, ~21 min left)
+  [red-team activations] 350/928 (2.1s/sample, ~20 min left)
+  [red-team activations] 360/928 (2.1s/sample, ~20 min left)
+--- extract_redteam_b4.log ---
+  [red-team activations] 40/50 (0.5s/sample, ~0 min left)
+  [red-team activations] 50/50 (0.6s/sample, ~0 min left)
+  highstakes/base: done in 28s
+--- fetch_gemma.log ---
+████████████████████████████████████████████████████████████████████████████████| 25/25 [04:22<00:00, 10.52s/it]
+SNAPSHOT /home/ubuntu/.cache/huggingface/hub/models--google--gemma-3-27b-it/snapshots/005ad3404e59d6023443cb575daa05336842228a
+--- fetch_kaggle.log ---
+GET   anku7890/toolace-balanced-gemmadevpt :: toolace_balanced-gemmadev.pt -> /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/toolace_balanced-gemmadev.pt
+Dataset URL: https://www.kaggle.com/datasets/anku7890/toolace-balanced-gemmadevpt
+DONE  /workspace/cc_based_auto_improvement/ceiling_acts/highstakes/dev/toolace_balanced-gemmadev.pt  (3.62 GB)
+--- progress_loop.log ---
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+ceiling_analysis/scripts/progress_snapshot.sh: /root/.bash_env: Permission denied
+--- run_all.log ---
+>>> 2026-08-20T00:08:38+00:00  START verify_batch_padding
+>>> 2026-08-20T00:09:06+00:00  DONE  verify_batch_padding
+>>> 2026-08-20T00:09:06+00:00  START verify_fast_fit
+--- run_all_stdout.log ---
+>>> 2026-08-20T00:08:38+00:00  START verify_batch_padding
+>>> 2026-08-20T00:09:06+00:00  DONE  verify_batch_padding
+>>> 2026-08-20T00:09:06+00:00  START verify_fast_fit
+--- verify_batch_padding.log ---
+
+worst relative deviation: 3.5210
+fp16 storage alone gives ~1e-3 relative error, so anything at that scale is storage precision, not a padding effect.
+--- verify_fast_fit.log ---
+reference fit 10.3s   ragged fit 8.6s   speedup 1.2x
+max |AUROC difference| = 3.50e-02
+best_epoch: reference 14, ragged 56
+```
