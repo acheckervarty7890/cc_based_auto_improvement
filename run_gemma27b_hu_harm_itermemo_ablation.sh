@@ -145,8 +145,10 @@ set -e
 #   mkdir -p logs
 #   nohup bash run_gemma27b_hu_harm_itermemo_ablation.sh > logs/run_gemma27b_hu_harm_itermemo_ablation.out 2>&1 &
 #
-# Checkpointing (so a wiped container can --resume): start failsafe_commit.sh alongside it,
-# with its stage list pointed at these two arms in this order.
+# Checkpointing (so a wiped container can --resume): start failsafe_commit.sh alongside it —
+# its built-in stage list already points at these two arms in this order, and it takes a
+# fallback snapshot every 40 min on top of committing at every marker/probe:
+#   nohup bash failsafe_commit.sh > logs/failsafe_commit.out 2>&1 &
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 mkdir -p logs
