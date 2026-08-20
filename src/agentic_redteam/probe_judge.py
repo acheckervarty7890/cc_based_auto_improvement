@@ -186,6 +186,11 @@ class ProbeJudge:
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+            # Printed unconditionally: when this silently fails the only symptom is
+            # that the NEXT phase's fits find no room to stage and run many times
+            # slower, which is invisible unless the number is in the log.
+            free = torch.cuda.mem_get_info()[0] / 2**30
+            print(f"Released the probe's LLM; {free:.1f} GiB free on the card")
 
     def score(self, conversation: Conversation) -> float:
         from tuberlens.interfaces.dataset import Message as TLMessage
