@@ -173,6 +173,47 @@ fi
     exit 1
 }
 
+# HuggingFace token. tuberlens' LLMModel.load calls hf_login(), which RAISES
+# ValueError("No HuggingFace token found") when no token is set — even though the gemma
+# weights are already in the local HF cache and no download happens. So the run gets all the
+# way past the initial train and the iter0 eval before dying at the first red-team model load,
+# ~1 min in. Check it here instead. (The token only has to EXIST; an expired one logs a
+# warning and the cached load proceeds.)
+if [ -z "${HF_TOKEN:-}" ] && [ -f hf_token.txt ]; then
+    HF_TOKEN="$(tr -d '[:space:]' < hf_token.txt)"
+    export HF_TOKEN
+fi
+: "${HF_TOKEN:?export HF_TOKEN (or put it in hf_token.txt) — tuberlens hf_login() raises without one, even for a fully cached model}"
+export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
+echo ">>> HF token: present (${#HF_TOKEN} chars)"
+
+# --- pin the extraction model's memory budget -----------------------------------------------
+# PLACEMENT ONLY — this cannot change a single number the run produces. It fixes WHERE the
+# frozen extraction LLM's weights live, not what they compute, so the activations, the fits
+# and the eval are identical with or without it. That is why setting it does not break
+# comparability with the experiment17 control, which ran unpinned.
+#
+# Why pin at all: every tuberlens load uses device_map="auto", and UNPINNED accelerate infers
+# the budget from whatever is FREE AT LOAD TIME. The model is reloaded on every red-team
+# rotation and every retrain, so on a tight box one unlucky reload — anything else still
+# holding GPU memory, torch's allocator holding reserved blocks — silently shifts the split
+# and spills the executed tail to DISK. Measured elsewhere in this repo at 48-264 s/sample
+# against ~2.8 s/sample resident, i.e. the difference between a run that finishes and one
+# that does not.
+#
+# Sized for this box: a 24 GiB card (leave ~2 GiB for the fit's activation staging and
+# fragmentation) and 57 GiB of host RAM (leave room for the merged activation tensors, which
+# retrain.py's OOM analysis warns are the other half of the budget).
+#
+# Both vars, deliberately: AGENTIC_REDTEAM_MAX_MEMORY is authoritative on this repo's
+# load_extraction_model path, while tuberlens' own MAX_MEMORY reaches EVERY tuberlens load —
+# including get_performances, which this repo cannot pass model_kwargs to. Here get_performances
+# is a pure cache hit (the `kaggle:` blobs), so MAX_MEMORY is belt-and-braces for the case where
+# a blob is ever missing.
+export AGENTIC_REDTEAM_MAX_MEMORY="0=22GiB,cpu=45GiB"
+export MAX_MEMORY="0=22GiB,cpu=45GiB"
+echo ">>> max_memory pinned: $AGENTIC_REDTEAM_MAX_MEMORY (placement only — does not change results)"
+
 SHARED_CACHE="results_hu_harm_gemma27b_batch_ablation"   # shared, arm-independent activation cache
 
 # No clobber guard on the per-arm output/probe dirs ON PURPOSE: --resume is on by default and
