@@ -152,6 +152,13 @@ class AttackerConfig:
     # How many of this iteration's successes (most recent) are shown to the judge when
     # it writes the cross-iteration memo. 0 = all (can make the judge prompt huge).
     cross_iteration_memo_max_successes: int = 30
+    # Word budget the judge is given for that memo (llm_judge._ITERATION_MEMO_WORD_BUDGET
+    # when unset, i.e. 900). The memo is injected into every later iteration's attacker
+    # system prompt, so this is an editorial choice about how much of that prompt it may
+    # occupy — the same trade the round memo's 200-word target makes. `judge.max_tokens`
+    # remains the physical ceiling; a budget above what it can emit truncates the memo
+    # mid-sentence and the loss compounds into the next iteration.
+    cross_iteration_memo_word_budget: int | None = None
     # interface: how the attacker is driven (OpenRouter only for "prompt").
     #   "tools" (default) — the model is handed the three tools and calls them itself.
     #   "prompt" — classical no-tool mode: no tool schemas are sent. The model emits one
@@ -677,6 +684,11 @@ def load_config(path: str | Path) -> RedteamConfig:
             cross_iteration_memos=bool(a.get("cross_iteration_memos", False)),
             cross_iteration_memo_max_successes=int(
                 a.get("cross_iteration_memo_max_successes", 30)
+            ),
+            cross_iteration_memo_word_budget=(
+                int(a["cross_iteration_memo_word_budget"])
+                if a.get("cross_iteration_memo_word_budget") is not None
+                else None
             ),
             interface=attacker_interface,
             view_limit=int(a.get("view_limit", 10)),
