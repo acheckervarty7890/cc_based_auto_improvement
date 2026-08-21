@@ -68,6 +68,7 @@ from typing import Literal
 import yaml
 
 from agentic_redteam.ensemble import MAX_ENSEMBLE_SIZE
+from agentic_redteam.llm_judge import DEFAULT_ITERATION_MEMO_WORD_BUDGET
 from agentic_redteam.token_budget import MAX_ACTIVATION_TOKENS
 
 ErrorType = Literal["false_positive", "false_negative"]
@@ -152,6 +153,10 @@ class AttackerConfig:
     # How many of this iteration's successes (most recent) are shown to the judge when
     # it writes the cross-iteration memo. 0 = all (can make the judge prompt huge).
     cross_iteration_memo_max_successes: int = 30
+    # Word budget the judge is given for the cross-iteration memo. The memo is injected
+    # into EVERY attacker system prompt of the next iteration, so its length is a real
+    # cost — the same trade the round memo's 200-word target settles. Default 900.
+    cross_iteration_memo_word_budget: int = DEFAULT_ITERATION_MEMO_WORD_BUDGET
     # interface: how the attacker is driven (OpenRouter only for "prompt").
     #   "tools" (default) — the model is handed the three tools and calls them itself.
     #   "prompt" — classical no-tool mode: no tool schemas are sent. The model emits one
@@ -632,6 +637,19 @@ def load_config(path: str | Path) -> RedteamConfig:
                 f"got {probe_ensemble_size}"
             )
 
+    # attacker.cross_iteration_memo_word_budget: the memo lands in every attacker system
+    # prompt of the next iteration, so this is a prompt-real-estate knob, not just a cost
+    # one. Rejected at parse time rather than clamped: a 0 or negative budget would ask
+    # the judge for a memo it cannot write, and the run only finds out an iteration later.
+    cross_iteration_memo_word_budget = int(
+        a.get("cross_iteration_memo_word_budget", DEFAULT_ITERATION_MEMO_WORD_BUDGET)
+    )
+    if cross_iteration_memo_word_budget < 1:
+        raise ValueError(
+            "attacker.cross_iteration_memo_word_budget must be >= 1; got "
+            f"{cross_iteration_memo_word_budget}"
+        )
+
     persistence_raw = a.get("persistence_from_last_rounds")
     persistence_from_last_rounds = int(persistence_raw) if persistence_raw is not None else None
 
@@ -678,6 +696,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             cross_iteration_memo_max_successes=int(
                 a.get("cross_iteration_memo_max_successes", 30)
             ),
+            cross_iteration_memo_word_budget=cross_iteration_memo_word_budget,
             interface=attacker_interface,
             view_limit=int(a.get("view_limit", 10)),
             capture_prompts=bool(a.get("capture_prompts", False)),

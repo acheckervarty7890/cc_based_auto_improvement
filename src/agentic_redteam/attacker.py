@@ -1527,6 +1527,7 @@ async def _write_iteration_memo(
             prior_memo=prior,
             n_attempts=len(records),
             max_successes=config.attacker.cross_iteration_memo_max_successes,
+            word_budget=config.attacker.cross_iteration_memo_word_budget,
         )
     except JudgeRefusalError as e:
         if run_logger is not None:
