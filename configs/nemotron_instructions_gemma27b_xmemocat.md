@@ -50,10 +50,14 @@
 #      never touched. An untouched category leaves no trace in the samples, so it is invisible
 #      unless the write-up is required to roll-call the full list.
 #
-#   C. attacker.cross_iteration_memo_word_budget 150 -> 250, because the roll-call of six
-#      categories has to fit before the priority ordering does. Identical in both arms.
+#   C. NOT changed, deliberately: attacker.cross_iteration_memo_word_budget stays at 150 and
+#      the round memo stays at its 200-word repo target, so the roll-call earns its space
+#      inside the budget the memo already had. Cloud_5's memos measured 135-153 words against
+#      that cap — the judge writes TO the budget — so if the first iteration's memos spend it
+#      all on status lines and drop the closing priority order, raise BOTH (the round memo is
+#      the one a blind attacker reads every round, so it binds harder than this one).
 #
-#      NOTE A + B + C together make these numbers NOT comparable to cloud_5's: the attacker's
+#      NOTE A + B together make these numbers NOT comparable to cloud_5's: the attacker's
 #      search space, the judge's labelling standard and the memo's content all moved. Compare
 #      within this experiment. The one thing that IS comparable across the two is probe_iter0,
 #      which no attacker touches.
@@ -171,26 +175,28 @@ attacker:
                                   #   NOTE a judge that refuses to write it twice ABORTS the run
                                   #   (JudgeRefusalError is deliberately not swallowed) rather than letting
                                   #   the next iteration run on a missing or refusal-poisoned memo.
-  cross_iteration_memo_word_budget: 250   # <<< IDENTICAL IN BOTH ARMS >>> repo default is 900
+  cross_iteration_memo_word_budget: 150   # <<< IDENTICAL IN BOTH ARMS >>> repo default is 900
                                   #   (llm_judge._ITERATION_MEMO_WORD_BUDGET). The memo occupies part of
                                   #   every later iteration's attacker system prompt, so this is an
                                   #   editorial cap, not a capacity one — at 900 words it would be ~5 kB
                                   #   against a ~3.2 kB system prompt and would crowd out the instructions
                                   #   it supplements, which is the same failure the ROUND memo's 200-word
                                   #   target exists to prevent. judge.max_tokens 1024 is the physical
-                                  #   ceiling (~625 words at this register's ~0.61 words/token), so 250 is
+                                  #   ceiling (~625 words at this register's ~0.61 words/token), so 150 is
                                   #   comfortably reachable and the memo is never truncated mid-sentence —
                                   #   which matters doubly here, since a truncated memo is fed back as the
                                   #   next iteration's prior_memo and the loss would compound.
                                   #
-                                  #   RAISED FROM 150 (experiment_instruction_cloud_5's value) because the
-                                  #   summarizer now has to roll-call SIX named categories before it says
-                                  #   anything else — see _CATEGORY_COVERAGE_INSTRUCTION. At 150 words the
-                                  #   roll-call alone would consume the memo and the priority ordering (the
-                                  #   part the attacker acts on) would be squeezed out. 250 leaves ~15 words
-                                  #   per category plus room to close. Identical in both arms, so it cannot
-                                  #   confound the attacker comparison; it does mean the memos here are not
-                                  #   length-comparable to cloud_5's.
+                                  #   HELD at experiment_instruction_cloud_5's value even though the
+                                  #   summarizer now has to roll-call six categories in the same space —
+                                  #   the roll-call earns its room inside the existing budget rather than
+                                  #   being handed more, so the description and the summarizer prompt stay
+                                  #   the only things this experiment changes. Note cloud_5's memos measured
+                                  #   135-153 words against this cap, i.e. the judge writes TO the budget,
+                                  #   so this is binding rather than slack: if the first iteration's memos
+                                  #   spend it all on status lines and lose the closing priority order,
+                                  #   raise this AND llm_judge._SUMMARY_TARGET_WORDS (the round memo is the
+                                  #   one the attacker reads every round, so it binds harder).
   cross_iteration_memo_max_successes: 30  # successes (most recent) shown to the judge when it writes that
                                   #   memo. This is the default, pinned explicitly so neither arm can drift
                                   #   if the default ever moves. 0 would mean ALL of them, which at ~250

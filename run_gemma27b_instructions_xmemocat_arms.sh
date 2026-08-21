@@ -4,7 +4,7 @@ set -e
 # CATEGORY-STEERED MEMO experiment on the INSTRUCTION-FOLLOWING concept with a
 # google/gemma-3-27b-it (L32) probe trained as a 10-MEMBER DEEP ENSEMBLE fit and scored
 # SEQUENTIALLY, attacker in BATCH mode and BLIND (view_limit 0), cross-iteration memo ON at
-# 250 words, over 5 retrain iterations. Two arms, run sequentially and fully isolated:
+# 150 words, over 5 retrain iterations. Two arms, run sequentially and fully isolated:
 #
 #   ARM 1 (attacker openai/gpt-oss-120b)
 #       configs/gptoss120b_instructions_gemma27b_xmemocat.md
@@ -16,7 +16,7 @@ set -e
 #
 # THE ONLY VARIABLE BETWEEN THE ARMS IS attacker.models. This is
 # experiment_instruction_cloud_5's run_gemma27b_instructions_xmemodesc_arms.sh with the same
-# attacker pair and three changes, ALL applied to BOTH arms — so they move the experiment, not
+# attacker pair and two changes, BOTH applied to BOTH arms — so they move the experiment, not
 # the comparison inside it:
 #
 #   1. probe.description now ENUMERATES THE SIX CATEGORIES the negative class is made of —
@@ -38,14 +38,17 @@ set -e
 #      sampled most is written up most, and the memo feeds the next round.
 #      The instruction is concept-agnostic and self-disabling — a description enumerating
 #      nothing leaves both prompts as they were — so no existing config changes behaviour.
-#   3. attacker.cross_iteration_memo_word_budget 150 -> 250, because six status lines have to
-#      fit before the priority ordering does.
-#
 #   THE ARM VARIABLE, unchanged from cloud_5: openai/gpt-oss-120b (arm 1) vs
 #   nvidia/nemotron-3-ultra-550b-a55b (arm 2).
 #
-# 1 + 2 + 3 are why this experiment's numbers are NOT comparable to cloud_5's — the search
-# space, the labelling standard and the memo content all moved. probe_iter0 is the exception:
+# 1 + 2 are why this experiment's numbers are NOT comparable to cloud_5's — the search space,
+# the labelling standard and the memo content all moved. Every OTHER knob is held at cloud_5's
+# value, the memo word budgets included: the cross-iteration memo stays at 150 and the round
+# memo at its 200-word repo target, so the roll-call has to earn its space inside the budget
+# the memo already had rather than being handed more. Cloud_5's memos came out at 135-153 words
+# against that 150 cap, i.e. the judge writes to the budget, so watch the first iteration's
+# memos: if the six status lines crowd out the closing priority order — the part a blind
+# attacker acts on — that is the signal to raise BOTH budgets, not just this one. probe_iter0 is the exception:
 # no attacker touches it, so it should reproduce cloud_5's baseline exactly.
 #
 # PROBE_FUSED_ENSEMBLE=0 is exported below, as in cloud_5, so the ensemble is fit and scored
@@ -197,7 +200,7 @@ from agentic_redteam.llm_judge import (
 
 EXPECTED_ATTACKERS = (["openai/gpt-oss-120b"], ["nvidia/nemotron-3-ultra-550b-a55b"])
 EXPECTED_ENSEMBLE_SIZE = 10
-EXPECTED_MEMO_WORDS = 250
+EXPECTED_MEMO_WORDS = 150
 EXPECTED_VIEW_LIMIT = 0
 EXPECTED_KAGGLE_OWNER = "anku7890"
 EXPECTED_KAGGLE_SLUG = "{slug}-gemmaevalpt"

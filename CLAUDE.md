@@ -749,10 +749,12 @@ what they were, so no pre-existing config changes behaviour. It exists because a
 to itself converges — the memo is written from the samples collected, so the region sampled most
 is written up most, and since the memo feeds the next round the concentration compounds. Naming
 the *untouched* categories is what breaks that loop and it cannot happen implicitly: an absent
-category leaves no trace in the samples. Note the roll-call competes with the memo's word budget
-— six categories do not fit in the round memo's 200-word target alongside anything else, so a
-config using an enumerated description should raise
-`attacker.cross_iteration_memo_word_budget` accordingly (250 for six categories).
+category leaves no trace in the samples. Note the roll-call competes with the memo's word
+budget — it is spent on status lines before anything else — and both budgets are binding rather
+than slack (the judge writes *to* them: measured 135-153 words against a 150-word cap). If a
+run's memos lose their closing priority order to the roll-call, raise **both**
+`attacker.cross_iteration_memo_word_budget` and `_SUMMARY_TARGET_WORDS`; raising only the
+former leaves the round memo — the one the attacker reads every round — just as cramped.
 
 **Both summarization prompts are written in neutral analyst register** — "analyze the
 robustness of a text classifier", samples/misclassifications/evaluation cycles — never
