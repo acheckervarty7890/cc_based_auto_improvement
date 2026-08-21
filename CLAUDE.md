@@ -294,6 +294,15 @@ attacker:
                                       #   and a process restart (--resume). Independent of round_summaries.
   cross_iteration_memo_max_successes: int  # successes (most recent) shown to the judge when writing that
                                       #   memo (default 30; 0 = all — can make the judge prompt huge)
+  cross_iteration_memo_word_budget: int  # word budget the judge is given for that memo (default 900 =
+                                      #   llm_judge.DEFAULT_ITERATION_MEMO_WORD_BUDGET). The memo lands in
+                                      #   EVERY attacker system prompt of the next iteration, so this is
+                                      #   prompt real estate, not just cost; and 900 words is unreachable
+                                      #   at judge.max_tokens: 1024 (~625 words at ~0.61 words/token), so
+                                      #   the default memo is truncated mid-sentence and the loss compounds
+                                      #   through prior_memo. At <= 300 the prompt also switches to "drop
+                                      #   the weakest notes wholesale" instead of "compress everything".
+                                      #   Must be >= 1 (load_config raises).
   interface: tools | prompt           # how the attacker is driven (default tools). "prompt" = classical
                                       #   no-tool prompting: the model gets NO tools; instead get_probe_info
                                       #   is baked into the system prompt and view_past_attempts is injected
@@ -657,7 +666,9 @@ paraphrase that would quietly be a second definition. It reaches **all three** o
 judge's prompts: classification (`_concept_block` → a `## What the labels refer to`
 section in the *system* message, placed after the config's `# Judge` prompt so a
 config that already defines the concept keeps the last word) and both summarizers
-(`_concept_context_line` → one `## Task context` bullet). This does not compromise the
+(`_concept_context_line` → one `## Task context` bullet, with a multi-line
+description's continuation lines indented so an enumeration inside it reads as part of
+the description and not as further context bullets). This does not compromise the
 neutrality above: a description says what the concept *is*, never which label this run
 is hoping for, and at classification time the judge still never sees the probe's score
 or prediction. Unset (the default), every prompt is byte-identical to what it was
@@ -676,8 +687,8 @@ superseded notes). So the memo is bounded, not cumulative. Reuses the same
 `_call_anthropic` / `_call_openrouter` backends; returns `prior_summary` unchanged
 for an empty round.
 
-Three properties of that prompt are load-bearing and were each fixed after a
-run pathology:
+Four properties of that prompt are load-bearing; the first three were each fixed after
+a run pathology:
 
 - **The word budget is a 200-word target under a `judge.max_tokens`-derived ceiling.**
   `_summary_word_budget(max_tokens) = min(_SUMMARY_TARGET_WORDS, max(150,
@@ -712,6 +723,20 @@ run pathology:
   this correctly" is evidence the memo needs whichever class it landed on. Without
   this, every experiment7 false-positive memo carried a "what reliably yields probe
   false negatives" section prescribing moves that were unwinnable in that rotation.
+- **When the description names KINDS of conversation, they become the memo's
+  coordinates.** Both summarizers carry a paragraph telling the judge that, *if* the
+  concept description in the Task context enumerates distinct kinds of conversation the
+  classifier is scored on, the write-up must say which kinds this round's/cycle's
+  evidence actually came from, name the ones under-represented or untouched, and give
+  each of those a concrete opening. Under `view_limit: 0` + `batch_submissions` the
+  memos are the only channel into an attacker session, so this is the one place
+  coverage can be steered at all — a session cannot be told directly. The clause is
+  **conditional and self-cancelling** ("when the description names no such kinds,
+  ignore this paragraph" / "treat section (3) as before"), so a probe whose description
+  is a plain definition — every concept but the ones that opt in — is unaffected in
+  substance. Which also means the description's enumeration is load-bearing prompt
+  structure, not documentation: renumbering or merging its items changes what the memos
+  steer toward.
 It also writes the **cross-iteration memo** via `summarize_iteration(successes, *,
 iteration, error_type, true_class_label, round_memo="", prior_memo="", n_attempts=0,
 max_successes=30)`, called once per rotation *before* the retrain. Under its own
@@ -719,7 +744,17 @@ max_successes=30)`, called once per rotation *before* the retrain. Under its own
 retrained on these misclassified samples, and asked for three things: failure modes
 now covered by retraining, conversation types already handled correctly, and regions
 of the input space not yet examined — folding `prior_memo` in by rewriting rather
-than appending, capped at `_ITERATION_MEMO_WORD_BUDGET` (~900) words. Only the
+than appending, capped at `word_budget` words — supplied by the caller from
+`attacker.cross_iteration_memo_word_budget`, defaulting to
+`DEFAULT_ITERATION_MEMO_WORD_BUDGET` (900). The system prompt is built per call by
+`_iteration_summary_system(word_budget)`, which at or below
+`_ITERATION_MEMO_TIGHT_BUDGET` (300) swaps its closing instruction for the round memo's
+lesson — write terse bullets and *drop* the weakest notes wholesale rather than compress
+every note into vagueness — so a small budget is a supported mode, not a squeezed 900.
+Note the default 900 is **not reachable** at the usual `judge.max_tokens: 1024`: at this
+register's measured ~0.61 words/token that is ~625 words, so the memo is guillotined
+mid-sentence and, being fed back as the next iteration's `prior_memo`, the loss compounds
+— the same failure that drove `_summary_word_budget`. Only the
 `max_successes` most recent successes are rendered (0 = all); returns `prior_memo`
 unchanged when the iteration produced neither successes nor a round memo.
 
