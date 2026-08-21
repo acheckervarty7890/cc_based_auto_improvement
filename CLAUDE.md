@@ -648,6 +648,21 @@ with code-fence stripping + brace extraction fallback; normalizes
 case-insensitively against the probe's pos/neg class labels. Returns
 `JudgeVerdict(label, reason, confidence)`.
 
+**The judge is shown the probe's `description`** (`LLMJudge.probe_description`, read
+off the probe in `run_redteam` exactly as the class labels are). A label string like
+`high-stakes` is a *name*, not a definition, and the judge is the source of truth for
+what it means — the JSONL's `judge_label` is what the retrain trains on — so it works
+from the same concept definition the attacker is given, verbatim, rather than from a
+paraphrase that would quietly be a second definition. It reaches **all three** of the
+judge's prompts: classification (`_concept_block` → a `## What the labels refer to`
+section in the *system* message, placed after the config's `# Judge` prompt so a
+config that already defines the concept keeps the last word) and both summarizers
+(`_concept_context_line` → one `## Task context` bullet). This does not compromise the
+neutrality above: a description says what the concept *is*, never which label this run
+is hoping for, and at classification time the judge still never sees the probe's score
+or prediction. Unset (the default), every prompt is byte-identical to what it was
+before the description was threaded in.
+
 The same judge also maintains the **rolling strategy memo** via
 `summarize_round(records, *, round_num, error_type, true_class_label,
 prior_summary="")`: it renders every attempt of the round (status, attacker model,
@@ -1686,9 +1701,10 @@ resumed run's CSV covers only the iterations that run actually executed.
 - **The judge always runs, and is unbiased.** Whether the probe predicted the
   wrong class can only be established by comparing the probe's prediction to
   the judge's label — there is no probe-prediction-only short-circuit. The
-  judge is told the two candidate labels but is **not** told which one the
-  caller is hoping for, so it acts as an independent classifier. `success` is
-  computed in `tools.py` after both run.
+  judge is told the two candidate labels — and the probe's `description`, so it
+  knows what concept they name — but is **not** told which one the caller is
+  hoping for, nor what the probe scored, so it acts as an independent
+  classifier. `success` is computed in `tools.py` after both run.
 - **Count tokens through `token_budget`, never by hand.** Both traps in
   `tokenize_inputs` (the no-op `<bos>` strip ⇒ never subtract 1; the chat template's
   own special tokens ⇒ `add_special_tokens=False`) are baked into `count_tokens`, and

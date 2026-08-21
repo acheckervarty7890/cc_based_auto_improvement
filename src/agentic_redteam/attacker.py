@@ -1638,6 +1638,10 @@ async def run_redteam(
         provider=config.judge.provider,
         max_tokens=config.judge.max_tokens,
         hide_opposite_direction=config.judge.hide_opposite_direction,
+        # Read off the probe, like every other piece of class metadata here — the
+        # judge decides what the labels mean, so it gets the same definition of the
+        # concept the attacker is shown (`_build_full_system_prompt`).
+        probe_description=probe.description,
     )
 
     store = JsonlStore(path=jpath)

@@ -52,6 +52,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_false",
         help="Keep opposite-direction misclassifications in the prompt (pre-fix behaviour)",
     )
+    p.add_argument(
+        "--probe-description",
+        default="",
+        help="Probe description shown to the judge as the concept definition "
+        "(a live run reads it off the probe; pass it here to replay faithfully)",
+    )
     p.add_argument("--prior-summary", type=Path, default=None, help="File holding the prior memo (default: none)")
     p.add_argument("--out-dir", type=Path, default=Path("results_memotest/replay"))
     p.add_argument("--dry-run", action="store_true", help="Render the prompt but do not call the judge")
@@ -91,6 +97,7 @@ def main(argv: list[str] | None = None) -> int:
         provider=args.provider,
         max_tokens=args.max_tokens,
         hide_opposite_direction=args.hide_opposite,
+        probe_description=args.probe_description,
     )
 
     # Capture the exact prompt on its way to the API.
