@@ -294,6 +294,14 @@ attacker:
                                       #   and a process restart (--resume). Independent of round_summaries.
   cross_iteration_memo_max_successes: int  # successes (most recent) shown to the judge when writing that
                                       #   memo (default 30; 0 = all — can make the judge prompt huge)
+  cross_iteration_memo_word_budget: int  # word budget the judge is given for that memo (unset ⇒
+                                      #   llm_judge._ITERATION_MEMO_WORD_BUDGET, 900). The memo occupies
+                                      #   part of every later iteration's attacker system prompt, so this
+                                      #   is an EDITORIAL cap, like the round memo's 200-word target —
+                                      #   `judge.max_tokens` is still the physical ceiling, and a budget
+                                      #   above what it can emit (~0.61 words/token) truncates the memo
+                                      #   mid-sentence, which then compounds since it is fed back as the
+                                      #   next iteration's prior_memo.
   interface: tools | prompt           # how the attacker is driven (default tools). "prompt" = classical
                                       #   no-tool prompting: the model gets NO tools; instead get_probe_info
                                       #   is baked into the system prompt and view_past_attempts is injected
@@ -714,12 +722,17 @@ run pathology:
   false negatives" section prescribing moves that were unwinnable in that rotation.
 It also writes the **cross-iteration memo** via `summarize_iteration(successes, *,
 iteration, error_type, true_class_label, round_memo="", prior_memo="", n_attempts=0,
-max_successes=30)`, called once per rotation *before* the retrain. Under its own
-`_ITERATION_SUMMARY_SYSTEM` prompt the judge is told the classifier is about to be
+max_successes=30, word_budget=None)`, called once per rotation *before* the retrain.
+Under its own system prompt — built by `_iteration_summary_system(word_budget)` from
+`_ITERATION_SUMMARY_SYSTEM_TEMPLATE` — the judge is told the classifier is about to be
 retrained on these misclassified samples, and asked for three things: failure modes
 now covered by retraining, conversation types already handled correctly, and regions
 of the input space not yet examined — folding `prior_memo` in by rewriting rather
-than appending, capped at `_ITERATION_MEMO_WORD_BUDGET` (~900) words. Only the
+than appending, capped at `word_budget` words (`None` ⇒ `_ITERATION_MEMO_WORD_BUDGET`,
+900; the CLI threads `attacker.cross_iteration_memo_word_budget` in). That cap is
+editorial, not physical — the memo lands in every later iteration's attacker system
+prompt, so the same crowding-out argument as the round memo's 200-word target applies,
+while `judge.max_tokens` remains the ceiling the budget must stay under. Only the
 `max_successes` most recent successes are rendered (0 = all); returns `prior_memo`
 unchanged when the iteration produced neither successes nor a round memo.
 
