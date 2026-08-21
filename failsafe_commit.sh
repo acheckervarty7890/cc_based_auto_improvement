@@ -51,10 +51,10 @@
 # gemma-3-27b-it (L32) probe, in the order run_gemma27b_hu_harm_probedesc.sh launches them
 # (both arms carry the same probe description, cross_iteration_memos: true at a 150-word
 # budget and view_limit: 8; they differ only in the attacker model):
-#   stage 1 (gpt-oss-120b)   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_view8_probedesc.md
+#   stage 1 (gpt-oss-120b)   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_probedesc.md
 #                            probes/hu_harm_gemma27b_gptoss120b_probedesc
 #                            logs/run_hu_harm_gemma27b_gptoss120b_probedesc.log
-#   stage 2 (deepseek-v4-pro) configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_view8_probedesc.md
+#   stage 2 (deepseek-v4-pro) configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_probedesc.md
 #                            probes/hu_harm_gemma27b_deepseekv4pro_probedesc
 #                            logs/run_hu_harm_gemma27b_deepseekv4pro_probedesc.log
 #
@@ -102,8 +102,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 CONFIGS=(
-    "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_view8_probedesc.md"
-    "configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_view8_probedesc.md"
+    "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_probedesc.md"
+    "configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_probedesc.md"
 )
 PROBE_DIRS=(
     "probes/hu_harm_gemma27b_gptoss120b_probedesc"

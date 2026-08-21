@@ -43,10 +43,10 @@ set -e
 # VOLUME, identical in both arms: 10 sessions x 5 conversations x 5 rounds ~= 250 attempts
 # per error type per ITERATION, over 5 iterations.
 #
-#   ARM 1  configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_view8_probedesc.md
+#   ARM 1  configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_probedesc.md
 #          -> results_hu_harm_gemma27b_gptoss120b_probedesc/
 #             probes/hu_harm_gemma27b_gptoss120b_probedesc
-#   ARM 2  configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_view8_probedesc.md
+#   ARM 2  configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_probedesc.md
 #          -> results_hu_harm_gemma27b_deepseekv4pro_probedesc/
 #             probes/hu_harm_gemma27b_deepseekv4pro_probedesc
 #
@@ -197,11 +197,11 @@ run_arm () {  # $1 = config, $2 = probe-out-dir, $3 = logfile
     echo ">>> $(date -Is)  DONE  $1"
 }
 
-run_arm configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_view8_probedesc.md \
+run_arm configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_probedesc.md \
         probes/hu_harm_gemma27b_gptoss120b_probedesc \
         logs/run_hu_harm_gemma27b_gptoss120b_probedesc.log
 
-run_arm configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_view8_probedesc.md \
+run_arm configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_probedesc.md \
         probes/hu_harm_gemma27b_deepseekv4pro_probedesc \
         logs/run_hu_harm_gemma27b_deepseekv4pro_probedesc.log
 
