@@ -111,8 +111,12 @@ Required environment variables:
   `AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB` (default 2 — GPU headroom left for the fit's
   own activations and gradients).
 - Optional probe-fit tuning, read from tuberlens' settings (see
-  `tuberlens/probes/fused_ensemble.py`): `PROBE_FUSED_ENSEMBLE` (default on — fit ensemble
-  members together; turning it off only costs speed), `PROBE_FUSED_MAX_MEMBERS` (default 0
+  `tuberlens/probes/fused_ensemble.py`): `PROBE_FUSED_ENSEMBLE` (default on — fit *and*
+  score an ensemble's members together in one pass; `0` reverts **both** to the
+  pre-fusion sequential paths, one `ProbeFactory.build` per seed and one `predict_proba`
+  per member, which is slower and otherwise identical — this repo reads the same setting
+  in `ensemble.fusion_enabled()`, so the two halves can't be half-reverted, and
+  `scripts/verify_ensemble_fusion.py` pins the dispatch), `PROBE_FUSED_MAX_MEMBERS` (default 0
   = all; cap how many members are stepped together when a fused step's
   `(members, batch, seq, embed)` gather is too big for the card — an OOM halves it
   automatically), `PROBE_EVAL_BATCH_SIZE` (default 0 = the training batch size; raising it
@@ -1093,8 +1097,16 @@ ordinary `probe_iter{N}.pkl` path, and read back by everything that consumes a p
   AUROC moves in the 4th decimal and no prediction flipped). It returns `None` — and the
   caller falls back to the per-member loop — whenever the members are not a stack of
   identical pytorch heads, or if the fused pass raises (an OOM, an architecture vmap
-  can't trace). The fallback is the behaviour this path has always had, so the fast path
-  can only cost speed, never a score.
+  can't trace), or if `fusion_enabled()` is off. The fallback is the behaviour this path
+  has always had, so the fast path can only cost speed, never a score.
+- **`fusion_enabled()` is the one switch for both halves** — it reads tuberlens'
+  `PROBE_FUSED_ENSEMBLE` (on every call, so a script can flip it in-process;
+  `getattr`-guarded so a tuberlens predating the setting still fuses) and gates the
+  scoring path here *and* the fit-path branch in
+  `retrain._train_with_cached_base_activations`. Deliberately not a separate
+  `AGENTIC_REDTEAM_*` var: the fit-side switch already **is** that setting (it is what
+  `build_ensemble` consults internally), so a second name could only drift from it — and
+  deliberately not two knobs, since the only state that would add is a half-reverted one.
 - **`per_token_predictions` raises.** The per-token output is architecture-dependent
   (`PytorchAdamClassifier` returns a 3-tuple), so there is no averaging rule correct
   across architectures. Nothing here calls it; iterate `.members` if you need it.
@@ -1152,10 +1164,20 @@ hands to `ProbeFactory.build_ensemble` over the *same* pre-activated datasets, w
 in an `EnsembleProbe`. That call **fits the members in one pass where it can** (tuberlens'
 `probes/fused_ensemble.py` stacks their parameters and steps them under `vmap`) and falls
 back to one `ProbeFactory.build` per seed where it can't — a closed-form architecture, one
-member, a torch without `torch.func`, `PROBE_FUSED_ENSEMBLE=0`, or an OOM. Members come
+member, a torch without `torch.func`, or an OOM. Members come
 back as ordinary independent probes either way, so the pickle and every consumer are
 unchanged, and the call is reached through `getattr` so a tuberlens predating it still
-trains ensembles the old way. Measured on this repo's own gemma-3-27b retrains: 3.8x at
+trains ensembles the old way.
+
+**Choosing the sequential fit.** `ensemble.fusion_enabled()` (i.e.
+`PROBE_FUSED_ENSEMBLE`) selects between the two, and when it is off the members are fit
+by **this module's own per-seed loop**, not by `build_ensemble`'s internal sequential
+fallback. The two are not the same fit: that fallback seeds `torch` alone, whereas
+`_build` calls `seed_everything`, which also seeds `random`/`numpy` and pins the cuDNN
+flags. Turning fusion off is something one does to compare against the pre-fusion runs,
+so it has to land on exactly the path those runs took — a "sequential" mode that was
+itself a third behaviour would answer a question nobody asked. The same switch governs
+scoring (see `ensemble.py`). Measured on this repo's own gemma-3-27b retrains: 3.8x at
 228 train / 436 dev, and **14x** on the high-stakes shape where the 19.6 GiB dev set does
 not fit the card and the members would otherwise each re-read it every epoch. Only the **fit** repeats — the split, the extraction,
 the caches and the merge are all shared — so member `k > 0` costs a probe-head fit,

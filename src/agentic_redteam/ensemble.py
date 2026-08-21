@@ -66,6 +66,33 @@ assert len(ENSEMBLE_SEEDS) == MAX_ENSEMBLE_SIZE, (
 DETERMINISTIC_ARCHS = frozenset({"sklearn", "difference_of_means", "lda"})
 
 
+def fusion_enabled() -> bool:
+    """Whether the ensemble may fit and score its members in one fused pass.
+
+    One switch for both halves of the fusion — ``PROBE_FUSED_ENSEMBLE=0`` puts the
+    fit back on one ``ProbeFactory.build`` per seed (see
+    ``retrain._train_with_cached_base_activations``) *and* puts scoring back on one
+    ``predict_proba`` per member. They are the same optimization applied at two
+    points, so separate knobs would only make it possible to be half reverted, which
+    is the one state nobody wants to debug.
+
+    Kept on tuberlens' setting rather than an ``AGENTIC_REDTEAM_*`` var of our own
+    because the fit-side switch already *is* that setting — ``build_ensemble`` reads
+    it internally — and a second name governing the same behaviour from the outside
+    could only drift from it. Read on every call (never cached) so a test or a script
+    can flip it in-process; and ``getattr``-guarded, so a tuberlens predating the
+    setting simply fuses, exactly as it does today.
+    """
+    try:
+        from tuberlens.config import global_settings
+    except Exception:
+        # tuberlens is imported lazily throughout and this module must stay
+        # importable without it (see the module docstring). Nothing can fuse
+        # without tuberlens anyway, so the value here is immaterial.
+        return True
+    return bool(getattr(global_settings, "PROBE_FUSED_ENSEMBLE", True))
+
+
 @dataclass
 class EnsembleProbe:
     """``n`` independently-seeded probes whose scores are averaged into one score.
@@ -220,9 +247,10 @@ class EnsembleProbe:
         ensemble of mixed architectures, a sklearn-backed member with no torch
         module, or a tuberlens predating ``stacked_probs``. The fallback is the
         behaviour this repo has always had, so nothing new can break here; it is
-        only slower.
+        only slower — which is also why ``fusion_enabled()`` can turn it off
+        outright (``PROBE_FUSED_ENSEMBLE=0``) and score member by member.
         """
-        if len(self.members) < 2:
+        if len(self.members) < 2 or not fusion_enabled():
             return None
         try:
             from tuberlens.interfaces.activations import Activation

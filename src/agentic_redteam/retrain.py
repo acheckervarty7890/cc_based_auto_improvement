@@ -21,6 +21,7 @@ from agentic_redteam.ensemble import (
     MAX_ENSEMBLE_SIZE,
     EnsembleProbe,
     ensemble_size as probe_ensemble_size,
+    fusion_enabled,
 )
 from agentic_redteam.persistence import AttemptRecord, JsonlStore
 from agentic_redteam.token_budget import TokenBudget
@@ -933,14 +934,23 @@ def _train_with_cached_base_activations(
     on byte-identical data produce different probes (and different eval scores).
 
     ``ensemble_seeds`` turns that single fit into a **score-averaging deep ensemble**:
-    one ``ProbeFactory.build`` per seed over the *same* pre-activated datasets,
-    wrapped in an :class:`~agentic_redteam.ensemble.EnsembleProbe` whose score is the
-    members' mean probability. Only the fit repeats — the split, the extraction and
-    the merge are shared — so member ``k > 0`` costs a probe-head fit, not another
-    pass through the extraction LLM. ``None`` or a single seed returns a plain probe,
-    byte-identical to what the non-ensemble path produced. The seeds themselves come
-    from ``_resolve_ensemble_seeds``, which draws them from the repo-pinned
+    one fit per seed over the *same* pre-activated datasets, wrapped in an
+    :class:`~agentic_redteam.ensemble.EnsembleProbe` whose score is the members' mean
+    probability. Only the fit repeats — the split, the extraction and the merge are
+    shared — so member ``k > 0`` costs a probe-head fit, not another pass through the
+    extraction LLM. ``None`` or a single seed returns a plain probe, byte-identical to
+    what the non-ensemble path produced. The seeds themselves come from
+    ``_resolve_ensemble_seeds``, which draws them from the repo-pinned
     ``ENSEMBLE_SEEDS`` so a member's identity is the same on every run.
+
+    The members are fit **together** (tuberlens' ``ProbeFactory.build_ensemble``,
+    which steps them under ``vmap`` and so reads the activations once per epoch
+    instead of once per member) or **sequentially** (one ``ProbeFactory.build`` per
+    seed, the path this repo took before fusion existed).
+    ``ensemble.fusion_enabled()`` — i.e. ``PROBE_FUSED_ENSEMBLE`` — picks between
+    them, and picks the same way for scoring; see that function. Either way the
+    members come back as ordinary independent probes, so the pickle and every
+    consumer are identical and the choice costs only wall-clock.
     """
     from tuberlens.model import LLMModel
     from tuberlens.probes.probe_factory import ProbeFactory
@@ -1138,8 +1148,17 @@ def _train_with_cached_base_activations(
     #
     # `getattr` rather than a direct call: a tuberlens checkout predating
     # `build_ensemble` must still train ensembles, just one member at a time.
+    #
+    # `fusion_enabled()` (PROBE_FUSED_ENSEMBLE) selects between the two, and when it
+    # is off the members are fit by the loop below rather than by `build_ensemble`'s
+    # own sequential fallback. The two are not quite the same fit: that fallback
+    # seeds `torch` alone, whereas `_build` calls `seed_everything`, which also seeds
+    # `random`/`numpy` and pins the cuDNN flags. Turning fusion off is something one
+    # does to compare against the pre-fusion runs, so it has to land on exactly the
+    # path those runs took — a "sequential" mode that is itself a third behaviour
+    # would answer a question nobody asked.
     build_ensemble = getattr(ProbeFactory, "build_ensemble", None)
-    if build_ensemble is not None:
+    if build_ensemble is not None and fusion_enabled():
         # Seed once for the whole fused fit, for the same reason `_build` reseeds
         # per member: what the members are must depend on their own seeds and the
         # data, not on how far the ambient RNG advanced through earlier red-teaming
