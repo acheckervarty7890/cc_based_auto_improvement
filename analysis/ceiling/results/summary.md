@@ -1,3 +1,58 @@
+# Ceiling analysis — category-steered run (experiment_instruction_cloud_6)
+
+Probes: `probes/instructions_gemma27b_xmemocat_{gptoss,nemotron}`, 10-member ensembles,
+gemma-3-27b-it L32. Everything below runs offline off the run's cached activations.
+`sanity.py` reproduces all 12 published probe scores to 6 dp under
+`PROBE_FUSED_ENSEMBLE=0` (the path the run itself scored on), so these numbers sit on
+the same scale as the run's `*_comparison.csv`.
+
+## Findings
+
+**1. The ceiling is 0.9416; red-teaming reached 0.8343 / 0.8058.**
+Iteration 0 is 0.7714, so the headroom is 0.170 and this run captured **37%** of it in
+the gpt-oss arm and **20%** in the nemotron arm. For scale,
+`experiment_instruction_cloud_5` — the same attackers, same probe, prose probe
+description, no category steering — captured **4%** in its gpt-oss arm. The
+category roll-call is a real and large improvement to red-teaming's efficiency.
+
+**2. 84 labelled dev rows beat the entire red-team run, in both arms.**
+0.9036 (gpt-oss) and 0.8640 (nemotron) at N=84, against 0.8343 and 0.8058 from five
+iterations, 433 / 449 attacker successes and ~4.5 GPU-hours of scoring. 336 dev rows
+reach or beat the ceiling outright (0.9541 / 0.9435). Red-teaming buys AUROC far more
+expensively than labelling in-distribution data — the steering changes red-teaming's
+efficiency at its own job, not its standing against that alternative.
+
+**3. Adding red-team data on top of in-distribution data neither helps nor hurts.**
+`cv_eval_rt` is +0.011 over `cv_eval` in the gpt-oss arm and +0.000 in the nemotron
+arm. Both sit inside the ~0.015 noise floor measured for this concept, so the
+supportable claim is "does not hurt", not "carries signal eval lacks".
+
+**4. The ceiling is not uniform across splits, and `oig_omission` is the outlier.**
+Five-fold CV *inside* the eval sets reaches 0.966–1.000 on six splits but only
+**0.673** on `oig_omission`. That is the ceiling, not a probe failure: even trained on
+the eval distribution itself, this probe family barely separates "answered only some
+of what was asked". So part of the gap between the published probes and 0.9416 is not
+reachable by better red-teaming at all — it is a limit of a linear head at L32 on that
+one failure mode. Any future effort aimed at omission should change the probe, not the
+attacker.
+
+**5. The two arms are good at different splits, and it tracks what each attacker
+sampled.** Trained on red-team data alone, gpt-oss reaches 0.935 on
+`anthropic_harmless_refusal` where nemotron reaches 0.731; nemotron reaches 0.955 on
+`bbq_substitution` where gpt-oss reaches 0.717. Refusal is the category gpt-oss's memos
+flagged as an unfilled gap for three iterations before the attacker went there.
+
+**6. Finetune beats joint at nearly every N, and `lr=1e-4` is inert.**
+Both reproduce `experiment_instruction_cloud_3` independently. The 1e-4 arm stays flat
+at its N=0 baseline across the whole sweep, so the default 5e-3 is doing all the work;
+that arm is a control, not a competitive setting.
+
+**A caveat on `redteam_only`.** It refits the run's own training set in *file order* and
+lands ~0.010 below the published probe in both arms. `_activate_redteam_cached` emits
+cache hits before newly-computed rows, so a run's training row order encodes its box's
+cache history and is not recoverable from the snapshot. Compare conditions to each
+other, not to the comparison CSV.
+
 ## Part 1 — ceiling on eval_sets/instructions
 
 | condition | AUROC | acc | TPR@1%FPR (tuberlens) | TPR@FPR<=1% |
