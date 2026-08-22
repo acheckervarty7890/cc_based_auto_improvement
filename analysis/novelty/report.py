@@ -323,7 +323,7 @@ def synthesis(lines: list[str]) -> None:
     if len(novelty) >= 3:
         r = float(np.corrcoef(novelty, gain)[0, 1])
         lines += [
-            f"Across the four arms, the share of red-team rows outside the eval manifold and the "
+            f"Across the {len(novelty)} arms, the share of red-team rows outside the eval manifold and the "
             f"arm's published eval gain correlate **{r:+.2f}** "
             f"(outside%: {', '.join(f'{v:.0f}' for v in novelty)} vs "
             f"Δ AUROC: {', '.join(f'{v:+.3f}' for v in gain)}). "
@@ -371,22 +371,31 @@ def synthesis(lines: list[str]) -> None:
         neg = [b for b in beats if b[3] < 0]
         lines += [
             f"**Novelty-ordered vs random removal.** Of {total} matched-n comparisons across the "
-            f"four arms, {len(beats)} differ from random by more than that arm's comparison band — "
-            f"but **{len(pos)} in one direction and {len(neg)} in the other**. Targeting the most "
-            f"novel rows is better than chance on some arms and worse on others, so there is no "
-            f"pruning rule here that survives being moved to a different attacker or concept.",
+            f"{_n_arms()} arms, {len(beats)} differ from random by more than that arm's comparison "
+            f"band — **{len(pos)} in one direction and {len(neg)} in the other**."
+            + (
+                " Targeting the most novel rows is better than chance on some arms and worse on "
+                "others, so there is no pruning rule here that survives being moved to a different "
+                "attacker."
+                if len(pos) and len(neg)
+                else " All the differences that clear the band point the same way, but a single "
+                "concept cannot show whether that survives a change of concept — cloud_3 found "
+                "this signal REVERSES on high-stakes, so treat it as concept-specific until it is "
+                "re-measured on another one."
+            ),
             "",
         ]
         for e, a, q, d in beats:
             lines.append(f"- `{e}/{a}` at {q}%: {d:+.4f} vs random")
         lines += [
             "",
-            "The *ordering* is more consistent than the magnitudes, and it is concept-specific: on "
-            "both instructions arms removal ranks `most-novel > random > least-novel`, so novelty "
-            "does carry some signal about which rows are dispensable there. On both high-stakes "
-            "arms that ordering does not hold, and on `deepseekv4pro` it inverts — dropping the "
-            "*least* novel 40% (+0.0652) beats dropping the most novel 40% (+0.0366). A signal "
-            "that reverses between concepts is not one to prune on.",
+            "The *ordering* is more consistent than the magnitudes: on both arms removal tends to "
+            "rank `most-novel > random > least-novel`, so novelty carries some signal about which "
+            "rows are dispensable here. This run covers ONE concept, so it cannot test whether "
+            "that ordering travels. experiment_instruction_cloud_3 ran the same protocol on "
+            "high-stakes and found it does NOT — there the ordering fails on both arms and "
+            "inverts on `deepseekv4pro`. Read the ordering below as an instructions-specific "
+            "result, not a pruning rule.",
             "",
         ]
 
@@ -412,22 +421,40 @@ def synthesis(lines: list[str]) -> None:
             )
     lines += [
         "",
-        "This is the most consistent finding in the study, and it is not about novelty at all. "
-        "The eval column has no fixed sign — red-teaming helps instructions and *hurts* high-stakes "
-        "(dropping every red-team row gains high-stakes/deepseekv4pro +0.1105 macro AUROC). The "
-        "cross-attacker column has one: **every arm loses 7–13 points of AUROC against the other "
-        "attacker's conversations when its red-team data is removed.** Whatever the red-team rows "
-        "are buying, eval is a poor instrument for seeing it, and on one concept eval scores it "
-        "negatively.",
+        "This is the clearest finding in the study, and it is not about novelty at all. Removing "
+        "every red-team row costs BOTH columns in both arms: eval and cross-attacker AUROC fall "
+        "together. Note cloud_3 found the eval column has no fixed sign across concepts — on "
+        "high-stakes, dropping every red-team row GAINED +0.1105 macro AUROC — so the fact that "
+        "it is negative on both arms here is a property of this concept, not a general law. The "
+        "cross-attacker column is the one that pointed the same way in all four of cloud_3's arms "
+        "as well: whatever the red-team rows buy, eval is a poor instrument for seeing it.",
         "",
         "Note `base_only` trains on 50 rows, below the 64-row optimizer-step floor "
         "(`batch_size 16` x `gradient_accumulation_steps 4`), so it takes **zero** optimizer steps "
-        "and is effectively a seeded random projection of the layer-32 activations. That it reaches "
-        "0.9247 macro AUROC on the high-stakes eval says as much about how separable that eval is "
-        "in this representation as it does about the red-team data.",
+        "and is effectively a seeded random projection of the layer-32 activations. It still "
+        "reaches 0.7714 macro AUROC here, which says as much about how separable this eval is in "
+        "the layer-32 representation as it does about the red-team data.",
         "",
     ]
 
+
+
+def _n_arms() -> int:
+    """How many arms this report actually covers.
+
+    Counted from the results ON DISK, not from EXPERIMENTS: the registry still declares
+    the high-stakes arms, which this box has no activations for and never ran. Hardcoding
+    "four arms" was wrong the moment this study was pointed at one concept — the tables
+    were computed from two while the prose asserted findings about arms that do not exist
+    here. Anything comparative about a concept with no results must be attributed to the
+    run that measured it.
+    """
+    return sum(
+        1
+        for e in X.EXPERIMENTS.values()
+        for a in e.arms
+        if (X.RESULTS / f"novelty_{e.key}_{a}.npz").exists()
+    )
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -437,7 +464,7 @@ def main() -> int:
     lines = [
         "# Is red-team novelty the thing that hurts eval?",
         "",
-        "Four red-team arms (two concepts x two attacker models), all read off the runs' own "
+        f"{_n_arms()} red-team arms, all read off the runs' own "
         "cached gemma-3-27b L32 activations. Phase 1 measures how far each red-team row sits "
         "from the eval manifold; Phase 2 groups those rows into regions; Phase 3 removes them "
         "and refits, which is the only step that can establish a *cause*.",
