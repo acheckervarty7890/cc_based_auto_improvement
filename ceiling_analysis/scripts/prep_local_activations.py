@@ -154,10 +154,19 @@ def prep_dev(concept: C.Concept, run_cache: Path) -> None:
 
 def prep_redteam_cache(concept: C.Concept, run_cache: Path) -> None:
     """Link the run's per-conversation red-team blobs; write the base rows beside them."""
-    src_dir = run_cache / f"redteam_acts_{C.MODEL_NAME.replace('/', '_')}_L{C.LAYER}"
+    subdir = f"redteam_acts_{C.MODEL_NAME.replace('/', '_')}_L{C.LAYER}"
+    src_dir = run_cache / subdir
     if not src_dir.is_dir():
         raise SystemExit(f"no per-conversation red-team cache at {src_dir}")
-    dst_dir = concept.redteam_cache_dir
+    # `_redteam_activation_cache_path` puts a conversation's blob at
+    # `<cache_dir>/redteam_acts_<model>_L<layer>/<hash>.pt`, so the link target is that
+    # subdirectory, NOT `redteam_cache/` itself. Linking one level too shallow leaves
+    # every name present but every lookup a miss -- which is not a loud failure: the
+    # blobs are all there, `glob("*.pt")` lists them, and only `Path.exists()` on the
+    # real key says otherwise. `prep_base` already writes into the nested directory
+    # (it derives its paths through `_redteam_conv_sources`), so the two halves of this
+    # cache have to agree on the level.
+    dst_dir = concept.redteam_cache_dir / subdir
     dst_dir.mkdir(parents=True, exist_ok=True)
     linked = 0
     for src in src_dir.glob("*.pt"):
