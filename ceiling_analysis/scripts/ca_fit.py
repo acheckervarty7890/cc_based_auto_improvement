@@ -240,6 +240,12 @@ def train_head(train: RaggedActivations, val: RaggedActivations | None,
     from sklearn.metrics import roc_auc_score
 
     model = arch(train.dim, **hyperparams).to(train.device).to(train.dtype)
+    # A normalization step in front of the head may need statistics of the data it is about
+    # to be fit on (see `ca_norm.Standardize`). Only the TRAINING fold's real tokens are
+    # used — `packed` holds exactly those — so nothing about the validation set or the rows
+    # being scored reaches the fit. Heads without the hook are untouched.
+    if hasattr(model, "fit_norm"):
+        model.fit_norm(train.packed)
     opt = torch.optim.AdamW(model.parameters(), **hyperparams["optimizer_args"])
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(
         opt, T_max=hyperparams["epochs"], eta_min=hyperparams["final_lr"]
@@ -350,7 +356,7 @@ def finetune_head(model, train: RaggedActivations, val: RaggedActivations,
 
 def wrap_probe(model, hyperparams: dict, *, model_name: str, layer: int,
                pos_class_label: str, neg_class_label: str, description: str,
-               best_epoch=None):
+               best_epoch=None, arch=None):
     """Put a trained head into a real `PytorchProbe`.
 
     Everything downstream — `predict_proba`, the metric helpers, pickling — then works on it
@@ -364,7 +370,7 @@ def wrap_probe(model, hyperparams: dict, *, model_name: str, layer: int,
 
     classifier = PytorchAdamClassifier(
         training_args=dict(hyperparams),
-        probe_architecture=LinearThenSoftmax,
+        probe_architecture=arch or LinearThenSoftmax,
         model=model,
         device=DEVICE,
         dtype=DTYPE,

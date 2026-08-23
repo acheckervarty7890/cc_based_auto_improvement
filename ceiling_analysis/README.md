@@ -223,3 +223,67 @@ never touches red-team data. So the two arms' ceilings are the same computation 
 seeds, and they come out **bit-identical** at every rung (0.943861 / 0.960486 / 0.977657 /
 0.984422). Both are run anyway — `make_report` reads one JSON per concept, and the agreement is
 a free determinism check.
+
+---
+
+## Probe design: a normalization step in front of the head
+
+`LinearThenSoftmax` reads the layer-32 residual stream **raw** — `nn.Linear(5376, 1)` straight
+onto the activation, then a temperature-5 softmax over positions. Every probe in this repo's
+experiments was trained that way. `ca_norm.py` inserts one normalization step between the
+activation and that linear, and `run_ceiling.py --norm <kind>` re-measures the ceiling under
+it with everything else held fixed. Five kinds: `none`, `layernorm`, `layernorm_noaffine`,
+`rmsnorm`, `standardize` (frozen per-feature, fit on the training fold's real tokens only).
+
+Run it with `run_norm_ceiling_exp22.sh` (all five, one seed) and `run_norm_seeds_exp22.sh`
+(`none` and `layernorm` under three further head seeds); `norm_report.py` writes
+`results/NORM_SUMMARY.md`. Outputs are suffixed `__norm-<kind>[__fit<seed>]`, so the study
+never overwrites the baseline it is measured against. One arm only — the ceiling never
+touches red-team data, so the second arm would re-measure the same computation.
+
+Three things about the design are load-bearing:
+
+* **Every variant normalizes per token, and none pools over positions or the batch.** That is
+  what keeps `ca_fit`'s ragged packing exact: `LinearThenAgg.forward` masks the per-token
+  output to 0 and `agg` fills masked positions with `-inf`, so whatever a norm does to a
+  padded position is discarded, and a batch's width still cannot change its scores.
+* **`--norm none` is bit-identical to the pre-existing path**, and is run as a control rather
+  than assumed: the norm is constructed *after* `super().__init__` has drawn the linear's
+  init, and none of the norms draws from the RNG, so the stream reaching the DataLoader is
+  untouched. It reproduced `ceiling_hu_ha_dd_gptoss120b.json` with max deviation `0.0` across
+  every rung, split and metric.
+* **A single fit cannot support a 1e-3 claim here.** The unnormalized head's own top-rung
+  AUROC moves 0.0068 between head seeds — five times the gap the single-seed table shows, and
+  its ladder is not even monotone (rung 693 beats the top rung at two of four seeds). So the
+  comparison is **paired**: `--fit-seed` re-fits the same folds and the same rows under a
+  different init and batch order, and what is reported is the distribution of the per-seed
+  difference.
+
+### What it does
+
+| rows/fold | none | LayerNorm+affine | paired diff | sd | wins |
+| --- | --- | --- | --- | --- | --- |
+| 173 | 0.9413 | 0.9477 | **+0.0064** | 0.0028 | 4/4 |
+| 346 | 0.9616 | 0.9651 | **+0.0035** | 0.0013 | 4/4 |
+| 693 | 0.9818 | 0.9829 | +0.0011 | 0.0042 | 3/4 |
+| 693+dev218 | 0.9815 | 0.9835 | +0.0020 | 0.0023 | 3/4 |
+
+A clear gain at a few hundred in-distribution rows, fading into the noise by ~900. It also
+**halves the run-to-run spread** (normalized sd is 0.49x the unnormalized, same direction at
+every rung) — for a single probe arguably the more useful of the two properties, though for
+this repo's 10-member ensembles it is partly redundant with averaging. Almost all of the
+AUROC gain sits in `eval_ant_hh`, the hardest and only unpaired split (+0.019 at 173 rows).
+Accuracy is a wash; `tpr_at_fpr` has an across-seed sd of 0.10-0.22 at these split sizes and
+is not readable in either direction.
+
+`rmsnorm` and `layernorm_noaffine` agree to within 0.0003 at every rung, so mean subtraction
+contributes nothing and the per-token rescaling is the whole effect. **`standardize` is
+actively harmful** — 0.9418 against 0.9844 at the top rung, an order of magnitude outside the
+seed noise and the one result here that needs no paired test. Equalizing the 5376 feature
+scales is exactly what it was built to do, and that is the problem: the low-variance
+dimensions are mostly noise, and it amplifies them to parity with the ones carrying the
+concept. The per-token norms apply one scalar per token and leave the feature geometry
+intact.
+
+The full write-up, including the per-split and per-metric breakdowns, is
+`results/NORM_SUMMARY.md`.

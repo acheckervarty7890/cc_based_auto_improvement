@@ -50,6 +50,13 @@ CONVERT = True
 ARCH = "linear_then_softmax"
 FIT_SEED = 42
 
+# Which normalization step sits between the activations and the head's linear layer. "none"
+# is the architecture every probe in this repo's experiments was trained with, and is what
+# every result outside `ceiling_*__norm-*.json` was produced under. Set by
+# `run_ceiling_norm.py --norm`; see `ca_norm` for the variants and for why "none" is
+# bit-identical to the pre-existing code path.
+NORM = "none"
+
 
 @dataclass(frozen=True)
 class Concept:
@@ -423,12 +430,33 @@ def _spec(hyperparams: dict | None = None):
     return ProbeSpec(name=ProbeType(ARCH), hyperparams=hyperparams or {})
 
 
+def arch_module():
+    """The head class for the active `NORM`.
+
+    A subclass of `LinearThenSoftmax` even at NORM="none", so the normalized and
+    unnormalized runs take the same code path and any difference between them is the
+    normalization rather than the plumbing. That is free: the subclass adds an
+    `nn.Identity`, no parameters and no RNG draws (see `ca_norm`).
+    """
+    import ca_norm
+
+    return ca_norm.arch_for(NORM)
+
+
 def fit_probe(train_ds, val_ds, concept: Concept, *, seed: int = FIT_SEED,
               hyperparams: dict | None = None, verbose: bool = False):
     """A single (never ensembled) probe, fit exactly the way `retrain` fits one."""
     from tuberlens.probes.probe_factory import ProbeFactory
 
     from agentic_redteam.evaluation import seed_everything
+
+    if NORM != "none":
+        # `ProbeFactory.build` resolves its head from a `ProbeType` name, so there is no
+        # seam to hand it a custom module. The normalization study runs on the fast path,
+        # which `verify_fast_fit.py` pins against this one for the unnormalized head.
+        raise NotImplementedError(
+            f"the stock ProbeFactory path cannot carry NORM={NORM!r}; use the fast fit"
+        )
 
     seed_everything(seed)
     return ProbeFactory.build(
@@ -625,20 +653,21 @@ def fit_probe_fast(train_ds, val_ds, concept: Concept, *, seed: int = FIT_SEED,
     run, so packing it once and passing it in saves re-uploading it ~60 times.
     """
     import ca_fit as F
-    from tuberlens.probes.pytorch_modules import LinearThenSoftmax
 
     from agentic_redteam.evaluation import seed_everything
 
     hp = hyperparams()
+    arch = arch_module()
     train, _ = _as_ragged(train_ds)
     val, val_owned = _as_ragged(val_ds)
     seed_everything(seed)
-    model, info = F.train_head(train, val, hp, arch=LinearThenSoftmax, verbose=verbose)
+    model, info = F.train_head(train, val, hp, arch=arch, verbose=verbose)
     probe = F.wrap_probe(
         model, hp, model_name=MODEL_NAME, layer=LAYER,
         pos_class_label=concept.pos_class_label,
         neg_class_label=concept.neg_class_label,
         description=concept.description, best_epoch=info["best_epoch"],
+        arch=arch,
     )
     del train
     if val_owned:

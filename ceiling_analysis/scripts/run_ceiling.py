@@ -74,8 +74,14 @@ def train_parts(eval_srcs, folds, labels, held_out: int, max_train: int, rng,
 
 
 def run_concept(concept: C.Concept, args) -> dict:
-    out_path = C.RESULTS / f"ceiling_{concept.name}.json"
-    log_path = C.RESULTS / f"ceiling_{concept.name}.jsonl"
+    # An unnormalized run writes the plain filenames it always did; a `--norm` run writes
+    # its own, so the study never overwrites the baseline it is measured against — and so
+    # `--norm none` can be diffed against that baseline as a determinism check.
+    suffix = "" if args.norm is None else f"__norm-{args.norm}"
+    if args.fit_seed is not None:
+        suffix += f"__fit{args.fit_seed}"
+    out_path = C.RESULTS / f"ceiling_{concept.name}{suffix}.json"
+    log_path = C.RESULTS / f"ceiling_{concept.name}{suffix}.jsonl"
 
     eval_srcs = C.eval_sources(concept)
     labels = {n: C.source_labels(s) for n, s in eval_srcs.items()}
@@ -102,8 +108,9 @@ def run_concept(concept: C.Concept, args) -> dict:
     if args.add_dev_pool:
         rungs.append((sizes[-1], (dev_src, pool_idx)))
 
-    results = {"concept": concept.name, "n_eval_rows": n_total, "n_folds": args.folds,
-               "n_validation": len(val_idx), "by_train_size": {}}
+    results = {"concept": concept.name, "norm": C.NORM, "fit_seed": C.FIT_SEED,
+               "n_eval_rows": n_total,
+               "n_folds": args.folds, "n_validation": len(val_idx), "by_train_size": {}}
 
     for size, extra in rungs:
         tag = str(size) if extra is None else f"{size}+dev{len(extra[1])}"
@@ -138,7 +145,8 @@ def run_concept(concept: C.Concept, args) -> dict:
                 for m in ("auroc", "accuracy", "tpr_at_fpr")}
         entry = {"train_rows_per_fold": used, "per_split": per_split, "mean": mean}
         results["by_train_size"][tag] = entry
-        C.append_jsonl(log_path, {"concept": concept.name, "train_size": tag, **entry})
+        C.append_jsonl(log_path, {"concept": concept.name, "norm": C.NORM,
+                                  "train_size": tag, **entry})
         print(f"[{concept.name}] size={tag}: MEAN eval AUROC {mean['auroc']:.4f} | "
               + " ".join(f"{k}={v['auroc']:.4f}" for k, v in per_split.items()), flush=True)
 
@@ -163,7 +171,24 @@ def main() -> int:
                     help="training rows per fold; the LAST rung is reported as the ceiling")
     ap.add_argument("--add-dev-pool", action="store_true",
                     help="add a top rung that also trains on the dev training pool")
+    ap.add_argument("--fit-seed", type=int, default=None,
+                    help="seed for the head's init and batch order (default 42). --seed "
+                         "still governs the folds and the training-size subsampling, so "
+                         "varying THIS re-fits the same data and measures run-to-run "
+                         "noise. Also suffixes the output filenames.")
+    ap.add_argument("--norm", choices=None, default=None,
+                    help="normalization step in front of the head (see ca_norm.KINDS). "
+                         "Omit for the unnormalized architecture every experiment used; "
+                         "passing it also suffixes the output filenames.")
     args = ap.parse_args()
+    if args.fit_seed is not None:
+        C.FIT_SEED = args.fit_seed
+    if args.norm is not None:
+        import ca_norm
+
+        if args.norm not in ca_norm.KINDS:
+            ap.error(f"--norm must be one of {ca_norm.KINDS}")
+        C.NORM = args.norm
     for name in args.concepts:
         run_concept(C.CONCEPTS[name], args)
     return 0
