@@ -1,6 +1,6 @@
 # Generalization tests — probes trained on the general dataset
 
-_Generated 2026-08-23 17:25:41Z. Regenerated automatically every 30 minutes while the run is in flight._
+_Generated 2026-08-23 17:55:50Z. Regenerated automatically every 30 minutes while the run is in flight._
 
 ## What is being measured
 
@@ -67,9 +67,15 @@ iii_general_pos      seq_ens10 dev                            0.625             
                                split                          0.654             0.529             0.494             0.479            0.425              0.497         0.521  0.514
 ```
 
-## highstakes
+## highstakes — AUROC per eval split
 
-_In progress — 2/16 probes fitted, no eval yet._
+```
+dataset                              anthropic_hh_balanced  mt_balanced  mts_balanced  toolace_balanced   MEAN
+variant          config    val_mode                                                                           
+i_general_random seq_ens10 dev                       0.435        0.590         0.608             0.459  0.523
+                 single    dev                       0.399        0.571         0.540             0.419  0.482
+                           split                     0.431        0.653         0.698             0.387  0.542
+```
 
 ## Findings so far
 
