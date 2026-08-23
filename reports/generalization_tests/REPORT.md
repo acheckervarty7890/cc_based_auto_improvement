@@ -1,6 +1,6 @@
 # Generalization tests — probes trained on the general dataset
 
-_Generated 2026-08-23 17:55:50Z. Regenerated automatically every 30 minutes while the run is in flight._
+_Generated 2026-08-23 18:25:53Z. Regenerated automatically every 30 minutes while the run is in flight._
 
 ## What is being measured
 
@@ -70,11 +70,21 @@ iii_general_pos      seq_ens10 dev                            0.625             
 ## highstakes — AUROC per eval split
 
 ```
-dataset                              anthropic_hh_balanced  mt_balanced  mts_balanced  toolace_balanced   MEAN
-variant          config    val_mode                                                                           
-i_general_random seq_ens10 dev                       0.435        0.590         0.608             0.459  0.523
-                 single    dev                       0.399        0.571         0.540             0.419  0.482
-                           split                     0.431        0.653         0.698             0.387  0.542
+dataset                                  anthropic_hh_balanced  mt_balanced  mts_balanced  toolace_balanced   MEAN
+variant              config    val_mode                                                                           
+i_general_random     seq_ens10 dev                       0.435        0.590         0.608             0.459  0.523
+                               split                     0.460        0.635         0.640             0.415  0.537
+                     single    dev                       0.399        0.571         0.540             0.419  0.482
+                               split                     0.431        0.653         0.698             0.387  0.542
+ii_notgeneral_random seq_ens10 dev                       0.569        0.374         0.649             0.523  0.529
+                               split                     0.575        0.377         0.736             0.552  0.560
+                     single    dev                       0.528        0.410         0.621             0.513  0.518
+                               split                     0.614        0.342         0.693             0.549  0.549
+iii_general_neg      single    dev                       0.464        0.736         0.906             0.649  0.689
+iii_general_pos      seq_ens10 dev                       0.409        0.467         0.188             0.397  0.365
+                               split                     0.423        0.538         0.177             0.398  0.384
+                     single    dev                       0.414        0.469         0.195             0.341  0.355
+                               split                     0.376        0.516         0.214             0.349  0.363
 ```
 
 ## Findings so far
