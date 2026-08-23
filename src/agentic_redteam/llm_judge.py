@@ -165,6 +165,23 @@ def _looks_like_refusal(text: str) -> bool:
     )
 
 
+# Default word budget for the cross-iteration memo. Larger than the per-round budget:
+# it is written once per iteration and must carry a whole rotation's worth of
+# already-covered ground, but it is still rewritten (not appended) each iteration so it
+# stays bounded no matter how many iterations run. Overridable per run via
+# `attacker.cross_iteration_memo_word_budget`.
+#
+# NOTE 900 is NOT reachable at the usual `judge.max_tokens: 1024`: at this register's
+# measured ~0.61 words/token that is ~625 words, so a memo written to this default is
+# guillotined mid-sentence — and it is fed back as the next iteration's `prior_memo`, so
+# the loss compounds. It is the default only because changing it would silently move every
+# existing config; set the knob instead. Same failure `_summary_word_budget` was fixed for.
+#
+# Lives up here, away from the prompt it feeds, because `summarize_iteration` takes it as
+# a default argument, which is evaluated at class-definition time.
+DEFAULT_ITERATION_MEMO_WORD_BUDGET = 900
+
+
 @dataclass
 class JudgeVerdict:
     label: str  # one of {pos_class_label, neg_class_label}; "" if unparseable
@@ -362,6 +379,7 @@ Focus on concrete, actionable insights based on the conversation history. Update
         n_attempts: int = 0,
         max_successes: int = 30,
         max_chars_per_message: int = 300,
+        word_budget: int = DEFAULT_ITERATION_MEMO_WORD_BUDGET,
     ) -> str:
         """Write the cross-cycle insight write-up carried into the next iteration.
 
@@ -371,6 +389,11 @@ Focus on concrete, actionable insights based on the conversation history. Update
         covered ground and look elsewhere. Folds ``prior_memo`` (earlier cycles) and
         ``round_memo`` (this cycle's rolling insights) into one bounded write-up.
         Returns ``prior_memo`` unchanged when this iteration produced nothing.
+
+        ``word_budget`` caps the write-up; it comes from
+        ``attacker.cross_iteration_memo_word_budget`` and defaults to
+        :data:`DEFAULT_ITERATION_MEMO_WORD_BUDGET`. A tight budget also changes the
+        prompt's closing instruction — see :func:`_iteration_summary_tail`.
 
         Phrased in the same neutral analyst register as :meth:`summarize_round` —
         classifier robustness analysis, not attacker coaching — because the earlier
@@ -435,7 +458,7 @@ Focus on concrete, actionable insights grounded in the results. Update and conde
 - Misclassified samples (now training data): {len(successes)}
 """
         return self._summarization_call(
-            _iteration_summary_system(self.eval_data_description),
+            _iteration_summary_system(self.eval_data_description, word_budget),
             user_content,
             what="cross-cycle insights",
         )
@@ -691,11 +714,12 @@ def _drop_opposite_direction(
     return [r for r in records if _disagreement_direction(r) in ("", error_type)]
 
 
-# Word budget for the cross-iteration memo. Larger than the per-round budget: it is
-# written once per iteration and must carry a whole rotation's worth of
-# already-covered ground, but it is still rewritten (not appended) each iteration so
-# it stays bounded no matter how many iterations run.
-_ITERATION_MEMO_WORD_BUDGET = 900
+# Below this the memo can no longer afford a three-section write-up per section, so the
+# prompt switches to telling the judge to DROP the weakest notes wholesale rather than
+# compress every note into vagueness — the same lesson `_summary_system` learned at 200
+# words. A memo squeezed to a budget it cannot meet is truncated mid-sentence, and it is
+# fed back as the next iteration's `prior_memo`, so the loss compounds.
+_ITERATION_MEMO_TIGHT_BUDGET = 300
 
 # Split in two so the eval-data coverage paragraph can go BETWEEN the structure
 # instruction and the word budget — appending it after "Output only the insights
@@ -724,24 +748,43 @@ _ITERATION_SUMMARY_SYSTEM_HEAD = (
     "examined that would be most informative to cover next. "
 )
 
-_ITERATION_SUMMARY_SYSTEM_TAIL = (
-    "The write-up MUST stay concise — at most "
-    f"{_ITERATION_MEMO_WORD_BUDGET} words. Output only the insights prose — no JSON, no preamble."
-)
+def _iteration_summary_tail(word_budget: int = DEFAULT_ITERATION_MEMO_WORD_BUDGET) -> str:
+    """The closing budget instruction, tightened at or below the tight-budget threshold.
 
-_ITERATION_SUMMARY_SYSTEM = _ITERATION_SUMMARY_SYSTEM_HEAD + _ITERATION_SUMMARY_SYSTEM_TAIL
+    A small budget is a supported mode, not a squeezed 900: past
+    :data:`_ITERATION_MEMO_TIGHT_BUDGET` the judge is told to drop the weakest notes
+    wholesale instead of compressing every note into vagueness.
+    """
+    tail = f"The write-up MUST stay concise — at most {word_budget} words. "
+    if word_budget <= _ITERATION_MEMO_TIGHT_BUDGET:
+        tail += (
+            "That budget is tight: write terse bullets, and when it will not all fit "
+            "DROP the least informative notes entirely rather than compressing every "
+            "note into vagueness. A short, specific memo is worth more than a complete "
+            "but generic one. "
+        )
+    return tail + "Output only the insights prose — no JSON, no preamble."
 
 
-def _iteration_summary_system(eval_data_description: str = "") -> str:
-    """The cross-iteration memo's system prompt, optionally steered across eval kinds.
+# The prompt at both defaults — no eval-data description, the default word budget — i.e.
+# exactly what this was before either knob existed. `_iteration_summary_system()` with no
+# arguments returns it, which is the byte-identity anchor the verify script checks.
+_ITERATION_SUMMARY_SYSTEM = _ITERATION_SUMMARY_SYSTEM_HEAD + _iteration_summary_tail()
 
-    Returns :data:`_ITERATION_SUMMARY_SYSTEM` unchanged when no eval-data description
-    is set, so the default prompt is byte-identical to what it was before this existed.
+
+def _iteration_summary_system(
+    eval_data_description: str = "",
+    word_budget: int = DEFAULT_ITERATION_MEMO_WORD_BUDGET,
+) -> str:
+    """The cross-iteration memo's system prompt, at this budget and steering.
+
+    Returns :data:`_ITERATION_SUMMARY_SYSTEM` unchanged at both defaults, so a config
+    that sets neither knob sends exactly the prompt it always did.
     """
     return (
         _ITERATION_SUMMARY_SYSTEM_HEAD
         + _iteration_coverage_paragraph(eval_data_description)
-        + _ITERATION_SUMMARY_SYSTEM_TAIL
+        + _iteration_summary_tail(word_budget)
     )
 
 

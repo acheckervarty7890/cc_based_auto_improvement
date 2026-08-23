@@ -294,6 +294,15 @@ attacker:
                                       #   and a process restart (--resume). Independent of round_summaries.
   cross_iteration_memo_max_successes: int  # successes (most recent) shown to the judge when writing that
                                       #   memo (default 30; 0 = all — can make the judge prompt huge)
+  cross_iteration_memo_word_budget: int  # word budget the judge is given for that memo (default 900 =
+                                      #   llm_judge.DEFAULT_ITERATION_MEMO_WORD_BUDGET). The memo lands in
+                                      #   EVERY attacker system prompt of the next iteration, so this is
+                                      #   prompt real estate, not just cost; and 900 is unreachable at
+                                      #   judge.max_tokens: 1024 (~625 words at ~0.61 words/token), so the
+                                      #   default memo is truncated mid-sentence and the loss compounds
+                                      #   through prior_memo. At <= 300 the prompt also switches to "drop
+                                      #   the weakest notes wholesale" instead of "compress everything".
+                                      #   Must be >= 1 (load_config raises).
   interface: tools | prompt           # how the attacker is driven (default tools). "prompt" = classical
                                       #   no-tool prompting: the model gets NO tools; instead get_probe_info
                                       #   is baked into the system prompt and view_past_attempts is injected
@@ -709,10 +718,11 @@ split, typically. Where it lands and why:
   only adds or edits this text reuses every activation blob it would have anyway, and
   changes only what the judge writes in the memos.
 
-`scripts/verify_eval_description_prompts.py` pins both halves — inert when unset,
-exactly those four insertions when set — by rendering all six prompts and diffing them.
-It needs no network, GPU or probe. `scripts/replay_round_memo.py --eval-data-description`
-replays a real round's memo with the knob on, to see what it actually changes.
+`scripts/verify_memo_prompt_knobs.py` pins both halves — inert when unset, exactly those
+four insertions when set — by rendering all six prompts and diffing them, and covers the
+memo word budget the same way. It needs no network, GPU or probe.
+`scripts/replay_round_memo.py --eval-data-description` replays a real round's memo with the
+knob on, to see what it actually changes.
 
 The same judge also maintains the **rolling strategy memo** via
 `summarize_round(records, *, round_num, error_type, true_class_label,
@@ -770,10 +780,19 @@ max_successes=30)`, called once per rotation *before* the retrain. Under its own
 retrained on these misclassified samples, and asked for three things: failure modes
 now covered by retraining, conversation types already handled correctly, and regions
 of the input space not yet examined — folding `prior_memo` in by rewriting rather
-than appending, capped at `_ITERATION_MEMO_WORD_BUDGET` (~900) words — under its own
-`_iteration_summary_system(eval_data_description)`, which is that constant plus the
-coverage paragraph when an eval-data description is set and the constant itself when it
-is not. Only the
+than appending, capped at `word_budget` words — supplied by the caller from
+`attacker.cross_iteration_memo_word_budget`, defaulting to
+`DEFAULT_ITERATION_MEMO_WORD_BUDGET` (900). The prompt is built per call by
+`_iteration_summary_system(eval_data_description, word_budget)` = head + the coverage
+paragraph (empty unless an eval-data description is set) + `_iteration_summary_tail(budget)`,
+which at or below `_ITERATION_MEMO_TIGHT_BUDGET` (300) swaps its closing instruction for the
+round memo's lesson — write terse bullets and *drop* the weakest notes wholesale rather than
+compress every note into vagueness — so a small budget is a supported mode, not a squeezed
+900. At both defaults it is `_ITERATION_SUMMARY_SYSTEM` byte-for-byte.
+Note the default 900 is **not reachable** at the usual `judge.max_tokens: 1024`: at this
+register's measured ~0.61 words/token that is ~625 words, so the memo is guillotined
+mid-sentence and, being fed back as the next iteration's `prior_memo`, the loss compounds —
+the same failure that drove `_summary_word_budget`. Only the
 `max_successes` most recent successes are rendered (0 = all); returns `prior_memo`
 unchanged when the iteration produced neither successes nor a round memo.
 

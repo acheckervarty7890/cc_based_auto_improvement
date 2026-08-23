@@ -1,5 +1,9 @@
 #!/usr/bin/env python
-"""Pin the two halves of the `eval.data_description` contract.
+"""Pin the contracts of the two optional judge-memo prompt knobs.
+
+`eval.data_description` (what the eval splits hold) and
+`attacker.cross_iteration_memo_word_budget` (how long the cross-iteration memo may be)
+are both optional, and both must be inert at their defaults.
 
 The knob is optional prompt material for the judge's two summarizers, and the whole
 point is that it is *inert* when unset — a run configured without it must send exactly
@@ -22,7 +26,7 @@ summarizer system + user, classification system + messages) both ways and assert
 
 No network, no GPU, no probe: it only builds prompt strings.
 
-    python scripts/verify_eval_description_prompts.py
+    python scripts/verify_memo_prompt_knobs.py
 """
 
 from __future__ import annotations
@@ -184,8 +188,37 @@ def main() -> int:
             f"{what}: enumeration is indented under the bullet",
         )
     check(
-        on["cross-cycle insights / system"].endswith(L._ITERATION_SUMMARY_SYSTEM_TAIL),
+        on["cross-cycle insights / system"].endswith(L._iteration_summary_tail()),
         "iteration coverage paragraph goes BEFORE the word budget, not after it",
+    )
+
+    print("\nword budget — the memo's length knob:")
+    check(
+        L._iteration_summary_system() == L._ITERATION_SUMMARY_SYSTEM,
+        "both knobs at their defaults reproduce _ITERATION_SUMMARY_SYSTEM exactly",
+    )
+    check(
+        f"at most {L.DEFAULT_ITERATION_MEMO_WORD_BUDGET} words"
+        in L._iteration_summary_system(),
+        "the default budget is the one stated in the default prompt",
+    )
+    check(
+        "at most 150 words" in L._iteration_summary_system("", 150),
+        "a set budget reaches the prompt",
+    )
+    # A budget the judge cannot meet is worse than none: past the tight threshold the
+    # instruction has to become "drop notes", not "compress everything".
+    check(
+        "That budget is tight" in L._iteration_summary_tail(L._ITERATION_MEMO_TIGHT_BUDGET)
+        and "That budget is tight"
+        not in L._iteration_summary_tail(L._ITERATION_MEMO_TIGHT_BUDGET + 1),
+        f"the drop-notes clause switches on at <= {L._ITERATION_MEMO_TIGHT_BUDGET} words",
+    )
+    check(
+        L._iteration_summary_system(EVAL_DESC, 150).endswith(
+            L._iteration_summary_tail(150)
+        ),
+        "the two knobs compose: coverage paragraph before the tightened budget",
     )
 
     print()
