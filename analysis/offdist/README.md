@@ -68,4 +68,6 @@ Run order: `characterize.py` → `ablate.py` → `actsig.py` → `report.py`. Ne
 `PROBE_FUSED_ENSEMBLE=0` and the ceiling analysis's `ceiling_acts/` prepared; no LLM is
 loaded at any point and no activation is recomputed.
 
-The written answer is in `results/SUMMARY.md`.
+The written answer is in `results/SUMMARY.md`, and the same numbers as a standalone page at
+https://claude.ai/code/artifact/e1399fd2-3adf-4b1c-bb0d-17d3a90b3a21 (regenerate with
+`build_artifact.py` and republish the same path to update it in place).

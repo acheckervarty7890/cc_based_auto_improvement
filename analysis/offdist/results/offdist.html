@@ -1,0 +1,1366 @@
+<title>Orthogonal by Construction</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+<style>
+:root {
+  --ground:#F2F5F4; --surface:#FFFFFF; --raised:#E9EEEC;
+  --ink:#141D1E; --body:#2C3A3A; --muted:#5F7071; --faint:#8A9A9A;
+  --rule:#D5DEDB; --rule-strong:#B9C6C3;
+  --eval:#0F6F68; --eval-soft:#DCEBE8;
+  --drift:#AC432C; --drift-soft:#F4E2DC;
+  --band:#DFE6E4;
+  --measure:66ch; --wide:1000px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:#0E1517; --surface:#141D1F; --raised:#1B2528;
+    --ink:#E9F0EE; --body:#C3D0CE; --muted:#8DA0A0; --faint:#6B7E7E;
+    --rule:#253134; --rule-strong:#374548;
+    --eval:#4FB3A6; --eval-soft:#12302D;
+    --drift:#D97A5E; --drift-soft:#331B14;
+    --band:#1E292B;
+  }
+}
+:root[data-theme="dark"] {
+  --ground:#0E1517; --surface:#141D1F; --raised:#1B2528;
+  --ink:#E9F0EE; --body:#C3D0CE; --muted:#8DA0A0; --faint:#6B7E7E;
+  --rule:#253134; --rule-strong:#374548;
+  --eval:#4FB3A6; --eval-soft:#12302D;
+  --drift:#D97A5E; --drift-soft:#331B14;
+  --band:#1E292B;
+}
+* { box-sizing:border-box; }
+body {
+  background:var(--ground); color:var(--body);
+  font-family:"Source Serif 4",Georgia,serif; font-size:17px; line-height:1.62;
+  margin:0; padding:0 24px 96px;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap { max-width:var(--wide); margin:0 auto; }
+.col { max-width:var(--measure); }
+h1,h2,h3,.display { font-family:Archivo,"Helvetica Neue",Arial,sans-serif; color:var(--ink);
+  text-wrap:balance; margin:0; }
+.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.otick,.olab,.oaxlab,.ref,.chip {
+  font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; }
+.eyebrow { font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--muted); font-weight:500; }
+
+/* ---- masthead ---- */
+header { padding:76px 0 42px; border-bottom:1px solid var(--rule-strong); }
+h1 { font-size:clamp(38px,6.4vw,68px); font-weight:700; letter-spacing:-.028em;
+  line-height:1.02; margin:16px 0 0; }
+h1 .thin { font-weight:500; color:var(--muted); display:block; }
+.standfirst { max-width:60ch; margin:24px 0 0; font-size:19px; color:var(--body); }
+.meta { display:flex; flex-wrap:wrap; gap:10px 26px; margin-top:30px; }
+.chip { font-size:11.5px; letter-spacing:.06em; color:var(--muted);
+  border:1px solid var(--rule); border-radius:2px; padding:5px 9px; background:var(--surface); }
+
+/* ---- question sections ---- */
+section { padding:56px 0; border-bottom:1px solid var(--rule); }
+.qhead { display:grid; grid-template-columns:74px 1fr; gap:0 22px; align-items:start; }
+.qnum { font-family:Archivo,sans-serif; font-size:13px; font-weight:700; letter-spacing:.12em;
+  color:var(--eval); padding-top:9px; border-top:2px solid var(--eval); }
+h2 { font-size:clamp(23px,3vw,31px); font-weight:600; letter-spacing:-.02em; line-height:1.16;
+  max-width:22ch; }
+.verdict { grid-column:2; margin:20px 0 0; font-family:Archivo,sans-serif;
+  font-size:clamp(19px,2.4vw,25px); font-weight:500; line-height:1.3; color:var(--ink);
+  letter-spacing:-.012em; max-width:26ch; }
+.verdict em { font-style:normal; color:var(--drift); }
+.verdict .ok { color:var(--eval); }
+.qbody { grid-column:2; }
+.qbody p { max-width:var(--measure); }
+@media (max-width:720px) {
+  .qhead { grid-template-columns:1fr; gap:14px; }
+  .verdict,.qbody { grid-column:1; }
+  .qnum { display:inline-block; }
+}
+
+/* ---- tables ---- */
+.panel { margin:32px 0 6px; overflow-x:auto; }
+table.key { border-collapse:collapse; width:100%; font-size:14px; min-width:520px; }
+table.key th { font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--muted); font-weight:500; text-align:left; padding:0 14px 9px 0;
+  border-bottom:1px solid var(--rule-strong); }
+table.key th:not(:first-child) { text-align:right; }
+table.key td { padding:9px 14px 9px 0; border-bottom:1px solid var(--rule);
+  vertical-align:baseline; color:var(--body); }
+table.key td.n { text-align:right; font-size:13px; font-variant-numeric:tabular-nums;
+  color:var(--ink); white-space:nowrap; }
+table.key td.drift { color:var(--drift); }
+table.key td.evalcol { color:var(--eval); text-align:right; font-family:"IBM Plex Mono",monospace;
+  font-size:13px; font-variant-numeric:tabular-nums; }
+td.pos { color:var(--eval); }
+td.neg { color:var(--drift); }
+.ref { font-size:11px; color:var(--eval); }
+caption,.cap { font-size:13px; color:var(--muted); max-width:var(--measure);
+  margin:12px 0 0; line-height:1.5; }
+
+/* ---- charts ---- */
+.chart { width:100%; height:auto; display:block; }
+.cgrid { stroke:var(--rule); stroke-width:1; }
+.czero { stroke:var(--rule-strong); stroke-width:1.5; }
+.cband { fill:var(--band); }
+.cbar.pos { fill:var(--eval); }
+.cbar.neg { fill:var(--drift); }
+.cbar.flat { fill:var(--faint); }
+.crow { font-size:11.5px; fill:var(--body); }
+.cval { font-size:11px; fill:var(--muted); font-variant-numeric:tabular-nums; }
+.ctick { font-size:10px; fill:var(--faint); }
+.ogrid { stroke:var(--rule); stroke-width:1; }
+.oaxis { stroke:var(--rule-strong); stroke-width:1.5; }
+.oaxis.dash { stroke-dasharray:3 4; }
+.odot { fill:var(--drift); fill-opacity:.42; }
+.ocent { fill:var(--eval); }
+.otick { font-size:10px; fill:var(--faint); }
+.olab { font-size:10.5px; fill:var(--eval); letter-spacing:.06em; }
+.oaxlab { font-size:10.5px; fill:var(--muted); letter-spacing:.08em; text-transform:uppercase; }
+
+.armhead { font-family:Archivo,sans-serif; font-size:12px; font-weight:600;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--ink);
+  margin:34px 0 4px; padding-bottom:6px; border-bottom:1px solid var(--rule); }
+.armhead span { color:var(--muted); font-weight:500; }
+
+.pull { border-left:2px solid var(--eval); padding:2px 0 2px 20px; margin:30px 0;
+  max-width:58ch; color:var(--ink); font-size:18px; }
+
+footer { padding:52px 0 0; color:var(--muted); font-size:13.5px; max-width:var(--measure); }
+footer code { font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--body); }
+a { color:var(--eval); }
+:focus-visible { outline:2px solid var(--eval); outline-offset:3px; }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">experiment22 &middot; human-harm probe &middot; gemma-3-27b-it L32</div>
+  <h1>Orthogonal<span class="thin">by construction</span></h1>
+  <p class="standfirst">The red-team conversations a probe is retrained on are not drawn from
+  the distribution it is scored on. This asks how far off they sit, whether any are labelled
+  backwards, whether dropping the worst of them helps &#8212; and where, in the model&#8217;s
+  own representation, the difference actually lives.</p>
+  <div class="meta">
+    <span class="chip">2 attacker arms</span>
+    <span class="chip">588 + 920 red-team rows</span>
+    <span class="chip">866 eval rows</span>
+    <span class="chip">104 probe fits</span>
+    <span class="chip">no LLM loaded</span>
+  </div>
+</header>
+
+<section>
+  <div class="qhead">
+    <div class="qnum">Q1</div>
+    <div>
+      <h2>Can a portion of the red-team data be identified as different from the eval set?</h2>
+      <p class="verdict">No portion. <em>Effectively all of it.</em></p>
+      <div class="qbody">
+        <p>A TF-IDF discriminator trained to tell the two corpora apart reaches
+        <strong>0.9983</strong> and
+        <strong>0.9981</strong> AUROC out of fold. A linear
+        model on the pooled layer-32 activations reaches
+        <strong>0.9999</strong> and
+        <strong>1.0000</strong>. There is no
+        eval-like subset to keep and an off-manifold tail to cut &#8212; there is a gradient,
+        and every red-team row sits somewhere along it.</p>
+        <p>The structure is where the difference is most legible. Red-team assistant turns are
+        an order of magnitude longer than eval&#8217;s and heavily formatted; eval&#8217;s
+        conversations are short deliberative exchanges.</p>
+        <div class="panel"><table class="key"><thead><tr><th>per conversation</th><th>eval</th><th>arm 1</th><th>arm 2</th></tr></thead><tbody><tr><td>assistant reply, characters</td><td class="n evalcol">141</td><td class="n drift">1,203</td><td class="n drift">981</td></tr><tr><td>user turn, characters</td><td class="n evalcol">238</td><td class="n drift">189</td><td class="n drift">189</td></tr><tr><td>share of the text the assistant wrote</td><td class="n evalcol">41%</td><td class="n drift">80%</td><td class="n drift">79%</td></tr><tr><td>line breaks</td><td class="n evalcol">1</td><td class="n drift">12</td><td class="n drift">9</td></tr><tr><td>carries a bulleted list</td><td class="n evalcol">0%</td><td class="n drift">37%</td><td class="n drift">23%</td></tr><tr><td>carries a numbered list</td><td class="n evalcol">0%</td><td class="n drift">55%</td><td class="n drift">18%</td></tr><tr><td>assistant refuses</td><td class="n evalcol">13%</td><td class="n drift">1%</td><td class="n drift">3%</td></tr></tbody></table></div>
+        <p class="cap">Means per conversation. The eval column is one number because both arms
+        are scored on the same four <code>eval_sets/hu_ha</code> splits.</p>
+        <p>The vocabulary says the same thing from the other side. The terms that most mark a
+        conversation as <em>eval</em> are modal and deliberative &#8212;
+        <code>would</code>, <code>should</code>, <code>ai</code>, <code>you should</code>, <code>how do</code>, <code>or should</code>
+        &#8212; the language of a dilemma being weighed. The terms that mark it as red-team are
+        procedural: <code>we</code>, <code>our</code>, <code>and</code>, <code>for</code>, <code>no</code>, <code>as</code>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="qhead">
+    <div class="qnum">Q2</div>
+    <div>
+      <h2>Are any samples or pairs set up the opposite way to the eval pairs?</h2>
+      <p class="verdict"><span class="ok">Almost none are backwards.</span> The mix is wrong instead.</p>
+      <div class="qbody">
+        <p>The eval splits encode a mapping from assistant behaviour to label. Measured rather
+        than assumed: an eval conversation whose assistant refuses is labelled
+        <code>harmful_to_human</code> just
+        <strong>5.2%</strong> of the time, against
+        <strong>56.9%</strong> for one that does not
+        (115 of 866 eval rows refuse). A red-team row that refuses
+        <em>and</em> is labelled harmful therefore runs that mapping backwards.</p>
+        <p>Arm 1 has <strong>0</strong> such rows. Arm 2 has
+        <strong>7</strong>, and they share one shape &#8212;
+        a refusal token followed by compliance:</p>
+        <blockquote class="pull">&#8220;I can&#8217;t advise you to commit fraud. For
+        informational purposes only, a demand letter typically uses a formal letterhead, states
+        a specific balance&#8230;&#8221;</blockquote>
+        <p>Which is arguably labelled correctly. It is simply a pattern the eval set does not
+        contain, so the convention has nothing to say about it. The pairs are not inverted
+        either: <strong>294 of 294</strong>
+        and <strong>457 of 459</strong>
+        contrastive pairs differ in the <em>assistant&#8217;s</em> turn &#8212; the same axis the
+        eval pairs contrast on.</p>
+        <p>What is off is composition. Refusal is a large part of what the eval negative class is
+        made of, and the red-team negative class is almost never made of it:</p>
+        <div class="panel">
+          <table class="key"><thead><tr><th>share of rows containing a refusal</th><th>rate</th></tr></thead>
+          <tbody>
+          <tr><td class="evalcol" style="text-align:left">eval splits</td><td class="n evalcol">13.3%</td></tr>
+          <tr><td>arm 1 &middot; gpt-oss-120b</td><td class="n drift">1.0%</td></tr>
+          <tr><td>arm 2 &middot; deepseek-v4-pro</td><td class="n drift">2.6%</td></tr>
+          </tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="qhead">
+    <div class="qnum">Q3</div>
+    <div>
+      <h2>Does removing the most off-distribution rows improve eval AUROC?</h2>
+      <p class="verdict">Not along that axis. <em>The least eval-like rows are the useful ones.</em></p>
+      <div class="qbody">
+        <p>Each condition is measured against random removal of the same number of rows, three
+        seeds &#8212; the grey band below. Without that control, &#8220;removing 30% of the
+        training data changed the score&#8221; says nothing about <em>which</em> 30%. Removals are
+        by contrastive pair, so the class balance never moves with the flag.</p>
+        <div class="armhead">arm 1 <span>&middot; gpt-oss-120b &middot; all red-team data = 0.9164</span></div>
+        <div class="panel"><svg viewBox="0 0 720 349" class="chart" role="img" aria-label="change in eval AUROC against matched random removal, per condition">
+<line class="cgrid" x1="250.0" y1="16" x2="250.0" y2="331"/>
+<text class="ctick" x="250.0" y="345" text-anchor="middle">-0.06</text>
+<line class="cgrid" x1="360.0" y1="16" x2="360.0" y2="331"/>
+<text class="ctick" x="360.0" y="345" text-anchor="middle">-0.03</text>
+<line class="cgrid" x1="470.0" y1="16" x2="470.0" y2="331"/>
+<text class="ctick" x="470.0" y="345" text-anchor="middle">+0.00</text>
+<line class="cgrid" x1="580.0" y1="16" x2="580.0" y2="331"/>
+<text class="ctick" x="580.0" y="345" text-anchor="middle">+0.03</text>
+<line class="cgrid" x1="690.0" y1="16" x2="690.0" y2="331"/>
+<text class="ctick" x="690.0" y="345" text-anchor="middle">+0.06</text>
+<line class="czero" x1="470.0" y1="16" x2="470.0" y2="331"/>
+<rect class="cband" x="437.3" y="20" width="65.4" height="26"/>
+<rect class="cbar pos" x="470.0" y="24" width="64.9" height="18" rx="1.5"/>
+<text class="crow" x="234" y="37" text-anchor="end">most off-distribution, 10%</text>
+<text class="cval" x="541.9" y="37" text-anchor="start">+0.0177</text>
+<rect class="cband" x="451.7" y="55" width="36.7" height="26"/>
+<rect class="cbar neg" x="447.3" y="59" width="22.7" height="18" rx="1.5"/>
+<text class="crow" x="234" y="72" text-anchor="end">most off-distribution, 20%</text>
+<text class="cval" x="440.3" y="72" text-anchor="end">-0.0062</text>
+<rect class="cband" x="450.0" y="90" width="39.9" height="26"/>
+<rect class="cbar neg" x="448.9" y="94" width="21.1" height="18" rx="1.5"/>
+<text class="crow" x="234" y="107" text-anchor="end">most off-distribution, 30%</text>
+<text class="cval" x="441.9" y="107" text-anchor="end">-0.0058</text>
+<rect class="cband" x="414.9" y="125" width="110.2" height="26"/>
+<rect class="cbar flat" x="470.0" y="129" width="36.4" height="18" rx="1.5"/>
+<text class="crow" x="234" y="142" text-anchor="end">most off-distribution, 50%</text>
+<text class="cval" x="513.4" y="142" text-anchor="start">+0.0099</text>
+<rect class="cband" x="437.3" y="160" width="65.4" height="26"/>
+<rect class="cbar neg" x="333.3" y="164" width="136.7" height="18" rx="1.5"/>
+<text class="crow" x="234" y="177" text-anchor="end">most eval-like, 10%</text>
+<text class="cval" x="326.3" y="177" text-anchor="end">-0.0373</text>
+<rect class="cband" x="451.7" y="195" width="36.7" height="26"/>
+<rect class="cbar pos" x="470.0" y="199" width="19.9" height="18" rx="1.5"/>
+<text class="crow" x="234" y="212" text-anchor="end">most eval-like, 20%</text>
+<text class="cval" x="496.9" y="212" text-anchor="start">+0.0054</text>
+<rect class="cband" x="450.0" y="230" width="39.9" height="26"/>
+<rect class="cbar neg" x="445.7" y="234" width="24.3" height="18" rx="1.5"/>
+<text class="crow" x="234" y="247" text-anchor="end">most eval-like, 30%</text>
+<text class="cval" x="438.7" y="247" text-anchor="end">-0.0066</text>
+<rect class="cband" x="414.9" y="265" width="110.2" height="26"/>
+<rect class="cbar flat" x="470.0" y="269" width="16.6" height="18" rx="1.5"/>
+<text class="crow" x="234" y="282" text-anchor="end">most eval-like, 50%</text>
+<text class="cval" x="493.6" y="282" text-anchor="start">+0.0045</text>
+<rect class="cband" x="450.0" y="300" width="39.9" height="26"/>
+<rect class="cbar neg" x="347.4" y="304" width="122.6" height="18" rx="1.5"/>
+<text class="crow" x="234" y="317" text-anchor="end">longest assistant replies, 30%</text>
+<text class="cval" x="340.4" y="317" text-anchor="end">-0.0334</text>
+</svg></div>
+        <div class="armhead">arm 2 <span>&middot; deepseek-v4-pro &middot; all red-team data = 0.8314</span></div>
+        <div class="panel"><svg viewBox="0 0 720 349" class="chart" role="img" aria-label="change in eval AUROC against matched random removal, per condition">
+<line class="cgrid" x1="250.0" y1="16" x2="250.0" y2="331"/>
+<text class="ctick" x="250.0" y="345" text-anchor="middle">-0.06</text>
+<line class="cgrid" x1="360.0" y1="16" x2="360.0" y2="331"/>
+<text class="ctick" x="360.0" y="345" text-anchor="middle">-0.03</text>
+<line class="cgrid" x1="470.0" y1="16" x2="470.0" y2="331"/>
+<text class="ctick" x="470.0" y="345" text-anchor="middle">+0.00</text>
+<line class="cgrid" x1="580.0" y1="16" x2="580.0" y2="331"/>
+<text class="ctick" x="580.0" y="345" text-anchor="middle">+0.03</text>
+<line class="cgrid" x1="690.0" y1="16" x2="690.0" y2="331"/>
+<text class="ctick" x="690.0" y="345" text-anchor="middle">+0.06</text>
+<line class="czero" x1="470.0" y1="16" x2="470.0" y2="331"/>
+<rect class="cband" x="426.9" y="20" width="86.3" height="26"/>
+<rect class="cbar pos" x="470.0" y="24" width="89.0" height="18" rx="1.5"/>
+<text class="crow" x="234" y="37" text-anchor="end">most off-distribution, 10%</text>
+<text class="cval" x="566.0" y="37" text-anchor="start">+0.0252</text>
+<rect class="cband" x="419.7" y="55" width="100.6" height="26"/>
+<rect class="cbar pos" x="470.0" y="59" width="122.7" height="18" rx="1.5"/>
+<text class="crow" x="234" y="72" text-anchor="end">most off-distribution, 20%</text>
+<text class="cval" x="599.7" y="72" text-anchor="start">+0.0346</text>
+<rect class="cband" x="426.8" y="90" width="86.5" height="26"/>
+<rect class="cbar pos" x="470.0" y="94" width="89.1" height="18" rx="1.5"/>
+<text class="crow" x="234" y="107" text-anchor="end">most off-distribution, 30%</text>
+<text class="cval" x="566.1" y="107" text-anchor="start">+0.0252</text>
+<rect class="cband" x="437.9" y="125" width="64.1" height="26"/>
+<rect class="cbar flat" x="470.0" y="129" width="24.9" height="18" rx="1.5"/>
+<text class="crow" x="234" y="142" text-anchor="end">most off-distribution, 50%</text>
+<text class="cval" x="501.9" y="142" text-anchor="start">+0.0070</text>
+<rect class="cband" x="426.9" y="160" width="86.3" height="26"/>
+<rect class="cbar pos" x="470.0" y="164" width="46.4" height="18" rx="1.5"/>
+<text class="crow" x="234" y="177" text-anchor="end">most eval-like, 10%</text>
+<text class="cval" x="523.4" y="177" text-anchor="start">+0.0131</text>
+<rect class="cband" x="419.7" y="195" width="100.6" height="26"/>
+<rect class="cbar pos" x="470.0" y="199" width="191.3" height="18" rx="1.5"/>
+<text class="crow" x="234" y="212" text-anchor="end">most eval-like, 20%</text>
+<text class="cval" x="668.3" y="212" text-anchor="start">+0.0540</text>
+<rect class="cband" x="319.3" y="230" width="301.4" height="26"/>
+<rect class="cbar flat" x="470.0" y="234" width="139.1" height="18" rx="1.5"/>
+<text class="crow" x="234" y="247" text-anchor="end">most eval-like, 30%</text>
+<text class="cval" x="616.1" y="247" text-anchor="start">+0.0393</text>
+<rect class="cband" x="405.7" y="265" width="128.6" height="26"/>
+<rect class="cbar flat" x="465.5" y="269" width="4.5" height="18" rx="1.5"/>
+<text class="crow" x="234" y="282" text-anchor="end">most eval-like, 50%</text>
+<text class="cval" x="458.5" y="282" text-anchor="end">-0.0013</text>
+<rect class="cband" x="426.8" y="300" width="86.5" height="26"/>
+<rect class="cbar neg" x="389.1" y="304" width="80.9" height="18" rx="1.5"/>
+<text class="crow" x="234" y="317" text-anchor="end">longest assistant replies, 30%</text>
+<text class="cval" x="382.1" y="317" text-anchor="end">-0.0228</text>
+</svg></div>
+        <p class="cap">Change in mean eval AUROC against matched random removal. Grey band =
+        <code>max(control sd, 0.005)</code>; a bar inside it removed <em>some</em> data, not
+        <em>these</em> data.</p>
+        <p>Off-distribution removal clears the band in some conditions and loses in others, and
+        removing the <em>most eval-like</em> rows does about as well &#8212; on arm 2 it is the
+        single best condition of any kind (+0.0540). Surface distance from eval does not
+        predict harm.</p>
+        <p>One effect is consistent, and it points the other way. Dropping the 30% with the
+        longest assistant replies &#8212; structurally the rows least like eval &#8212; is
+        significantly <em>worse</em> than random in both arms
+        (-0.0334, -0.0228). Those rows are carrying signal,
+        not noise.</p>
+        <p>What does have a clean sign is the whole set, and it splits by arm. Dropping every
+        red-team row costs arm 1
+        <strong>-0.0641</strong>
+        and <em>gains</em> arm 2
+        <strong>+0.0209</strong>
+        &#8212; matching their published trajectories, where arm 1 climbed to 0.9153 and arm 2
+        declined to 0.8199. Both land on the same 0.8523, as they must: same 50 base
+        rows, same validation slice, no red-team data.</p>
+        <div class="armhead">by topic <span>&middot; k-means over the same TF-IDF space</span></div>
+        <div class="panel"><table class="key"><thead><tr><th>topic</th><th>leading terms</th><th>rows</th><th>off-manifold</th><th>&Delta; vs random when dropped</th></tr></thead><tbody><tr><td class="mono">0</td><td>joke, dark, he, the, dark joke</td><td class="n">52</td><td class="n">85%</td><td class="n">+0.0091</td></tr><tr><td class="mono">1</td><td>disability, claim, term disability, benefits, functional</td><td class="n">21</td><td class="n">81%</td><td class="n">-0.0079</td></tr><tr><td class="mono">2</td><td>the, and, is, to, for</td><td class="n">164</td><td class="n">47%</td><td class="n">-0.0151</td></tr><tr><td class="mono">3</td><td>chest, emergency, pain, calf, and</td><td class="n">55</td><td class="n">78%</td><td class="n neg">-0.0312</td></tr><tr><td class="mono">4</td><td>you, and, the, to, can</td><td class="n">307</td><td class="n">32%</td><td class="n">-0.0054</td></tr><tr><td class="mono">5</td><td>performance, employee, and, hr, the</td><td class="n">81</td><td class="n">56%</td><td class="n neg">-0.0148</td></tr><tr><td class="mono">6</td><td>we, and, our, the, to</td><td class="n">170</td><td class="n">62%</td><td class="n">-0.0002</td></tr><tr><td class="mono">7</td><td>coverage, therapy, denial, appeal, the</td><td class="n">70</td><td class="n">71%</td><td class="n pos">+0.0164</td></tr></tbody></table></div>
+        <p class="cap">Arm 2. No topic is both far off-manifold and helpful to remove; the two
+        topics whose removal clears the band in the positive direction are mid-pack on distance.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="qhead">
+    <div class="qnum">Q4</div>
+    <div>
+      <h2>Do the flagged rows carry a signal in activation space?</h2>
+      <p class="verdict">Yes &#8212; and it is <em>99.9% orthogonal</em>
+      to the probe&#8217;s decision axis.</p>
+      <div class="qbody">
+        <p>Every conversation is reduced to the mask-weighted mean of its layer-32 token
+        activations. <strong>35.5%</strong> of arm 1&#8217;s rows and
+        <strong>52.2%</strong> of arm 2&#8217;s sit further from the eval
+        set than eval&#8217;s own 95th-percentile self-kNN radius. They really are off the
+        manifold.</p>
+        <p>But the direction of that displacement is the finding. The head is
+        <code>LinearThenSoftmax</code>, so <code>w</code> is a single vector and a row&#8217;s
+        offset from the eval centroid splits cleanly into a component along it and everything
+        else. Almost all of it is everything else:</p>
+        <div class="armhead">arm 2 <span>&middot; every red-team row, resolved onto the decision axis</span></div>
+        <div class="panel"><svg viewBox="0 0 720 330" class="chart" role="img" aria-label="red-team displacement from the eval centroid, resolved onto the probe decision axis and its orthogonal complement">
+<line class="ogrid" x1="74" y1="272.0" x2="690" y2="272.0"/>
+<text class="otick" x="64" y="276.0" text-anchor="end">0</text>
+<line class="ogrid" x1="74" y1="223.6" x2="690" y2="223.6"/>
+<text class="otick" x="64" y="227.6" text-anchor="end">8</text>
+<line class="ogrid" x1="74" y1="175.2" x2="690" y2="175.2"/>
+<text class="otick" x="64" y="179.2" text-anchor="end">16</text>
+<line class="ogrid" x1="74" y1="126.9" x2="690" y2="126.9"/>
+<text class="otick" x="64" y="130.9" text-anchor="end">24</text>
+<line class="ogrid" x1="74" y1="78.5" x2="690" y2="78.5"/>
+<text class="otick" x="64" y="82.5" text-anchor="end">32</text>
+<line class="ogrid" x1="74" y1="30.1" x2="690" y2="30.1"/>
+<text class="otick" x="64" y="34.1" text-anchor="end">40</text>
+<line class="oaxis" x1="74" y1="272" x2="690" y2="272"/>
+<line class="oaxis dash" x1="382.0" y1="26" x2="382.0" y2="272"/>
+<circle class="odot" cx="380.8" cy="116.0" r="2.4"/>
+<circle class="odot" cx="407.6" cy="96.6" r="2.4"/>
+<circle class="odot" cx="434.8" cy="82.7" r="2.4"/>
+<circle class="odot" cx="382.4" cy="111.0" r="2.4"/>
+<circle class="odot" cx="390.0" cy="115.2" r="2.4"/>
+<circle class="odot" cx="385.6" cy="116.1" r="2.4"/>
+<circle class="odot" cx="405.4" cy="86.1" r="2.4"/>
+<circle class="odot" cx="364.5" cy="160.2" r="2.4"/>
+<circle class="odot" cx="407.3" cy="64.4" r="2.4"/>
+<circle class="odot" cx="343.0" cy="100.2" r="2.4"/>
+<circle class="odot" cx="387.2" cy="97.7" r="2.4"/>
+<circle class="odot" cx="351.3" cy="155.7" r="2.4"/>
+<circle class="odot" cx="345.8" cy="145.6" r="2.4"/>
+<circle class="odot" cx="376.4" cy="129.2" r="2.4"/>
+<circle class="odot" cx="406.2" cy="98.6" r="2.4"/>
+<circle class="odot" cx="400.3" cy="111.0" r="2.4"/>
+<circle class="odot" cx="377.6" cy="92.3" r="2.4"/>
+<circle class="odot" cx="347.0" cy="119.4" r="2.4"/>
+<circle class="odot" cx="387.9" cy="167.6" r="2.4"/>
+<circle class="odot" cx="408.0" cy="109.6" r="2.4"/>
+<circle class="odot" cx="401.8" cy="114.3" r="2.4"/>
+<circle class="odot" cx="368.2" cy="140.4" r="2.4"/>
+<circle class="odot" cx="361.8" cy="149.8" r="2.4"/>
+<circle class="odot" cx="399.5" cy="118.8" r="2.4"/>
+<circle class="odot" cx="351.9" cy="133.5" r="2.4"/>
+<circle class="odot" cx="380.1" cy="128.4" r="2.4"/>
+<circle class="odot" cx="372.0" cy="140.4" r="2.4"/>
+<circle class="odot" cx="399.7" cy="127.0" r="2.4"/>
+<circle class="odot" cx="413.9" cy="131.2" r="2.4"/>
+<circle class="odot" cx="399.7" cy="143.9" r="2.4"/>
+<circle class="odot" cx="402.0" cy="149.3" r="2.4"/>
+<circle class="odot" cx="396.2" cy="148.7" r="2.4"/>
+<circle class="odot" cx="391.9" cy="138.9" r="2.4"/>
+<circle class="odot" cx="369.4" cy="157.0" r="2.4"/>
+<circle class="odot" cx="408.7" cy="120.2" r="2.4"/>
+<circle class="odot" cx="390.9" cy="51.8" r="2.4"/>
+<circle class="odot" cx="395.6" cy="84.5" r="2.4"/>
+<circle class="odot" cx="376.9" cy="114.0" r="2.4"/>
+<circle class="odot" cx="389.3" cy="114.3" r="2.4"/>
+<circle class="odot" cx="399.1" cy="111.1" r="2.4"/>
+<circle class="odot" cx="390.7" cy="96.2" r="2.4"/>
+<circle class="odot" cx="420.4" cy="127.6" r="2.4"/>
+<circle class="odot" cx="413.7" cy="115.5" r="2.4"/>
+<circle class="odot" cx="404.9" cy="108.0" r="2.4"/>
+<circle class="odot" cx="390.9" cy="101.6" r="2.4"/>
+<circle class="odot" cx="357.9" cy="123.2" r="2.4"/>
+<circle class="odot" cx="369.4" cy="150.6" r="2.4"/>
+<circle class="odot" cx="406.9" cy="134.4" r="2.4"/>
+<circle class="odot" cx="374.4" cy="158.4" r="2.4"/>
+<circle class="odot" cx="392.0" cy="116.0" r="2.4"/>
+<circle class="odot" cx="367.9" cy="76.5" r="2.4"/>
+<circle class="odot" cx="346.6" cy="120.5" r="2.4"/>
+<circle class="odot" cx="382.7" cy="122.2" r="2.4"/>
+<circle class="odot" cx="381.7" cy="135.7" r="2.4"/>
+<circle class="odot" cx="413.7" cy="121.0" r="2.4"/>
+<circle class="odot" cx="407.5" cy="123.4" r="2.4"/>
+<circle class="odot" cx="388.9" cy="127.3" r="2.4"/>
+<circle class="odot" cx="403.4" cy="48.6" r="2.4"/>
+<circle class="odot" cx="412.1" cy="100.7" r="2.4"/>
+<circle class="odot" cx="378.6" cy="122.3" r="2.4"/>
+<circle class="odot" cx="358.3" cy="106.4" r="2.4"/>
+<circle class="odot" cx="398.5" cy="143.6" r="2.4"/>
+<circle class="odot" cx="384.5" cy="112.1" r="2.4"/>
+<circle class="odot" cx="372.5" cy="123.5" r="2.4"/>
+<circle class="odot" cx="361.4" cy="115.0" r="2.4"/>
+<circle class="odot" cx="382.0" cy="130.1" r="2.4"/>
+<circle class="odot" cx="417.9" cy="116.6" r="2.4"/>
+<circle class="odot" cx="382.4" cy="131.9" r="2.4"/>
+<circle class="odot" cx="377.1" cy="123.2" r="2.4"/>
+<circle class="odot" cx="385.0" cy="99.0" r="2.4"/>
+<circle class="odot" cx="376.0" cy="84.3" r="2.4"/>
+<circle class="odot" cx="376.2" cy="121.0" r="2.4"/>
+<circle class="odot" cx="371.0" cy="124.5" r="2.4"/>
+<circle class="odot" cx="386.6" cy="81.1" r="2.4"/>
+<circle class="odot" cx="376.9" cy="107.4" r="2.4"/>
+<circle class="odot" cx="370.0" cy="99.8" r="2.4"/>
+<circle class="odot" cx="354.4" cy="85.6" r="2.4"/>
+<circle class="odot" cx="385.8" cy="125.2" r="2.4"/>
+<circle class="odot" cx="372.7" cy="108.6" r="2.4"/>
+<circle class="odot" cx="395.9" cy="99.9" r="2.4"/>
+<circle class="odot" cx="373.3" cy="116.9" r="2.4"/>
+<circle class="odot" cx="367.2" cy="109.2" r="2.4"/>
+<circle class="odot" cx="364.8" cy="96.9" r="2.4"/>
+<circle class="odot" cx="387.7" cy="117.7" r="2.4"/>
+<circle class="odot" cx="372.2" cy="106.5" r="2.4"/>
+<circle class="odot" cx="379.6" cy="133.3" r="2.4"/>
+<circle class="odot" cx="350.8" cy="127.9" r="2.4"/>
+<circle class="odot" cx="385.3" cy="114.8" r="2.4"/>
+<circle class="odot" cx="384.1" cy="104.6" r="2.4"/>
+<circle class="odot" cx="375.7" cy="98.6" r="2.4"/>
+<circle class="odot" cx="380.9" cy="115.9" r="2.4"/>
+<circle class="odot" cx="359.5" cy="117.9" r="2.4"/>
+<circle class="odot" cx="388.1" cy="104.4" r="2.4"/>
+<circle class="odot" cx="361.1" cy="109.2" r="2.4"/>
+<circle class="odot" cx="351.0" cy="105.9" r="2.4"/>
+<circle class="odot" cx="366.5" cy="123.1" r="2.4"/>
+<circle class="odot" cx="392.1" cy="105.8" r="2.4"/>
+<circle class="odot" cx="390.8" cy="105.1" r="2.4"/>
+<circle class="odot" cx="391.9" cy="102.5" r="2.4"/>
+<circle class="odot" cx="361.4" cy="130.9" r="2.4"/>
+<circle class="odot" cx="371.0" cy="116.0" r="2.4"/>
+<circle class="odot" cx="348.2" cy="91.0" r="2.4"/>
+<circle class="odot" cx="393.8" cy="118.9" r="2.4"/>
+<circle class="odot" cx="386.8" cy="92.5" r="2.4"/>
+<circle class="odot" cx="398.2" cy="115.1" r="2.4"/>
+<circle class="odot" cx="377.8" cy="132.6" r="2.4"/>
+<circle class="odot" cx="393.4" cy="124.3" r="2.4"/>
+<circle class="odot" cx="355.0" cy="128.7" r="2.4"/>
+<circle class="odot" cx="351.7" cy="118.1" r="2.4"/>
+<circle class="odot" cx="372.0" cy="121.8" r="2.4"/>
+<circle class="odot" cx="377.2" cy="133.3" r="2.4"/>
+<circle class="odot" cx="400.8" cy="118.6" r="2.4"/>
+<circle class="odot" cx="387.8" cy="144.9" r="2.4"/>
+<circle class="odot" cx="408.9" cy="123.9" r="2.4"/>
+<circle class="odot" cx="385.0" cy="126.1" r="2.4"/>
+<circle class="odot" cx="380.4" cy="120.2" r="2.4"/>
+<circle class="odot" cx="385.5" cy="139.8" r="2.4"/>
+<circle class="odot" cx="368.2" cy="125.2" r="2.4"/>
+<circle class="odot" cx="369.5" cy="119.0" r="2.4"/>
+<circle class="odot" cx="348.6" cy="106.5" r="2.4"/>
+<circle class="odot" cx="341.2" cy="117.5" r="2.4"/>
+<circle class="odot" cx="381.7" cy="124.1" r="2.4"/>
+<circle class="odot" cx="373.9" cy="119.7" r="2.4"/>
+<circle class="odot" cx="365.2" cy="129.4" r="2.4"/>
+<circle class="odot" cx="381.4" cy="135.6" r="2.4"/>
+<circle class="odot" cx="369.6" cy="127.2" r="2.4"/>
+<circle class="odot" cx="401.2" cy="128.3" r="2.4"/>
+<circle class="odot" cx="381.2" cy="122.6" r="2.4"/>
+<circle class="odot" cx="346.9" cy="81.7" r="2.4"/>
+<circle class="odot" cx="371.7" cy="120.5" r="2.4"/>
+<circle class="odot" cx="367.1" cy="107.4" r="2.4"/>
+<circle class="odot" cx="382.3" cy="131.8" r="2.4"/>
+<circle class="odot" cx="389.2" cy="105.3" r="2.4"/>
+<circle class="odot" cx="385.1" cy="114.6" r="2.4"/>
+<circle class="odot" cx="381.9" cy="83.9" r="2.4"/>
+<circle class="odot" cx="370.1" cy="115.0" r="2.4"/>
+<circle class="odot" cx="389.2" cy="121.4" r="2.4"/>
+<circle class="odot" cx="349.5" cy="107.0" r="2.4"/>
+<circle class="odot" cx="390.0" cy="117.0" r="2.4"/>
+<circle class="odot" cx="367.0" cy="109.4" r="2.4"/>
+<circle class="odot" cx="367.6" cy="124.5" r="2.4"/>
+<circle class="odot" cx="382.2" cy="103.8" r="2.4"/>
+<circle class="odot" cx="404.2" cy="121.2" r="2.4"/>
+<circle class="odot" cx="383.8" cy="126.6" r="2.4"/>
+<circle class="odot" cx="393.1" cy="112.3" r="2.4"/>
+<circle class="odot" cx="362.7" cy="133.3" r="2.4"/>
+<circle class="odot" cx="362.6" cy="114.1" r="2.4"/>
+<circle class="odot" cx="354.4" cy="115.1" r="2.4"/>
+<circle class="odot" cx="378.7" cy="131.9" r="2.4"/>
+<circle class="odot" cx="356.7" cy="127.3" r="2.4"/>
+<circle class="odot" cx="365.3" cy="115.0" r="2.4"/>
+<circle class="odot" cx="366.8" cy="115.4" r="2.4"/>
+<circle class="odot" cx="372.5" cy="127.5" r="2.4"/>
+<circle class="odot" cx="397.2" cy="118.0" r="2.4"/>
+<circle class="odot" cx="368.7" cy="123.6" r="2.4"/>
+<circle class="odot" cx="369.7" cy="134.4" r="2.4"/>
+<circle class="odot" cx="363.3" cy="125.3" r="2.4"/>
+<circle class="odot" cx="382.0" cy="113.4" r="2.4"/>
+<circle class="odot" cx="405.1" cy="141.8" r="2.4"/>
+<circle class="odot" cx="390.9" cy="89.1" r="2.4"/>
+<circle class="odot" cx="397.4" cy="111.6" r="2.4"/>
+<circle class="odot" cx="376.6" cy="131.7" r="2.4"/>
+<circle class="odot" cx="380.5" cy="113.3" r="2.4"/>
+<circle class="odot" cx="396.2" cy="120.6" r="2.4"/>
+<circle class="odot" cx="403.1" cy="111.4" r="2.4"/>
+<circle class="odot" cx="385.2" cy="136.4" r="2.4"/>
+<circle class="odot" cx="390.7" cy="125.0" r="2.4"/>
+<circle class="odot" cx="384.9" cy="127.9" r="2.4"/>
+<circle class="odot" cx="375.2" cy="132.7" r="2.4"/>
+<circle class="odot" cx="381.1" cy="126.6" r="2.4"/>
+<circle class="odot" cx="384.3" cy="128.0" r="2.4"/>
+<circle class="odot" cx="388.8" cy="128.0" r="2.4"/>
+<circle class="odot" cx="389.1" cy="125.5" r="2.4"/>
+<circle class="odot" cx="407.9" cy="117.5" r="2.4"/>
+<circle class="odot" cx="392.5" cy="125.8" r="2.4"/>
+<circle class="odot" cx="403.4" cy="122.4" r="2.4"/>
+<circle class="odot" cx="395.2" cy="121.3" r="2.4"/>
+<circle class="odot" cx="404.3" cy="119.1" r="2.4"/>
+<circle class="odot" cx="394.5" cy="107.1" r="2.4"/>
+<circle class="odot" cx="359.2" cy="130.0" r="2.4"/>
+<circle class="odot" cx="377.5" cy="123.0" r="2.4"/>
+<circle class="odot" cx="376.6" cy="128.4" r="2.4"/>
+<circle class="odot" cx="356.5" cy="132.0" r="2.4"/>
+<circle class="odot" cx="371.5" cy="137.3" r="2.4"/>
+<circle class="odot" cx="386.1" cy="109.9" r="2.4"/>
+<circle class="odot" cx="406.5" cy="109.4" r="2.4"/>
+<circle class="odot" cx="371.5" cy="123.6" r="2.4"/>
+<circle class="odot" cx="413.8" cy="127.4" r="2.4"/>
+<circle class="odot" cx="375.2" cy="97.1" r="2.4"/>
+<circle class="odot" cx="376.1" cy="97.8" r="2.4"/>
+<circle class="odot" cx="387.0" cy="95.7" r="2.4"/>
+<circle class="odot" cx="366.1" cy="120.4" r="2.4"/>
+<circle class="odot" cx="361.8" cy="120.7" r="2.4"/>
+<circle class="odot" cx="366.9" cy="109.3" r="2.4"/>
+<circle class="odot" cx="379.1" cy="91.6" r="2.4"/>
+<circle class="odot" cx="367.4" cy="102.3" r="2.4"/>
+<circle class="odot" cx="391.4" cy="105.1" r="2.4"/>
+<circle class="odot" cx="362.9" cy="112.0" r="2.4"/>
+<circle class="odot" cx="373.6" cy="104.1" r="2.4"/>
+<circle class="odot" cx="367.4" cy="101.3" r="2.4"/>
+<circle class="odot" cx="366.9" cy="105.9" r="2.4"/>
+<circle class="odot" cx="383.2" cy="132.3" r="2.4"/>
+<circle class="odot" cx="375.9" cy="110.4" r="2.4"/>
+<circle class="odot" cx="353.7" cy="116.0" r="2.4"/>
+<circle class="odot" cx="393.6" cy="141.2" r="2.4"/>
+<circle class="odot" cx="390.2" cy="108.3" r="2.4"/>
+<circle class="odot" cx="380.5" cy="132.1" r="2.4"/>
+<circle class="odot" cx="373.6" cy="110.1" r="2.4"/>
+<circle class="odot" cx="351.0" cy="123.9" r="2.4"/>
+<circle class="odot" cx="351.1" cy="127.5" r="2.4"/>
+<circle class="odot" cx="397.2" cy="125.4" r="2.4"/>
+<circle class="odot" cx="403.1" cy="136.4" r="2.4"/>
+<circle class="odot" cx="410.9" cy="114.4" r="2.4"/>
+<circle class="odot" cx="423.6" cy="124.8" r="2.4"/>
+<circle class="odot" cx="401.6" cy="128.6" r="2.4"/>
+<circle class="odot" cx="418.9" cy="129.6" r="2.4"/>
+<circle class="odot" cx="411.0" cy="118.8" r="2.4"/>
+<circle class="odot" cx="390.8" cy="105.3" r="2.4"/>
+<circle class="odot" cx="397.3" cy="122.6" r="2.4"/>
+<circle class="odot" cx="386.6" cy="126.0" r="2.4"/>
+<circle class="odot" cx="393.3" cy="140.2" r="2.4"/>
+<circle class="odot" cx="398.6" cy="125.2" r="2.4"/>
+<circle class="odot" cx="414.2" cy="121.5" r="2.4"/>
+<circle class="odot" cx="413.9" cy="131.7" r="2.4"/>
+<circle class="odot" cx="442.1" cy="133.5" r="2.4"/>
+<circle class="odot" cx="406.0" cy="116.6" r="2.4"/>
+<circle class="odot" cx="457.2" cy="127.0" r="2.4"/>
+<circle class="odot" cx="403.2" cy="104.7" r="2.4"/>
+<circle class="odot" cx="423.6" cy="118.2" r="2.4"/>
+<circle class="odot" cx="438.1" cy="124.6" r="2.4"/>
+<circle class="odot" cx="421.3" cy="140.1" r="2.4"/>
+<circle class="odot" cx="417.8" cy="122.5" r="2.4"/>
+<circle class="odot" cx="384.7" cy="151.1" r="2.4"/>
+<circle class="odot" cx="400.3" cy="119.3" r="2.4"/>
+<circle class="odot" cx="420.0" cy="121.9" r="2.4"/>
+<circle class="odot" cx="438.9" cy="133.0" r="2.4"/>
+<circle class="odot" cx="466.1" cy="132.6" r="2.4"/>
+<circle class="odot" cx="417.4" cy="106.0" r="2.4"/>
+<circle class="odot" cx="411.2" cy="115.4" r="2.4"/>
+<circle class="odot" cx="442.8" cy="125.4" r="2.4"/>
+<circle class="odot" cx="439.7" cy="115.1" r="2.4"/>
+<circle class="odot" cx="476.2" cy="130.9" r="2.4"/>
+<circle class="odot" cx="443.0" cy="114.3" r="2.4"/>
+<circle class="odot" cx="434.6" cy="120.4" r="2.4"/>
+<circle class="odot" cx="392.6" cy="107.1" r="2.4"/>
+<circle class="odot" cx="437.5" cy="117.1" r="2.4"/>
+<circle class="odot" cx="407.3" cy="120.8" r="2.4"/>
+<circle class="odot" cx="419.9" cy="117.1" r="2.4"/>
+<circle class="odot" cx="471.5" cy="129.9" r="2.4"/>
+<circle class="odot" cx="437.7" cy="131.2" r="2.4"/>
+<circle class="odot" cx="439.5" cy="134.7" r="2.4"/>
+<circle class="odot" cx="444.3" cy="127.2" r="2.4"/>
+<circle class="odot" cx="439.2" cy="110.3" r="2.4"/>
+<circle class="odot" cx="405.6" cy="111.9" r="2.4"/>
+<circle class="odot" cx="419.2" cy="132.8" r="2.4"/>
+<circle class="odot" cx="455.9" cy="108.1" r="2.4"/>
+<circle class="odot" cx="413.3" cy="115.0" r="2.4"/>
+<circle class="odot" cx="405.3" cy="117.2" r="2.4"/>
+<circle class="odot" cx="484.7" cy="113.1" r="2.4"/>
+<circle class="odot" cx="480.0" cy="118.6" r="2.4"/>
+<circle class="odot" cx="439.0" cy="123.4" r="2.4"/>
+<circle class="odot" cx="425.5" cy="109.6" r="2.4"/>
+<circle class="odot" cx="427.9" cy="120.1" r="2.4"/>
+<circle class="odot" cx="454.3" cy="123.4" r="2.4"/>
+<circle class="odot" cx="443.4" cy="115.4" r="2.4"/>
+<circle class="odot" cx="466.8" cy="119.6" r="2.4"/>
+<circle class="odot" cx="444.7" cy="112.6" r="2.4"/>
+<circle class="odot" cx="435.3" cy="113.6" r="2.4"/>
+<circle class="odot" cx="466.5" cy="140.6" r="2.4"/>
+<circle class="odot" cx="444.7" cy="109.3" r="2.4"/>
+<circle class="odot" cx="447.0" cy="135.9" r="2.4"/>
+<circle class="odot" cx="407.3" cy="117.0" r="2.4"/>
+<circle class="odot" cx="462.8" cy="131.6" r="2.4"/>
+<circle class="odot" cx="455.0" cy="137.6" r="2.4"/>
+<circle class="odot" cx="463.4" cy="125.2" r="2.4"/>
+<circle class="odot" cx="435.8" cy="113.2" r="2.4"/>
+<circle class="odot" cx="483.5" cy="121.1" r="2.4"/>
+<circle class="odot" cx="457.4" cy="119.4" r="2.4"/>
+<circle class="odot" cx="436.0" cy="126.7" r="2.4"/>
+<circle class="odot" cx="410.0" cy="100.2" r="2.4"/>
+<circle class="odot" cx="451.5" cy="108.3" r="2.4"/>
+<circle class="odot" cx="442.7" cy="125.4" r="2.4"/>
+<circle class="odot" cx="463.6" cy="101.1" r="2.4"/>
+<circle class="odot" cx="476.6" cy="116.9" r="2.4"/>
+<circle class="odot" cx="441.0" cy="134.4" r="2.4"/>
+<circle class="odot" cx="490.3" cy="125.4" r="2.4"/>
+<circle class="odot" cx="463.7" cy="118.3" r="2.4"/>
+<circle class="odot" cx="452.1" cy="117.4" r="2.4"/>
+<circle class="odot" cx="447.8" cy="126.0" r="2.4"/>
+<circle class="odot" cx="481.1" cy="119.6" r="2.4"/>
+<circle class="odot" cx="467.2" cy="114.8" r="2.4"/>
+<circle class="odot" cx="474.6" cy="110.9" r="2.4"/>
+<circle class="odot" cx="461.7" cy="100.7" r="2.4"/>
+<circle class="odot" cx="454.7" cy="124.7" r="2.4"/>
+<circle class="odot" cx="436.9" cy="128.4" r="2.4"/>
+<circle class="odot" cx="445.9" cy="131.4" r="2.4"/>
+<circle class="odot" cx="400.9" cy="103.2" r="2.4"/>
+<circle class="odot" cx="455.5" cy="125.0" r="2.4"/>
+<circle class="odot" cx="425.7" cy="111.6" r="2.4"/>
+<circle class="odot" cx="429.7" cy="132.0" r="2.4"/>
+<circle class="odot" cx="432.8" cy="130.2" r="2.4"/>
+<circle class="odot" cx="433.3" cy="132.9" r="2.4"/>
+<circle class="odot" cx="427.4" cy="138.5" r="2.4"/>
+<circle class="odot" cx="438.8" cy="145.7" r="2.4"/>
+<circle class="odot" cx="429.9" cy="120.7" r="2.4"/>
+<circle class="odot" cx="411.6" cy="137.0" r="2.4"/>
+<circle class="odot" cx="435.6" cy="103.1" r="2.4"/>
+<circle class="odot" cx="439.3" cy="131.5" r="2.4"/>
+<circle class="odot" cx="413.1" cy="95.7" r="2.4"/>
+<circle class="odot" cx="425.2" cy="117.8" r="2.4"/>
+<circle class="odot" cx="432.6" cy="120.2" r="2.4"/>
+<circle class="odot" cx="421.4" cy="127.1" r="2.4"/>
+<circle class="odot" cx="441.0" cy="103.4" r="2.4"/>
+<circle class="odot" cx="447.5" cy="128.4" r="2.4"/>
+<circle class="odot" cx="432.6" cy="124.3" r="2.4"/>
+<circle class="odot" cx="421.5" cy="148.2" r="2.4"/>
+<circle class="odot" cx="415.2" cy="119.5" r="2.4"/>
+<circle class="odot" cx="428.3" cy="133.8" r="2.4"/>
+<circle class="odot" cx="452.6" cy="98.1" r="2.4"/>
+<circle class="odot" cx="437.1" cy="120.5" r="2.4"/>
+<circle class="odot" cx="448.5" cy="106.7" r="2.4"/>
+<circle class="odot" cx="421.6" cy="125.3" r="2.4"/>
+<circle class="odot" cx="429.6" cy="143.0" r="2.4"/>
+<circle class="odot" cx="426.7" cy="128.9" r="2.4"/>
+<circle class="odot" cx="425.6" cy="129.6" r="2.4"/>
+<circle class="odot" cx="440.9" cy="118.6" r="2.4"/>
+<circle class="odot" cx="412.7" cy="107.3" r="2.4"/>
+<circle class="odot" cx="435.9" cy="107.0" r="2.4"/>
+<circle class="odot" cx="406.5" cy="119.2" r="2.4"/>
+<circle class="odot" cx="415.8" cy="114.0" r="2.4"/>
+<circle class="odot" cx="434.0" cy="103.2" r="2.4"/>
+<circle class="odot" cx="437.3" cy="86.2" r="2.4"/>
+<circle class="odot" cx="437.5" cy="134.0" r="2.4"/>
+<circle class="odot" cx="458.9" cy="123.8" r="2.4"/>
+<circle class="odot" cx="418.4" cy="142.4" r="2.4"/>
+<circle class="odot" cx="428.9" cy="122.9" r="2.4"/>
+<circle class="odot" cx="432.6" cy="122.9" r="2.4"/>
+<circle class="odot" cx="420.4" cy="96.7" r="2.4"/>
+<circle class="odot" cx="426.2" cy="126.2" r="2.4"/>
+<circle class="odot" cx="419.5" cy="128.4" r="2.4"/>
+<circle class="odot" cx="438.2" cy="122.5" r="2.4"/>
+<circle class="odot" cx="444.0" cy="130.8" r="2.4"/>
+<circle class="odot" cx="420.0" cy="134.5" r="2.4"/>
+<circle class="odot" cx="439.6" cy="116.6" r="2.4"/>
+<circle class="odot" cx="427.8" cy="130.9" r="2.4"/>
+<circle class="odot" cx="420.3" cy="111.5" r="2.4"/>
+<circle class="odot" cx="436.4" cy="116.3" r="2.4"/>
+<circle class="odot" cx="441.9" cy="137.5" r="2.4"/>
+<circle class="odot" cx="438.7" cy="133.4" r="2.4"/>
+<circle class="odot" cx="437.9" cy="130.7" r="2.4"/>
+<circle class="odot" cx="400.9" cy="96.7" r="2.4"/>
+<circle class="odot" cx="406.9" cy="110.5" r="2.4"/>
+<circle class="odot" cx="423.3" cy="106.3" r="2.4"/>
+<circle class="odot" cx="382.7" cy="117.0" r="2.4"/>
+<circle class="odot" cx="474.1" cy="117.4" r="2.4"/>
+<circle class="odot" cx="421.0" cy="112.2" r="2.4"/>
+<circle class="odot" cx="411.8" cy="113.3" r="2.4"/>
+<circle class="odot" cx="448.8" cy="126.0" r="2.4"/>
+<circle class="odot" cx="392.9" cy="126.6" r="2.4"/>
+<circle class="odot" cx="419.4" cy="124.2" r="2.4"/>
+<circle class="odot" cx="436.0" cy="122.6" r="2.4"/>
+<circle class="odot" cx="393.0" cy="130.1" r="2.4"/>
+<circle class="odot" cx="442.6" cy="125.3" r="2.4"/>
+<circle class="odot" cx="390.6" cy="111.3" r="2.4"/>
+<circle class="odot" cx="384.4" cy="129.9" r="2.4"/>
+<circle class="odot" cx="394.4" cy="122.8" r="2.4"/>
+<circle class="odot" cx="384.0" cy="117.2" r="2.4"/>
+<circle class="odot" cx="405.9" cy="104.1" r="2.4"/>
+<circle class="odot" cx="467.3" cy="124.0" r="2.4"/>
+<circle class="odot" cx="434.2" cy="134.0" r="2.4"/>
+<circle class="odot" cx="416.8" cy="143.1" r="2.4"/>
+<circle class="odot" cx="436.0" cy="148.2" r="2.4"/>
+<circle class="odot" cx="434.4" cy="121.2" r="2.4"/>
+<circle class="odot" cx="443.0" cy="135.3" r="2.4"/>
+<circle class="odot" cx="403.3" cy="135.5" r="2.4"/>
+<circle class="odot" cx="461.3" cy="145.0" r="2.4"/>
+<circle class="odot" cx="401.7" cy="156.0" r="2.4"/>
+<circle class="odot" cx="403.4" cy="138.1" r="2.4"/>
+<circle class="odot" cx="430.3" cy="136.8" r="2.4"/>
+<circle class="odot" cx="453.2" cy="160.1" r="2.4"/>
+<circle class="odot" cx="405.1" cy="129.8" r="2.4"/>
+<circle class="odot" cx="404.2" cy="129.6" r="2.4"/>
+<circle class="odot" cx="404.2" cy="142.4" r="2.4"/>
+<circle class="odot" cx="436.6" cy="146.0" r="2.4"/>
+<circle class="odot" cx="408.8" cy="140.0" r="2.4"/>
+<circle class="odot" cx="407.8" cy="125.3" r="2.4"/>
+<circle class="odot" cx="441.7" cy="141.7" r="2.4"/>
+<circle class="odot" cx="449.2" cy="139.4" r="2.4"/>
+<circle class="odot" cx="449.9" cy="139.6" r="2.4"/>
+<circle class="odot" cx="399.9" cy="128.3" r="2.4"/>
+<circle class="odot" cx="442.0" cy="140.0" r="2.4"/>
+<circle class="odot" cx="395.7" cy="116.2" r="2.4"/>
+<circle class="odot" cx="432.7" cy="131.0" r="2.4"/>
+<circle class="odot" cx="443.8" cy="139.8" r="2.4"/>
+<circle class="odot" cx="437.8" cy="136.3" r="2.4"/>
+<circle class="odot" cx="436.5" cy="155.0" r="2.4"/>
+<circle class="odot" cx="439.1" cy="134.3" r="2.4"/>
+<circle class="odot" cx="426.2" cy="126.8" r="2.4"/>
+<circle class="odot" cx="404.1" cy="137.7" r="2.4"/>
+<circle class="odot" cx="405.8" cy="130.5" r="2.4"/>
+<circle class="odot" cx="447.9" cy="135.3" r="2.4"/>
+<circle class="odot" cx="399.8" cy="111.2" r="2.4"/>
+<circle class="odot" cx="451.6" cy="127.6" r="2.4"/>
+<circle class="odot" cx="443.0" cy="129.5" r="2.4"/>
+<circle class="odot" cx="441.3" cy="107.1" r="2.4"/>
+<circle class="odot" cx="472.5" cy="120.8" r="2.4"/>
+<circle class="odot" cx="405.9" cy="126.2" r="2.4"/>
+<circle class="odot" cx="429.5" cy="135.1" r="2.4"/>
+<circle class="odot" cx="476.4" cy="133.0" r="2.4"/>
+<circle class="odot" cx="444.9" cy="100.0" r="2.4"/>
+<circle class="odot" cx="453.6" cy="132.3" r="2.4"/>
+<circle class="odot" cx="445.9" cy="115.6" r="2.4"/>
+<circle class="odot" cx="432.8" cy="100.7" r="2.4"/>
+<circle class="odot" cx="410.7" cy="108.6" r="2.4"/>
+<circle class="odot" cx="432.1" cy="103.1" r="2.4"/>
+<circle class="odot" cx="466.3" cy="97.8" r="2.4"/>
+<circle class="odot" cx="435.1" cy="107.7" r="2.4"/>
+<circle class="odot" cx="458.1" cy="108.2" r="2.4"/>
+<circle class="odot" cx="444.2" cy="117.8" r="2.4"/>
+<circle class="odot" cx="459.8" cy="116.3" r="2.4"/>
+<circle class="odot" cx="445.0" cy="123.2" r="2.4"/>
+<circle class="odot" cx="467.3" cy="120.7" r="2.4"/>
+<circle class="odot" cx="405.3" cy="119.3" r="2.4"/>
+<circle class="odot" cx="447.6" cy="140.2" r="2.4"/>
+<circle class="odot" cx="460.5" cy="99.2" r="2.4"/>
+<circle class="odot" cx="461.6" cy="118.4" r="2.4"/>
+<circle class="odot" cx="423.7" cy="121.2" r="2.4"/>
+<circle class="odot" cx="473.9" cy="108.5" r="2.4"/>
+<circle class="odot" cx="480.9" cy="105.8" r="2.4"/>
+<circle class="odot" cx="456.3" cy="117.5" r="2.4"/>
+<circle class="odot" cx="452.6" cy="117.1" r="2.4"/>
+<circle class="odot" cx="441.7" cy="104.5" r="2.4"/>
+<circle class="odot" cx="469.3" cy="119.1" r="2.4"/>
+<circle class="odot" cx="446.7" cy="122.4" r="2.4"/>
+<circle class="odot" cx="451.3" cy="128.3" r="2.4"/>
+<circle class="odot" cx="450.5" cy="124.6" r="2.4"/>
+<circle class="odot" cx="468.4" cy="110.4" r="2.4"/>
+<circle class="odot" cx="476.2" cy="106.7" r="2.4"/>
+<circle class="odot" cx="476.2" cy="119.3" r="2.4"/>
+<circle class="odot" cx="449.3" cy="128.9" r="2.4"/>
+<circle class="odot" cx="438.8" cy="116.9" r="2.4"/>
+<circle class="odot" cx="470.9" cy="110.0" r="2.4"/>
+<circle class="odot" cx="448.6" cy="118.9" r="2.4"/>
+<circle class="odot" cx="424.3" cy="114.5" r="2.4"/>
+<circle class="odot" cx="458.6" cy="111.3" r="2.4"/>
+<circle class="odot" cx="444.5" cy="128.7" r="2.4"/>
+<circle class="odot" cx="447.2" cy="136.2" r="2.4"/>
+<circle class="odot" cx="498.5" cy="117.2" r="2.4"/>
+<circle class="odot" cx="464.2" cy="92.3" r="2.4"/>
+<circle class="odot" cx="437.7" cy="123.8" r="2.4"/>
+<circle class="odot" cx="452.6" cy="137.9" r="2.4"/>
+<circle class="odot" cx="463.4" cy="114.0" r="2.4"/>
+<circle class="odot" cx="409.6" cy="110.2" r="2.4"/>
+<circle class="odot" cx="407.7" cy="138.1" r="2.4"/>
+<circle class="odot" cx="438.4" cy="119.0" r="2.4"/>
+<circle class="odot" cx="417.0" cy="127.2" r="2.4"/>
+<circle class="odot" cx="425.4" cy="131.2" r="2.4"/>
+<circle class="odot" cx="447.0" cy="145.3" r="2.4"/>
+<circle class="odot" cx="450.8" cy="127.6" r="2.4"/>
+<circle class="odot" cx="446.1" cy="119.9" r="2.4"/>
+<circle class="odot" cx="483.2" cy="82.0" r="2.4"/>
+<circle class="odot" cx="474.1" cy="85.6" r="2.4"/>
+<circle class="odot" cx="484.8" cy="78.5" r="2.4"/>
+<circle class="odot" cx="474.6" cy="106.0" r="2.4"/>
+<circle class="odot" cx="503.7" cy="107.9" r="2.4"/>
+<circle class="odot" cx="444.2" cy="78.3" r="2.4"/>
+<circle class="odot" cx="483.6" cy="77.9" r="2.4"/>
+<circle class="odot" cx="423.4" cy="120.0" r="2.4"/>
+<circle class="odot" cx="458.1" cy="90.1" r="2.4"/>
+<circle class="odot" cx="414.2" cy="108.7" r="2.4"/>
+<circle class="odot" cx="469.0" cy="112.2" r="2.4"/>
+<circle class="odot" cx="493.4" cy="78.0" r="2.4"/>
+<circle class="odot" cx="490.8" cy="105.0" r="2.4"/>
+<circle class="odot" cx="452.5" cy="111.9" r="2.4"/>
+<circle class="odot" cx="458.6" cy="100.0" r="2.4"/>
+<circle class="odot" cx="444.3" cy="94.4" r="2.4"/>
+<circle class="odot" cx="455.7" cy="86.4" r="2.4"/>
+<circle class="odot" cx="429.1" cy="121.3" r="2.4"/>
+<circle class="odot" cx="503.6" cy="90.2" r="2.4"/>
+<circle class="odot" cx="445.4" cy="98.1" r="2.4"/>
+<circle class="odot" cx="439.2" cy="120.5" r="2.4"/>
+<circle class="odot" cx="496.3" cy="98.5" r="2.4"/>
+<circle class="odot" cx="525.6" cy="87.2" r="2.4"/>
+<circle class="odot" cx="475.3" cy="107.7" r="2.4"/>
+<circle class="odot" cx="426.8" cy="126.8" r="2.4"/>
+<circle class="odot" cx="441.6" cy="119.0" r="2.4"/>
+<circle class="odot" cx="450.2" cy="113.0" r="2.4"/>
+<circle class="odot" cx="451.1" cy="98.5" r="2.4"/>
+<circle class="odot" cx="480.4" cy="122.1" r="2.4"/>
+<circle class="odot" cx="506.3" cy="135.2" r="2.4"/>
+<circle class="odot" cx="492.2" cy="126.0" r="2.4"/>
+<circle class="odot" cx="461.5" cy="119.8" r="2.4"/>
+<circle class="odot" cx="508.9" cy="109.4" r="2.4"/>
+<circle class="odot" cx="509.5" cy="100.5" r="2.4"/>
+<circle class="odot" cx="458.0" cy="100.1" r="2.4"/>
+<circle class="odot" cx="490.5" cy="53.3" r="2.4"/>
+<circle class="odot" cx="459.6" cy="86.0" r="2.4"/>
+<circle class="odot" cx="474.8" cy="107.9" r="2.4"/>
+<circle class="odot" cx="470.3" cy="104.8" r="2.4"/>
+<circle class="odot" cx="437.9" cy="107.4" r="2.4"/>
+<circle class="odot" cx="459.4" cy="90.9" r="2.4"/>
+<circle class="odot" cx="488.7" cy="110.1" r="2.4"/>
+<circle class="odot" cx="463.3" cy="90.5" r="2.4"/>
+<circle class="odot" cx="464.3" cy="90.8" r="2.4"/>
+<circle class="odot" cx="453.0" cy="92.5" r="2.4"/>
+<circle class="odot" cx="495.3" cy="104.4" r="2.4"/>
+<circle class="odot" cx="438.2" cy="124.6" r="2.4"/>
+<circle class="odot" cx="472.6" cy="111.8" r="2.4"/>
+<circle class="odot" cx="456.5" cy="124.1" r="2.4"/>
+<circle class="odot" cx="493.4" cy="106.6" r="2.4"/>
+<circle class="odot" cx="451.4" cy="60.0" r="2.4"/>
+<circle class="odot" cx="429.9" cy="96.2" r="2.4"/>
+<circle class="odot" cx="461.0" cy="110.4" r="2.4"/>
+<circle class="odot" cx="443.7" cy="132.9" r="2.4"/>
+<circle class="odot" cx="492.4" cy="117.4" r="2.4"/>
+<circle class="odot" cx="464.6" cy="105.9" r="2.4"/>
+<circle class="odot" cx="452.0" cy="121.5" r="2.4"/>
+<circle class="odot" cx="451.7" cy="44.2" r="2.4"/>
+<circle class="odot" cx="470.6" cy="88.3" r="2.4"/>
+<circle class="odot" cx="453.6" cy="106.2" r="2.4"/>
+<circle class="odot" cx="476.5" cy="101.7" r="2.4"/>
+<circle class="odot" cx="451.2" cy="99.1" r="2.4"/>
+<circle class="odot" cx="442.6" cy="85.9" r="2.4"/>
+<circle class="odot" cx="467.7" cy="115.8" r="2.4"/>
+<circle class="odot" cx="427.3" cy="101.9" r="2.4"/>
+<circle class="odot" cx="453.2" cy="107.6" r="2.4"/>
+<circle class="odot" cx="487.7" cy="107.5" r="2.4"/>
+<circle class="odot" cx="445.0" cy="113.6" r="2.4"/>
+<circle class="odot" cx="494.4" cy="107.0" r="2.4"/>
+<circle class="odot" cx="459.1" cy="108.2" r="2.4"/>
+<circle class="odot" cx="464.3" cy="93.0" r="2.4"/>
+<circle class="odot" cx="457.3" cy="112.7" r="2.4"/>
+<circle class="odot" cx="465.8" cy="113.8" r="2.4"/>
+<circle class="odot" cx="463.1" cy="90.3" r="2.4"/>
+<circle class="odot" cx="466.2" cy="109.0" r="2.4"/>
+<circle class="odot" cx="426.5" cy="93.7" r="2.4"/>
+<circle class="odot" cx="398.3" cy="78.4" r="2.4"/>
+<circle class="odot" cx="432.2" cy="101.6" r="2.4"/>
+<circle class="odot" cx="434.9" cy="99.1" r="2.4"/>
+<circle class="odot" cx="483.8" cy="102.8" r="2.4"/>
+<circle class="odot" cx="458.0" cy="103.8" r="2.4"/>
+<circle class="odot" cx="452.2" cy="113.1" r="2.4"/>
+<circle class="odot" cx="428.3" cy="95.7" r="2.4"/>
+<circle class="odot" cx="442.0" cy="110.2" r="2.4"/>
+<circle class="odot" cx="467.5" cy="96.6" r="2.4"/>
+<circle class="odot" cx="491.2" cy="135.5" r="2.4"/>
+<circle class="odot" cx="475.6" cy="132.2" r="2.4"/>
+<circle class="odot" cx="471.3" cy="133.6" r="2.4"/>
+<circle class="odot" cx="457.0" cy="109.5" r="2.4"/>
+<circle class="odot" cx="480.7" cy="119.2" r="2.4"/>
+<circle class="odot" cx="436.7" cy="104.1" r="2.4"/>
+<circle class="odot" cx="485.0" cy="109.2" r="2.4"/>
+<circle class="odot" cx="484.9" cy="120.8" r="2.4"/>
+<circle class="odot" cx="444.0" cy="94.2" r="2.4"/>
+<circle class="odot" cx="469.7" cy="137.3" r="2.4"/>
+<circle class="odot" cx="439.1" cy="88.5" r="2.4"/>
+<circle class="odot" cx="498.3" cy="103.7" r="2.4"/>
+<circle class="odot" cx="474.0" cy="126.0" r="2.4"/>
+<circle class="odot" cx="480.1" cy="127.3" r="2.4"/>
+<circle class="odot" cx="486.1" cy="117.3" r="2.4"/>
+<circle class="odot" cx="437.9" cy="89.2" r="2.4"/>
+<circle class="odot" cx="500.9" cy="114.6" r="2.4"/>
+<circle class="odot" cx="461.9" cy="90.6" r="2.4"/>
+<circle class="odot" cx="493.1" cy="113.1" r="2.4"/>
+<circle class="odot" cx="438.9" cy="116.4" r="2.4"/>
+<circle class="odot" cx="464.4" cy="86.6" r="2.4"/>
+<circle class="odot" cx="470.6" cy="119.3" r="2.4"/>
+<circle class="odot" cx="479.3" cy="98.5" r="2.4"/>
+<circle class="odot" cx="420.9" cy="112.3" r="2.4"/>
+<circle class="odot" cx="402.8" cy="121.6" r="2.4"/>
+<circle class="odot" cx="439.0" cy="112.6" r="2.4"/>
+<circle class="odot" cx="439.1" cy="118.1" r="2.4"/>
+<circle class="odot" cx="492.1" cy="112.8" r="2.4"/>
+<circle class="odot" cx="460.2" cy="105.2" r="2.4"/>
+<circle class="odot" cx="454.0" cy="121.5" r="2.4"/>
+<circle class="odot" cx="471.2" cy="125.8" r="2.4"/>
+<circle class="odot" cx="426.9" cy="111.3" r="2.4"/>
+<circle class="odot" cx="431.1" cy="89.7" r="2.4"/>
+<circle class="odot" cx="448.5" cy="109.8" r="2.4"/>
+<circle class="odot" cx="425.8" cy="102.0" r="2.4"/>
+<circle class="odot" cx="476.3" cy="127.5" r="2.4"/>
+<circle class="odot" cx="461.5" cy="119.0" r="2.4"/>
+<circle class="odot" cx="471.1" cy="111.3" r="2.4"/>
+<circle class="odot" cx="443.4" cy="136.0" r="2.4"/>
+<circle class="odot" cx="446.9" cy="123.5" r="2.4"/>
+<circle class="odot" cx="474.0" cy="100.1" r="2.4"/>
+<circle class="odot" cx="499.9" cy="95.5" r="2.4"/>
+<circle class="odot" cx="492.1" cy="83.0" r="2.4"/>
+<circle class="odot" cx="459.2" cy="101.0" r="2.4"/>
+<circle class="odot" cx="432.6" cy="98.0" r="2.4"/>
+<circle class="odot" cx="441.5" cy="97.3" r="2.4"/>
+<circle class="odot" cx="442.9" cy="87.6" r="2.4"/>
+<circle class="odot" cx="446.4" cy="91.9" r="2.4"/>
+<circle class="odot" cx="442.1" cy="79.3" r="2.4"/>
+<circle class="odot" cx="435.2" cy="96.8" r="2.4"/>
+<circle class="odot" cx="470.9" cy="110.6" r="2.4"/>
+<circle class="odot" cx="435.7" cy="89.3" r="2.4"/>
+<circle class="odot" cx="456.8" cy="99.7" r="2.4"/>
+<circle class="odot" cx="440.9" cy="91.1" r="2.4"/>
+<circle class="odot" cx="427.6" cy="94.7" r="2.4"/>
+<circle class="odot" cx="454.6" cy="73.5" r="2.4"/>
+<circle class="odot" cx="491.0" cy="100.5" r="2.4"/>
+<circle class="odot" cx="471.3" cy="98.2" r="2.4"/>
+<circle class="odot" cx="463.7" cy="88.1" r="2.4"/>
+<circle class="odot" cx="433.4" cy="99.8" r="2.4"/>
+<circle class="odot" cx="466.8" cy="93.0" r="2.4"/>
+<circle class="odot" cx="473.4" cy="99.0" r="2.4"/>
+<circle class="odot" cx="436.0" cy="103.4" r="2.4"/>
+<circle class="odot" cx="446.1" cy="112.9" r="2.4"/>
+<circle class="odot" cx="434.8" cy="96.1" r="2.4"/>
+<circle class="odot" cx="467.1" cy="95.4" r="2.4"/>
+<circle class="odot" cx="468.6" cy="104.7" r="2.4"/>
+<circle class="odot" cx="449.8" cy="103.3" r="2.4"/>
+<circle class="odot" cx="437.4" cy="101.7" r="2.4"/>
+<circle class="odot" cx="488.3" cy="117.5" r="2.4"/>
+<circle class="odot" cx="465.9" cy="98.4" r="2.4"/>
+<circle class="odot" cx="450.5" cy="105.6" r="2.4"/>
+<circle class="odot" cx="471.1" cy="92.7" r="2.4"/>
+<circle class="odot" cx="489.3" cy="69.0" r="2.4"/>
+<circle class="odot" cx="443.7" cy="112.7" r="2.4"/>
+<circle class="odot" cx="490.8" cy="93.3" r="2.4"/>
+<circle class="odot" cx="427.8" cy="99.3" r="2.4"/>
+<circle class="odot" cx="463.9" cy="105.3" r="2.4"/>
+<circle class="odot" cx="481.4" cy="105.7" r="2.4"/>
+<circle class="odot" cx="452.5" cy="102.5" r="2.4"/>
+<circle class="odot" cx="461.9" cy="94.4" r="2.4"/>
+<circle class="odot" cx="465.1" cy="99.4" r="2.4"/>
+<circle class="odot" cx="458.8" cy="111.1" r="2.4"/>
+<circle class="odot" cx="465.8" cy="104.8" r="2.4"/>
+<circle class="odot" cx="474.1" cy="106.3" r="2.4"/>
+<circle class="odot" cx="466.8" cy="105.6" r="2.4"/>
+<circle class="odot" cx="470.9" cy="114.9" r="2.4"/>
+<circle class="odot" cx="462.0" cy="101.9" r="2.4"/>
+<circle class="odot" cx="450.8" cy="112.8" r="2.4"/>
+<circle class="odot" cx="476.1" cy="102.2" r="2.4"/>
+<circle class="odot" cx="471.1" cy="113.4" r="2.4"/>
+<circle class="odot" cx="483.0" cy="116.4" r="2.4"/>
+<circle class="odot" cx="476.1" cy="101.3" r="2.4"/>
+<circle class="odot" cx="445.1" cy="108.2" r="2.4"/>
+<circle class="odot" cx="475.6" cy="112.1" r="2.4"/>
+<circle class="odot" cx="485.3" cy="113.5" r="2.4"/>
+<circle class="odot" cx="455.9" cy="115.5" r="2.4"/>
+<circle class="odot" cx="355.3" cy="105.8" r="2.4"/>
+<circle class="odot" cx="362.7" cy="116.1" r="2.4"/>
+<circle class="odot" cx="374.1" cy="122.8" r="2.4"/>
+<circle class="odot" cx="367.4" cy="103.4" r="2.4"/>
+<circle class="odot" cx="400.4" cy="104.1" r="2.4"/>
+<circle class="odot" cx="371.1" cy="84.5" r="2.4"/>
+<circle class="odot" cx="366.5" cy="105.3" r="2.4"/>
+<circle class="odot" cx="330.3" cy="74.7" r="2.4"/>
+<circle class="odot" cx="380.8" cy="110.4" r="2.4"/>
+<circle class="odot" cx="368.8" cy="110.0" r="2.4"/>
+<circle class="odot" cx="383.9" cy="114.6" r="2.4"/>
+<circle class="odot" cx="361.6" cy="116.2" r="2.4"/>
+<circle class="odot" cx="381.6" cy="124.8" r="2.4"/>
+<circle class="odot" cx="390.6" cy="118.5" r="2.4"/>
+<circle class="odot" cx="381.3" cy="112.0" r="2.4"/>
+<circle class="odot" cx="344.2" cy="101.2" r="2.4"/>
+<circle class="odot" cx="414.1" cy="97.7" r="2.4"/>
+<circle class="odot" cx="353.5" cy="109.1" r="2.4"/>
+<circle class="odot" cx="390.2" cy="113.8" r="2.4"/>
+<circle class="odot" cx="374.0" cy="94.4" r="2.4"/>
+<circle class="odot" cx="376.3" cy="104.2" r="2.4"/>
+<circle class="odot" cx="387.9" cy="95.5" r="2.4"/>
+<circle class="odot" cx="364.8" cy="105.0" r="2.4"/>
+<circle class="odot" cx="371.2" cy="104.0" r="2.4"/>
+<circle class="odot" cx="387.6" cy="114.2" r="2.4"/>
+<circle class="odot" cx="407.3" cy="118.5" r="2.4"/>
+<circle class="odot" cx="402.9" cy="113.9" r="2.4"/>
+<circle class="odot" cx="368.5" cy="109.2" r="2.4"/>
+<circle class="odot" cx="377.8" cy="106.0" r="2.4"/>
+<circle class="odot" cx="362.5" cy="90.9" r="2.4"/>
+<circle class="odot" cx="403.8" cy="89.0" r="2.4"/>
+<circle class="odot" cx="391.9" cy="129.0" r="2.4"/>
+<circle class="odot" cx="361.6" cy="84.9" r="2.4"/>
+<circle class="odot" cx="394.9" cy="102.2" r="2.4"/>
+<circle class="odot" cx="411.2" cy="118.1" r="2.4"/>
+<circle class="odot" cx="355.7" cy="103.7" r="2.4"/>
+<circle class="odot" cx="361.8" cy="107.1" r="2.4"/>
+<circle class="odot" cx="387.2" cy="108.8" r="2.4"/>
+<circle class="odot" cx="386.1" cy="112.3" r="2.4"/>
+<circle class="odot" cx="393.8" cy="106.2" r="2.4"/>
+<circle class="odot" cx="422.8" cy="108.9" r="2.4"/>
+<circle class="odot" cx="375.0" cy="104.6" r="2.4"/>
+<circle class="odot" cx="388.7" cy="110.7" r="2.4"/>
+<circle class="odot" cx="376.2" cy="105.7" r="2.4"/>
+<circle class="odot" cx="356.2" cy="95.0" r="2.4"/>
+<circle class="odot" cx="368.8" cy="105.0" r="2.4"/>
+<circle class="odot" cx="375.7" cy="100.2" r="2.4"/>
+<circle class="odot" cx="417.2" cy="102.3" r="2.4"/>
+<circle class="odot" cx="388.5" cy="129.3" r="2.4"/>
+<circle class="odot" cx="406.9" cy="97.0" r="2.4"/>
+<circle class="odot" cx="342.8" cy="100.6" r="2.4"/>
+<circle class="odot" cx="391.8" cy="111.6" r="2.4"/>
+<circle class="odot" cx="390.9" cy="111.9" r="2.4"/>
+<circle class="odot" cx="357.7" cy="111.9" r="2.4"/>
+<circle class="odot" cx="387.5" cy="96.9" r="2.4"/>
+<circle class="odot" cx="384.3" cy="100.3" r="2.4"/>
+<circle class="odot" cx="396.7" cy="109.4" r="2.4"/>
+<circle class="odot" cx="388.0" cy="108.1" r="2.4"/>
+<circle class="odot" cx="400.0" cy="107.6" r="2.4"/>
+<circle class="odot" cx="366.7" cy="110.6" r="2.4"/>
+<circle class="odot" cx="388.7" cy="115.1" r="2.4"/>
+<circle class="odot" cx="402.2" cy="104.6" r="2.4"/>
+<circle class="odot" cx="376.4" cy="114.4" r="2.4"/>
+<circle class="odot" cx="399.9" cy="106.1" r="2.4"/>
+<circle class="odot" cx="381.2" cy="123.6" r="2.4"/>
+<circle class="odot" cx="391.0" cy="103.7" r="2.4"/>
+<circle class="odot" cx="395.6" cy="100.9" r="2.4"/>
+<circle class="odot" cx="368.4" cy="92.9" r="2.4"/>
+<circle class="odot" cx="392.1" cy="123.1" r="2.4"/>
+<circle class="odot" cx="392.4" cy="115.4" r="2.4"/>
+<circle class="odot" cx="360.0" cy="100.3" r="2.4"/>
+<circle class="odot" cx="370.6" cy="116.2" r="2.4"/>
+<circle class="odot" cx="397.6" cy="105.4" r="2.4"/>
+<circle class="odot" cx="362.8" cy="109.4" r="2.4"/>
+<circle class="odot" cx="378.5" cy="128.7" r="2.4"/>
+<circle class="odot" cx="371.2" cy="124.6" r="2.4"/>
+<circle class="odot" cx="375.0" cy="110.7" r="2.4"/>
+<circle class="odot" cx="388.0" cy="116.9" r="2.4"/>
+<circle class="odot" cx="383.0" cy="127.3" r="2.4"/>
+<circle class="odot" cx="356.5" cy="95.9" r="2.4"/>
+<circle class="odot" cx="377.3" cy="124.4" r="2.4"/>
+<circle class="odot" cx="375.9" cy="94.8" r="2.4"/>
+<circle class="odot" cx="388.6" cy="107.5" r="2.4"/>
+<circle class="odot" cx="366.6" cy="103.4" r="2.4"/>
+<circle class="odot" cx="390.6" cy="111.3" r="2.4"/>
+<circle class="odot" cx="371.1" cy="105.2" r="2.4"/>
+<circle class="odot" cx="372.2" cy="102.1" r="2.4"/>
+<circle class="odot" cx="360.7" cy="106.2" r="2.4"/>
+<circle class="odot" cx="407.0" cy="112.0" r="2.4"/>
+<circle class="odot" cx="394.1" cy="120.8" r="2.4"/>
+<circle class="odot" cx="379.3" cy="116.2" r="2.4"/>
+<circle class="odot" cx="371.0" cy="99.7" r="2.4"/>
+<circle class="odot" cx="386.0" cy="109.4" r="2.4"/>
+<circle class="odot" cx="353.5" cy="99.2" r="2.4"/>
+<circle class="odot" cx="396.3" cy="130.2" r="2.4"/>
+<circle class="odot" cx="368.0" cy="104.8" r="2.4"/>
+<circle class="odot" cx="391.9" cy="106.7" r="2.4"/>
+<circle class="odot" cx="386.0" cy="121.4" r="2.4"/>
+<circle class="odot" cx="384.9" cy="112.0" r="2.4"/>
+<circle class="odot" cx="388.0" cy="113.8" r="2.4"/>
+<circle class="odot" cx="377.7" cy="97.8" r="2.4"/>
+<circle class="odot" cx="348.0" cy="103.0" r="2.4"/>
+<circle class="odot" cx="354.9" cy="108.7" r="2.4"/>
+<circle class="odot" cx="393.4" cy="109.8" r="2.4"/>
+<circle class="odot" cx="373.9" cy="109.1" r="2.4"/>
+<circle class="odot" cx="402.5" cy="110.5" r="2.4"/>
+<circle class="odot" cx="372.7" cy="92.0" r="2.4"/>
+<circle class="odot" cx="384.3" cy="109.2" r="2.4"/>
+<circle class="odot" cx="407.0" cy="118.0" r="2.4"/>
+<circle class="odot" cx="375.6" cy="109.6" r="2.4"/>
+<circle class="odot" cx="374.9" cy="120.8" r="2.4"/>
+<circle class="odot" cx="382.4" cy="101.2" r="2.4"/>
+<circle class="odot" cx="371.9" cy="99.0" r="2.4"/>
+<circle class="odot" cx="389.4" cy="106.2" r="2.4"/>
+<circle class="odot" cx="369.8" cy="98.9" r="2.4"/>
+<circle class="odot" cx="392.8" cy="106.1" r="2.4"/>
+<circle class="odot" cx="389.7" cy="116.2" r="2.4"/>
+<circle class="odot" cx="378.0" cy="121.3" r="2.4"/>
+<circle class="odot" cx="376.8" cy="116.0" r="2.4"/>
+<circle class="odot" cx="386.1" cy="112.1" r="2.4"/>
+<circle class="odot" cx="371.0" cy="115.6" r="2.4"/>
+<circle class="odot" cx="378.7" cy="104.2" r="2.4"/>
+<circle class="odot" cx="395.3" cy="112.8" r="2.4"/>
+<circle class="odot" cx="373.4" cy="102.6" r="2.4"/>
+<circle class="odot" cx="377.5" cy="108.8" r="2.4"/>
+<circle class="odot" cx="384.1" cy="101.5" r="2.4"/>
+<circle class="odot" cx="400.8" cy="125.2" r="2.4"/>
+<circle class="odot" cx="387.8" cy="93.3" r="2.4"/>
+<circle class="odot" cx="387.0" cy="103.7" r="2.4"/>
+<circle class="odot" cx="433.8" cy="100.1" r="2.4"/>
+<circle class="odot" cx="401.3" cy="98.6" r="2.4"/>
+<circle class="odot" cx="403.1" cy="115.9" r="2.4"/>
+<circle class="odot" cx="435.0" cy="117.5" r="2.4"/>
+<circle class="odot" cx="392.3" cy="115.3" r="2.4"/>
+<circle class="odot" cx="405.7" cy="104.8" r="2.4"/>
+<circle class="odot" cx="385.0" cy="134.9" r="2.4"/>
+<circle class="odot" cx="361.8" cy="110.0" r="2.4"/>
+<circle class="odot" cx="405.8" cy="126.0" r="2.4"/>
+<circle class="odot" cx="385.6" cy="125.2" r="2.4"/>
+<circle class="odot" cx="383.3" cy="121.1" r="2.4"/>
+<circle class="odot" cx="358.7" cy="120.8" r="2.4"/>
+<circle class="odot" cx="383.3" cy="106.6" r="2.4"/>
+<circle class="odot" cx="394.6" cy="94.2" r="2.4"/>
+<circle class="odot" cx="420.2" cy="111.5" r="2.4"/>
+<circle class="odot" cx="388.7" cy="112.4" r="2.4"/>
+<circle class="odot" cx="378.3" cy="115.9" r="2.4"/>
+<circle class="odot" cx="363.0" cy="102.8" r="2.4"/>
+<circle class="odot" cx="389.5" cy="94.4" r="2.4"/>
+<circle class="odot" cx="392.0" cy="108.1" r="2.4"/>
+<circle class="odot" cx="381.6" cy="119.6" r="2.4"/>
+<circle class="odot" cx="398.6" cy="103.9" r="2.4"/>
+<circle class="odot" cx="361.7" cy="120.4" r="2.4"/>
+<circle class="odot" cx="370.5" cy="114.0" r="2.4"/>
+<circle class="odot" cx="381.0" cy="103.9" r="2.4"/>
+<circle class="odot" cx="389.3" cy="107.4" r="2.4"/>
+<circle class="odot" cx="372.5" cy="116.9" r="2.4"/>
+<circle class="odot" cx="391.5" cy="100.2" r="2.4"/>
+<circle class="odot" cx="389.9" cy="114.4" r="2.4"/>
+<circle class="odot" cx="396.6" cy="106.0" r="2.4"/>
+<circle class="odot" cx="375.0" cy="124.0" r="2.4"/>
+<circle class="odot" cx="387.4" cy="106.3" r="2.4"/>
+<circle class="odot" cx="399.9" cy="105.0" r="2.4"/>
+<circle class="odot" cx="376.0" cy="103.9" r="2.4"/>
+<circle class="odot" cx="397.8" cy="120.6" r="2.4"/>
+<circle class="odot" cx="372.1" cy="99.4" r="2.4"/>
+<circle class="odot" cx="403.3" cy="111.1" r="2.4"/>
+<circle class="odot" cx="397.0" cy="73.5" r="2.4"/>
+<circle class="odot" cx="403.1" cy="96.7" r="2.4"/>
+<circle class="odot" cx="390.3" cy="111.3" r="2.4"/>
+<circle class="odot" cx="381.1" cy="115.4" r="2.4"/>
+<circle class="odot" cx="390.6" cy="128.9" r="2.4"/>
+<circle class="odot" cx="410.2" cy="127.4" r="2.4"/>
+<circle class="odot" cx="380.6" cy="107.7" r="2.4"/>
+<circle class="odot" cx="383.0" cy="125.2" r="2.4"/>
+<circle class="odot" cx="387.0" cy="113.7" r="2.4"/>
+<circle class="odot" cx="406.0" cy="119.5" r="2.4"/>
+<circle class="odot" cx="373.8" cy="122.9" r="2.4"/>
+<circle class="odot" cx="403.1" cy="131.8" r="2.4"/>
+<circle class="odot" cx="426.0" cy="102.1" r="2.4"/>
+<circle class="odot" cx="406.4" cy="93.6" r="2.4"/>
+<circle class="odot" cx="406.4" cy="98.0" r="2.4"/>
+<circle class="odot" cx="386.1" cy="111.2" r="2.4"/>
+<circle class="odot" cx="406.9" cy="113.7" r="2.4"/>
+<circle class="odot" cx="419.0" cy="121.2" r="2.4"/>
+<circle class="odot" cx="391.0" cy="101.9" r="2.4"/>
+<circle class="odot" cx="426.1" cy="109.5" r="2.4"/>
+<circle class="odot" cx="402.4" cy="98.7" r="2.4"/>
+<circle class="odot" cx="418.6" cy="86.2" r="2.4"/>
+<circle class="odot" cx="383.8" cy="104.0" r="2.4"/>
+<circle class="odot" cx="388.0" cy="83.7" r="2.4"/>
+<circle class="odot" cx="408.5" cy="104.8" r="2.4"/>
+<circle class="odot" cx="410.9" cy="102.6" r="2.4"/>
+<circle class="odot" cx="408.9" cy="107.5" r="2.4"/>
+<circle class="odot" cx="398.2" cy="98.7" r="2.4"/>
+<circle class="odot" cx="430.7" cy="116.9" r="2.4"/>
+<circle class="odot" cx="414.8" cy="101.5" r="2.4"/>
+<circle class="odot" cx="402.7" cy="125.1" r="2.4"/>
+<circle class="odot" cx="401.0" cy="86.1" r="2.4"/>
+<circle class="odot" cx="418.0" cy="108.2" r="2.4"/>
+<circle class="odot" cx="366.2" cy="108.4" r="2.4"/>
+<circle class="odot" cx="390.5" cy="95.0" r="2.4"/>
+<circle class="odot" cx="428.1" cy="113.7" r="2.4"/>
+<circle class="odot" cx="373.1" cy="96.2" r="2.4"/>
+<circle class="odot" cx="409.7" cy="108.4" r="2.4"/>
+<circle class="odot" cx="399.2" cy="110.3" r="2.4"/>
+<circle class="odot" cx="398.5" cy="109.1" r="2.4"/>
+<circle class="odot" cx="396.9" cy="112.8" r="2.4"/>
+<circle class="odot" cx="400.6" cy="105.4" r="2.4"/>
+<circle class="odot" cx="423.1" cy="112.9" r="2.4"/>
+<circle class="odot" cx="399.7" cy="110.3" r="2.4"/>
+<circle class="odot" cx="403.6" cy="89.4" r="2.4"/>
+<circle class="odot" cx="427.3" cy="94.0" r="2.4"/>
+<circle class="odot" cx="401.8" cy="118.1" r="2.4"/>
+<circle class="odot" cx="391.9" cy="112.9" r="2.4"/>
+<circle class="odot" cx="415.5" cy="104.0" r="2.4"/>
+<circle class="odot" cx="393.2" cy="112.2" r="2.4"/>
+<circle class="odot" cx="395.1" cy="106.6" r="2.4"/>
+<circle class="odot" cx="465.4" cy="107.9" r="2.4"/>
+<circle class="odot" cx="439.9" cy="111.7" r="2.4"/>
+<circle class="odot" cx="425.0" cy="103.0" r="2.4"/>
+<circle class="odot" cx="464.4" cy="102.3" r="2.4"/>
+<circle class="odot" cx="454.8" cy="130.7" r="2.4"/>
+<circle class="odot" cx="466.7" cy="116.2" r="2.4"/>
+<circle class="odot" cx="423.4" cy="106.4" r="2.4"/>
+<circle class="odot" cx="424.5" cy="105.1" r="2.4"/>
+<circle class="odot" cx="451.1" cy="109.2" r="2.4"/>
+<circle class="odot" cx="436.9" cy="95.9" r="2.4"/>
+<circle class="odot" cx="447.2" cy="111.7" r="2.4"/>
+<circle class="odot" cx="478.6" cy="106.4" r="2.4"/>
+<circle class="odot" cx="442.3" cy="94.2" r="2.4"/>
+<circle class="odot" cx="445.5" cy="106.2" r="2.4"/>
+<circle class="odot" cx="436.3" cy="104.1" r="2.4"/>
+<circle class="odot" cx="396.4" cy="109.9" r="2.4"/>
+<circle class="odot" cx="424.1" cy="106.1" r="2.4"/>
+<circle class="odot" cx="429.7" cy="98.2" r="2.4"/>
+<circle class="odot" cx="494.0" cy="103.3" r="2.4"/>
+<circle class="odot" cx="444.7" cy="118.3" r="2.4"/>
+<circle class="odot" cx="429.3" cy="102.1" r="2.4"/>
+<circle class="odot" cx="443.8" cy="101.2" r="2.4"/>
+<circle class="odot" cx="448.0" cy="110.0" r="2.4"/>
+<circle class="odot" cx="427.7" cy="105.5" r="2.4"/>
+<circle class="odot" cx="417.1" cy="131.1" r="2.4"/>
+<circle class="odot" cx="408.7" cy="112.1" r="2.4"/>
+<circle class="odot" cx="425.2" cy="116.8" r="2.4"/>
+<circle class="odot" cx="422.4" cy="122.9" r="2.4"/>
+<circle class="odot" cx="417.6" cy="124.8" r="2.4"/>
+<circle class="odot" cx="445.6" cy="105.9" r="2.4"/>
+<circle class="odot" cx="449.3" cy="102.4" r="2.4"/>
+<circle class="odot" cx="443.8" cy="116.1" r="2.4"/>
+<circle class="odot" cx="464.3" cy="125.7" r="2.4"/>
+<circle class="odot" cx="471.3" cy="71.8" r="2.4"/>
+<circle class="odot" cx="461.6" cy="114.5" r="2.4"/>
+<circle class="odot" cx="432.8" cy="100.8" r="2.4"/>
+<circle class="odot" cx="463.4" cy="92.9" r="2.4"/>
+<circle class="odot" cx="424.1" cy="118.8" r="2.4"/>
+<circle class="odot" cx="458.5" cy="103.2" r="2.4"/>
+<circle class="odot" cx="457.3" cy="114.8" r="2.4"/>
+<circle class="odot" cx="382.8" cy="102.2" r="2.4"/>
+<circle class="odot" cx="384.4" cy="97.8" r="2.4"/>
+<circle class="odot" cx="383.6" cy="129.5" r="2.4"/>
+<circle class="odot" cx="419.2" cy="91.0" r="2.4"/>
+<circle class="odot" cx="380.1" cy="105.2" r="2.4"/>
+<circle class="odot" cx="413.6" cy="103.6" r="2.4"/>
+<circle class="odot" cx="413.4" cy="113.7" r="2.4"/>
+<circle class="odot" cx="400.1" cy="106.2" r="2.4"/>
+<circle class="odot" cx="417.8" cy="113.0" r="2.4"/>
+<circle class="odot" cx="413.9" cy="100.6" r="2.4"/>
+<circle class="odot" cx="385.7" cy="84.4" r="2.4"/>
+<circle class="odot" cx="360.2" cy="130.3" r="2.4"/>
+<circle class="odot" cx="407.7" cy="114.5" r="2.4"/>
+<circle class="odot" cx="378.6" cy="102.8" r="2.4"/>
+<circle class="odot" cx="372.2" cy="121.0" r="2.4"/>
+<circle class="odot" cx="388.8" cy="105.1" r="2.4"/>
+<circle class="odot" cx="370.1" cy="103.3" r="2.4"/>
+<circle class="odot" cx="409.3" cy="114.8" r="2.4"/>
+<circle class="odot" cx="408.4" cy="111.0" r="2.4"/>
+<circle class="odot" cx="403.1" cy="107.7" r="2.4"/>
+<circle class="odot" cx="400.9" cy="117.1" r="2.4"/>
+<circle class="ocent" cx="382.0" cy="272.0" r="5"/>
+<text class="olab" x="382.0" y="294" text-anchor="middle">eval centroid</text>
+<text class="oaxlab" x="690" y="294" text-anchor="end">projection on the probe direction w &#8594;</text>
+<text class="oaxlab rot" transform="translate(22,149) rotate(-90)" text-anchor="middle">everything orthogonal to w</text>
+</svg></div>
+        <p class="cap">Horizontal: projection on the unit direction <code>w</code>, averaged over
+        the run&#8217;s 10 ensemble members (pairwise cosine
+        0.87). Vertical: the magnitude of the
+        residual. The cloud is tall and narrow because the mean absolute projection on
+        <code>w</code> is 0.78 for red-team rows against
+        0.59 for eval rows &#8212; essentially the same
+        &#8212; while the total displacement is many times larger.</p>
+        <p>Novelty orthogonal to <code>w</code> <strong>cannot move an eval score directly</strong>.
+        It has no component along the axis the probe reads. It can only act by rotating
+        <code>w</code> at the next refit &#8212; which is exactly why the removal conditions in Q3
+        are so unruly: they change where the boundary ends up, not where the eval rows fall
+        relative to the current one.</p>
+        <p>Two smaller results sit underneath. The surface score is a <em>weak</em> proxy for this
+        novelty &#8212; Spearman +0.34 and
+        +0.29 against kNN distance &#8212; so text-level and
+        representation-level oddness are genuinely different orderings. Yet the surface-flagged
+        top 30% is still linearly separable from the rest in activation
+        space at <strong>0.8898</strong> and
+        <strong>0.9123</strong>. The lexical flag
+        names something the representation encodes; it just is not the thing that decides the
+        score.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="border-bottom:none">
+  <div class="qhead">
+    <div class="qnum">&#8212;</div>
+    <div>
+      <h2>Everything, side by side</h2>
+      <div class="qbody"><div class="panel"><table class="key"><thead><tr><th>measure</th><th>arm 1 &middot; gpt-oss-120b</th><th>arm 2 &middot; deepseek-v4-pro</th></tr></thead><tbody><tr><td>separable from eval on text alone</td><td class="n">0.9983</td><td class="n">0.9981</td></tr><tr><td>separable from eval in activation space</td><td class="n">0.9999</td><td class="n">1.0000</td></tr><tr><td>past eval&#8217;s own p95 self-kNN radius</td><td class="n">35.5%</td><td class="n">52.2%</td></tr><tr><td>rows containing a refusal &nbsp;<span class='ref'>eval 13.3%</span></td><td class="n">1.0%</td><td class="n">2.6%</td></tr><tr><td>labelled opposite to the eval convention</td><td class="n">0</td><td class="n">7</td></tr><tr><td>pairs contrasting on the assistant turn</td><td class="n">294/294</td><td class="n">457/459</td></tr><tr><td>displacement orthogonal to w</td><td class="n">99.9%</td><td class="n">99.9%</td></tr><tr><td>eval AUROC, all red-team data</td><td class="n">0.9164</td><td class="n">0.8314</td></tr><tr><td>eval AUROC, no red-team data</td><td class="n">0.8523</td><td class="n">0.8523</td></tr></tbody></table></div></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Fits are the ceiling study&#8217;s, reused unchanged &#8212; one
+  <code>linear_then_softmax</code> head at seed 42, early-stopped on its reserved 25% dev
+  validation slice &#8212; so the all-data condition reproduces that study&#8217;s N=0 point to
+  four decimals and every condition reads against its curves. These are single probes and are
+  not directly comparable to the run&#8217;s published comparison CSVs, which are 10-member
+  ensembles.</p>
+  <p>No LLM is loaded and no activation is recomputed at any point. Every number on this page is
+  read out of <code>analysis/offdist/results/</code> by <code>build_artifact.py</code>.</p>
+</footer>
+</div>
