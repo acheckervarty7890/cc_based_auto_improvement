@@ -1,0 +1,537 @@
+#!/usr/bin/env python
+"""Train probes on the GENERAL dataset and score them on each concept's eval set.
+
+The question: a probe carries a concept's label strings, but its training data here is
+``data/general_llama70b_150_2.jsonl`` — general-vs-specialized conversations that have
+nothing to do with harm, stakes or instruction-following. So every probe below is
+trained on a distinction the eval set does not measure. Four training variants, two of
+which are pure noise controls:
+
+  i_general_random     50 rows drawn from the `general` half, concept labels assigned at
+                       random (balanced 25 positive / 25 negative). All 50 conversations
+                       are the same kind of thing, so the label carries no signal at all.
+  ii_notgeneral_random same, from the `not_general` half.
+  iii_general_pos      all 150 rows; general -> concept POSITIVE, not_general -> NEGATIVE.
+  iii_general_neg      all 150 rows; the same data with the mapping inverted.
+
+crossed with two probe configurations (a single probe; a 10-member score-averaging
+ensemble fit SEQUENTIALLY, i.e. PROBE_FUSED_ENSEMBLE=0) and two validation sources (the
+concept's held-out dev set; a 0.2 slice of the training data itself) — 16 probes per
+concept, each scored on that concept's own eval splits.
+
+WHY THIS SCRIPT RATHER THAN THE CLI: every fit here needs activations for the same 150
+conversations, and ``train_initial_probe`` keys its base-activation cache on the data
+file plus ``test_size``, so the eight (variant x validation) combinations would each
+extract their own copy — eight gemma-3-27b loads and ~800 forwards for 150 distinct
+rows. So the `prepare` phase extracts those 150 ONCE into a master blob and then writes
+each combination's train/val cache blob by slicing it, addressing rows by conversation
+content rather than by position so a reordering in the loader cannot mis-align them.
+The dev-set blobs are assembled the same way, out of the per-split Kaggle downloads
+under ``activations/dev/<concept>/``. After `prepare`, the fits load no model at all.
+
+Phases (``--phase``): prepare | train | eval | all. Each is idempotent — an existing
+blob, probe or eval row is left alone unless ``--force``.
+
+    .venv_claude/bin/python scripts/generalization_tests.py --concept hu_ha
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pickle
+import random
+import sys
+import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
+# Sequential ensemble fits: one ProbeFactory.build per seed, the path this repo took
+# before fusion existed. Set before tuberlens is imported so global_settings picks it
+# up; also set on the settings object in main(), since that is what is actually read.
+os.environ.setdefault("PROBE_FUSED_ENSEMBLE", "0")
+
+# Pin accelerate's per-device budget for any extraction this script triggers. Unpinned,
+# accelerate derives the "cpu" budget from whatever RAM is free at load time and will
+# fall back to DISK offload on a tight box — which costs 48-264 s/sample against ~2.4
+# here. Normally nothing below loads a model at all (the master blob is extracted once
+# and every later phase slices it), so this only bites on a first run or a --force.
+# 24 GiB card, 108 GiB host: leave ~3 GiB of card for the activations being gathered.
+os.environ.setdefault("AGENTIC_REDTEAM_MAX_MEMORY", "0=21GiB,cpu=60GiB")
+
+
+def _load_hf_token() -> None:
+    """tuberlens' hf_login() reads HF_TOKEN from the environment and raises without it."""
+    if os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN"):
+        return
+    tf = REPO_ROOT / "hf_token.txt"
+    if not tf.is_file():
+        return
+    for line in tf.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("hf_"):
+            os.environ["HF_TOKEN"] = line
+        elif "=" in line:
+            k, v = line.split("=", 1)
+            if k.strip().upper() in ("HF_TOKEN", "HUGGINGFACE_TOKEN"):
+                os.environ["HF_TOKEN"] = v.strip().strip("'\"")
+
+
+_load_hf_token()
+
+GENERAL_DATA = REPO_ROOT / "data" / "general_llama70b_150_2.jsonl"
+MODEL_NAME = "google/gemma-3-27b-it"
+LAYER = 32
+# Both transforms are no-ops on this data (two-turn user/assistant, no tool turns), but
+# they are folded into every activation cache key, so they must match the value the
+# concept configs use — see configs/gemma27_config_hu_harm.md.
+COMBINE = True
+CONVERT = True
+SEED = 42
+TEST_SIZE = 0.2
+DEFAULT_ARCH = "linear_then_softmax"
+
+RESULTS = REPO_ROOT / "results_generalization"
+CACHE_DIR = RESULTS / "base_activation_cache"
+MASTER_ACTS = RESULTS / "general_master_acts.pt"
+
+CONCEPTS = {
+    "hu_ha": ("harmful_to_human", "not_harmful_to_human"),
+    "highstakes": ("high-stakes", "low-stakes"),
+    "instructions": (
+        "assistant_follows_the_instruction",
+        "assistant_does_not_follow_the_instruction",
+    ),
+}
+
+VARIANTS = ["i_general_random", "ii_notgeneral_random", "iii_general_pos", "iii_general_neg"]
+CONFIGS = {"single": 1, "seq_ens10": 10}
+VAL_MODES = ["dev", "split"]
+
+
+# --------------------------------------------------------------------------------------
+# variant construction
+# --------------------------------------------------------------------------------------
+def _general_rows() -> list[dict]:
+    return [json.loads(l) for l in GENERAL_DATA.open() if l.strip()]
+
+
+def variant_rows(variant: str, pos: str, neg: str) -> list[dict]:
+    """Rows for one variant, as {inputs, labels} dicts carrying the CONCEPT's labels.
+
+    The row selection and the random label assignment are drawn from a Random(SEED)
+    seeded per variant, NOT per concept — so all three concepts train on exactly the
+    same conversations with the same positive/negative pattern, and any difference
+    between concepts comes from the eval set rather than from the draw.
+    """
+    rows = _general_rows()
+    gen = [i for i, r in enumerate(rows) if r["labels"] == "general"]
+    notgen = [i for i, r in enumerate(rows) if r["labels"] == "not_general"]
+
+    if variant in ("i_general_random", "ii_notgeneral_random"):
+        pool = gen if variant == "i_general_random" else notgen
+        rng = random.Random(f"{SEED}:{variant}")
+        chosen = sorted(rng.sample(pool, 50))
+        # Balanced random assignment: 25 of each label, shuffled over the 50 rows. The
+        # conversations are all one kind, so the label is noise either way; keeping the
+        # count balanced stops the class prior from becoming a second moving part.
+        labels = [pos] * 25 + [neg] * 25
+        rng.shuffle(labels)
+        return [{"inputs": rows[i]["inputs"], "labels": lab}
+                for i, lab in zip(chosen, labels)]
+
+    if variant == "iii_general_pos":
+        mapping = {"general": pos, "not_general": neg}
+    elif variant == "iii_general_neg":
+        mapping = {"general": neg, "not_general": pos}
+    else:
+        raise ValueError(f"unknown variant {variant}")
+    return [{"inputs": r["inputs"], "labels": mapping[r["labels"]]} for r in rows]
+
+
+def variant_path(concept: str, variant: str) -> Path:
+    return RESULTS / concept / "data" / f"{variant}.jsonl"
+
+
+def write_variants(concept: str) -> None:
+    pos, neg = CONCEPTS[concept]
+    for variant in VARIANTS:
+        p = variant_path(concept, variant)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        rows = variant_rows(variant, pos, neg)
+        with p.open("w") as fh:
+            for r in rows:
+                fh.write(json.dumps(r) + "\n")
+        n_pos = sum(1 for r in rows if r["labels"] == pos)
+        print(f"  {variant:<22} {len(rows):>3} rows ({n_pos} pos / {len(rows)-n_pos} neg) -> {p.name}")
+
+
+# --------------------------------------------------------------------------------------
+# activations
+# --------------------------------------------------------------------------------------
+def _key(messages) -> tuple:
+    """Content key for one conversation, used to address master-blob rows by identity."""
+    return tuple((m.role, m.content) for m in messages)
+
+
+def _load_general_dataset():
+    from tuberlens.interfaces.dataset import LabelledDataset
+
+    return LabelledDataset.load_from(
+        GENERAL_DATA,
+        pos_class_label="general",
+        neg_class_label="not_general",
+        combine_consecutive_messages=COMBINE,
+        convert_tool_to_assistant=CONVERT,
+    )
+
+
+def extract_master(force: bool = False) -> None:
+    """Extract the 150 general conversations once, into one blob every variant slices."""
+    if MASTER_ACTS.exists() and not force:
+        print(f"master activations already at {MASTER_ACTS}")
+        return
+    from agentic_redteam.model_loading import load_extraction_model, unhook_model
+
+    dataset = _load_general_dataset()
+    print(f"extracting activations for {len(dataset)} general conversations "
+          f"({MODEL_NAME} L{LAYER}) ...")
+    MASTER_ACTS.parent.mkdir(parents=True, exist_ok=True)
+    model = load_extraction_model(MODEL_NAME, LAYER, verbose=True)
+    try:
+        t0 = time.time()
+        acts = model.get_activations(
+            dataset.inputs, layer=LAYER, show_progress=True, save_path=str(MASTER_ACTS)
+        )
+        print(f"  {tuple(acts.activations.shape)} in {time.time()-t0:.0f}s -> {MASTER_ACTS}")
+    finally:
+        unhook_model(model)
+        del model
+        _free_gpu()
+
+
+def _master_index() -> dict:
+    """{content key: row index} over the master blob, asserted collision-free."""
+    dataset = _load_general_dataset()
+    index = {}
+    for i, messages in enumerate(dataset.inputs):
+        k = _key(messages)
+        if k in index:
+            raise RuntimeError(
+                "two general conversations are byte-identical after transforms, so a "
+                "content-addressed slice would be ambiguous; fall back to positional "
+                "mapping if this ever fires"
+            )
+        index[k] = i
+    return index
+
+
+def _save_slice(master: dict, rows: list[int], out: Path) -> None:
+    import torch
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    idx = torch.tensor(rows, dtype=torch.long)
+    torch.save(
+        {
+            "activations": master["activations"][idx].clone(),
+            "attention_mask": master["attention_mask"][idx].clone(),
+            "input_ids": master["input_ids"][idx].clone(),
+            "layer": LAYER,
+            "model_name": MODEL_NAME,
+        },
+        out,
+    )
+
+
+def prefill_base_caches(concept: str, force: bool = False) -> None:
+    """Write the train/val activation blob each (variant, validation mode) will look for.
+
+    Reproduces exactly what ``train_initial_probe`` does to derive them — load, subsample
+    at fraction 1.0, ``stable_train_test_split`` — so the blobs land at the paths its
+    cache-key function computes and its ``_activate`` loads them instead of the model.
+    """
+    import torch
+
+    from agentic_redteam.retrain import (
+        _base_activation_cache_paths,
+        stable_fraction_subsample,
+        stable_train_test_split,
+    )
+    from tuberlens.interfaces.dataset import LabelledDataset
+
+    pos, neg = CONCEPTS[concept]
+    index = _master_index()
+    master = None
+
+    for variant in VARIANTS:
+        vpath = variant_path(concept, variant)
+        for val_mode in VAL_MODES:
+            test_size = 0.0 if val_mode == "dev" else TEST_SIZE
+            train_cache, val_cache = _base_activation_cache_paths(
+                CACHE_DIR, vpath, MODEL_NAME, LAYER, SEED, test_size, None,
+                COMBINE, CONVERT, 1.0,
+            )
+            ds = LabelledDataset.load_from(
+                vpath, pos_class_label=pos, neg_class_label=neg,
+                combine_consecutive_messages=COMBINE, convert_tool_to_assistant=CONVERT,
+            )
+            ds = stable_fraction_subsample(ds, 1.0, SEED)
+            train, val = stable_train_test_split(ds, test_size=test_size,
+                                                 split_field=None, seed=SEED)
+            for side, part, path in (("train", train, train_cache), ("val", val, val_cache)):
+                if len(part) == 0:
+                    continue
+                if path.exists() and not force:
+                    continue
+                if master is None:
+                    master = torch.load(MASTER_ACTS, map_location="cpu", weights_only=False)
+                rows = [index[_key(m)] for m in part.inputs]
+                _save_slice(master, rows, path)
+                print(f"  {variant:<22} {val_mode:<5} {side:<5} {len(rows):>3} rows -> {path.name}")
+
+
+def prefill_dev_cache(concept: str, force: bool = False) -> None:
+    """Assemble the concept's dev blob from the per-split Kaggle downloads.
+
+    ``_load_dev_dataset`` concatenates ``sorted(glob("*.jsonl"))`` in that order, so the
+    blob is the splits' rows in the same order, zero-padded to the longest split's
+    sequence length — the same assembly ``kaggle_activations.prefetch_dev_activations``
+    does, but from files already on disk.
+    """
+    import torch
+
+    from agentic_redteam.retrain import _dev_activation_cache_path
+
+    dev_dir = REPO_ROOT / "dev_samples" / concept
+    dev_files = sorted(dev_dir.glob("*.jsonl"))
+    target = _dev_activation_cache_path(CACHE_DIR, dev_files, MODEL_NAME, LAYER, COMBINE, CONVERT)
+    if target.exists() and not force:
+        print(f"  dev blob already at {target.name}")
+        return
+
+    blob_dir = REPO_ROOT / "activations" / "dev" / concept
+    parts = []
+    for f in dev_files:
+        blob = blob_dir / f"{f.stem}-acts_full.pt"
+        if not blob.is_file():
+            raise SystemExit(f"missing downloaded dev blob {blob}")
+        n = sum(1 for l in f.open() if l.strip())
+        parts.append((f.stem, torch.load(blob, map_location="cpu", mmap=True,
+                                         weights_only=False), n))
+
+    total = sum(n for _s, _h, n in parts)
+    seq = max(h["activations"].shape[1] for _s, h, _n in parts)
+    hid = parts[0][1]["activations"].shape[2]
+    out = {
+        "activations": torch.zeros((total, seq, hid), dtype=parts[0][1]["activations"].dtype),
+        "attention_mask": torch.zeros((total, seq), dtype=parts[0][1]["attention_mask"].dtype),
+        "input_ids": torch.zeros((total, seq), dtype=parts[0][1]["input_ids"].dtype),
+        "layer": LAYER,
+        "model_name": MODEL_NAME,
+    }
+    at = 0
+    for split, head, n in parts:
+        if head["activations"].shape[0] != n:
+            raise SystemExit(f"{split}: blob has {head['activations'].shape[0]} rows, split has {n}")
+        s = head["activations"].shape[1]
+        for k in ("activations", "attention_mask", "input_ids"):
+            out[k][at:at + n, :s] = head[k]
+        at += n
+    tmp = target.with_name(f".{target.name}.partial")
+    torch.save(out, tmp)
+    tmp.replace(target)
+    print(f"  dev blob {total} rows x {seq} -> {target.name} "
+          f"({target.stat().st_size / 1e9:.2f} GB)")
+
+
+def _free_gpu() -> None:
+    import gc
+
+    import torch
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+# --------------------------------------------------------------------------------------
+# train / eval
+# --------------------------------------------------------------------------------------
+def probe_path(concept: str, variant: str, config: str, val_mode: str) -> Path:
+    return RESULTS / concept / "probes" / f"{variant}__{config}__{val_mode}.pkl"
+
+
+def _n_train(concept: str, variant: str, val_mode: str) -> int:
+    """Training rows the fit will actually see, without touching activations."""
+    from agentic_redteam.retrain import stable_fraction_subsample, stable_train_test_split
+    from tuberlens.interfaces.dataset import LabelledDataset
+
+    pos, neg = CONCEPTS[concept]
+    ds = LabelledDataset.load_from(
+        variant_path(concept, variant), pos_class_label=pos, neg_class_label=neg,
+        combine_consecutive_messages=COMBINE, convert_tool_to_assistant=CONVERT,
+    )
+    ds = stable_fraction_subsample(ds, 1.0, SEED)
+    train, _val = stable_train_test_split(
+        ds, test_size=(0.0 if val_mode == "dev" else TEST_SIZE), split_field=None, seed=SEED
+    )
+    return len(train)
+
+
+def capped_spec(n_train: int):
+    """``linear_then_softmax`` defaults, with gradient accumulation capped at batches/epoch.
+
+    The default spec is ``batch_size: 16, gradient_accumulation_steps: 4``, and the
+    trainer steps only on ``(batch_idx + 1) % accumulation == 0`` with **no end-of-epoch
+    flush** (``pytorch_classifiers.py:299-327``). So a training set yielding fewer than
+    4 batches never calls ``optimizer.step()`` at all: the fit runs its full epoch
+    budget, loss sits at ln 2, validation AUROC is exactly 0.5, and the probe comes back
+    at its initialization. The 50-row variants under a 0.2 split are 39 rows = 3 batches
+    and hit exactly that — two variants with different data and different labels produced
+    a bitwise-identical probe.
+
+    Capping the accumulation at the number of batches is a no-op for every arm that
+    already has 4 or more (150-, 116- and 50-row training sets all do), so those probes
+    stay bit-identical to the ones already fitted, and only the degenerate arms change.
+    """
+    import math
+
+    from tuberlens.interfaces.probes import ProbeSpec
+
+    from agentic_redteam.retrain import _coerce_probe_spec
+
+    base = _coerce_probe_spec(DEFAULT_ARCH)
+    hp = dict(base.hyperparams)
+    n_batches = max(1, math.ceil(n_train / int(hp.get("batch_size", 16))))
+    hp["gradient_accumulation_steps"] = min(
+        int(hp.get("gradient_accumulation_steps", 1)), n_batches
+    )
+    return ProbeSpec(name=base.name, hyperparams=hp)
+
+
+def train_concept(concept: str, force: bool = False) -> None:
+    from agentic_redteam.retrain import train_initial_probe
+
+    pos, neg = CONCEPTS[concept]
+    dev_dir = REPO_ROOT / "dev_samples" / concept
+    for variant in VARIANTS:
+        for config, size in CONFIGS.items():
+            for val_mode in VAL_MODES:
+                out = probe_path(concept, variant, config, val_mode)
+                if out.exists() and not force:
+                    print(f"[skip] {out.name}")
+                    continue
+                out.parent.mkdir(parents=True, exist_ok=True)
+                n_train = _n_train(concept, variant, val_mode)
+                spec = capped_spec(n_train)
+                print(f"\n=== {concept} | {variant} | {config} | val={val_mode} ==="
+                      f"  ({n_train} train rows, "
+                      f"accum={spec.hyperparams['gradient_accumulation_steps']})", flush=True)
+                t0 = time.time()
+                train_initial_probe(
+                    base_training_data_path=variant_path(concept, variant),
+                    model_name=MODEL_NAME,
+                    layer=LAYER,
+                    new_probe_path=out,
+                    pos_class_label=pos,
+                    neg_class_label=neg,
+                    probe_description=(
+                        f"Probe trained on the general/not_general dataset under "
+                        f"{concept} class labels ({variant}); generalization control."
+                    ),
+                    probe_spec=spec,
+                    test_size=TEST_SIZE,
+                    dev_data_path=dev_dir if val_mode == "dev" else None,
+                    seed=SEED,
+                    ensemble_size=size,
+                    base_activation_cache_dir=CACHE_DIR,
+                    combine_consecutive_messages=COMBINE,
+                    convert_tool_to_assistant=CONVERT,
+                    verbose=True,
+                )
+                print(f"    fit in {time.time()-t0:.0f}s -> {out}", flush=True)
+                _free_gpu()
+
+
+def eval_concept(concept: str, force: bool = False) -> None:
+    import pandas as pd
+
+    from agentic_redteam.evaluation import evaluate_probe
+
+    out_csv = RESULTS / concept / "eval_results.csv"
+    done = set()
+    frames = []
+    if out_csv.exists() and not force:
+        prev = pd.read_csv(out_csv)
+        frames.append(prev)
+        done = set(zip(prev["variant"], prev["config"], prev["val_mode"]))
+
+    for variant in VARIANTS:
+        for config in CONFIGS:
+            for val_mode in VAL_MODES:
+                if (variant, config, val_mode) in done:
+                    continue
+                p = probe_path(concept, variant, config, val_mode)
+                if not p.exists():
+                    print(f"[missing probe] {p.name}")
+                    continue
+                print(f"--- eval {concept} | {variant} | {config} | val={val_mode}", flush=True)
+                df = evaluate_probe(
+                    p,
+                    REPO_ROOT / "eval_sets" / concept,
+                    REPO_ROOT / "activations" / "eval" / concept,
+                    max_samples=None,
+                    seed=SEED,
+                    combine_consecutive_messages=COMBINE,
+                    convert_tool_to_assistant=CONVERT,
+                )
+                df = df.copy()
+                df.insert(0, "val_mode", val_mode)
+                df.insert(0, "config", config)
+                df.insert(0, "variant", variant)
+                df.insert(0, "concept", concept)
+                frames.append(df)
+                pd.concat(frames, ignore_index=True).to_csv(out_csv, index=False)
+                _free_gpu()
+
+    if frames:
+        pd.concat(frames, ignore_index=True).to_csv(out_csv, index=False)
+        print(f"\nwrote {out_csv}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--concept", action="append", choices=sorted(CONCEPTS),
+                    help="Concept to run (repeatable; default: hu_ha)")
+    ap.add_argument("--phase", default="all", choices=["prepare", "train", "eval", "all"])
+    ap.add_argument("--force", action="store_true", help="Recompute even if outputs exist")
+    args = ap.parse_args()
+    concepts = args.concept or ["hu_ha"]
+
+    from tuberlens.config import global_settings
+
+    # The sequential-ensemble arm. Read on every call by ensemble.fusion_enabled() and
+    # internally by ProbeFactory.build_ensemble, so setting it here governs both.
+    global_settings.PROBE_FUSED_ENSEMBLE = False
+    print(f"PROBE_FUSED_ENSEMBLE = {global_settings.PROBE_FUSED_ENSEMBLE} (sequential fits)")
+
+    for concept in concepts:
+        print(f"\n######## {concept} ########")
+        if args.phase in ("prepare", "all"):
+            write_variants(concept)
+            extract_master(force=args.force)
+            prefill_base_caches(concept, force=args.force)
+            prefill_dev_cache(concept, force=args.force)
+        if args.phase in ("train", "all"):
+            train_concept(concept, force=args.force)
+        if args.phase in ("eval", "all"):
+            eval_concept(concept, force=args.force)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
