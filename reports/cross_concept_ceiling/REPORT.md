@@ -1,6 +1,6 @@
 # Cross-concept ceiling
 
-_Generated 2026-08-23 23:09:21Z._
+_Generated 2026-08-23 23:49:24Z._
 
 ## What is being measured
 
@@ -36,7 +36,56 @@ fits neither the box nor the card. Validation is a fixed 300-row balanced slice 
 probes, never ensembles, seed 42. No model is loaded — every activation comes from
 the precomputed blobs.
 
-_No results yet._
+## Pooled AUROC (all rows of the arm's own pool)
+
+```
+arm   within/highstakes  within/hu_ha  within/instructions
+name                                                      
+ALL               0.963         0.977                0.946
+```
+
+## AUROC by concept
+
+```
+arm           within/highstakes  within/hu_ha  within/instructions
+name                                                              
+highstakes                0.963           NaN                  NaN
+hu_ha                       NaN         0.977                  NaN
+instructions                NaN           NaN                0.946
+```
+
+## AUROC by eval split
+
+```
+arm                                      within/highstakes  within/hu_ha  within/instructions
+name                                                                                         
+highstakes/anthropic_hh_balanced                     0.987           NaN                  NaN
+highstakes/mt_balanced                               0.974           NaN                  NaN
+highstakes/mts_balanced                              0.959           NaN                  NaN
+highstakes/toolace_balanced                          0.928           NaN                  NaN
+hu_ha/eval_ai_dilemmas                                 NaN         1.000                  NaN
+hu_ha/eval_ant_hh                                      NaN         0.895                  NaN
+hu_ha/eval_balanced_refusal                            NaN         0.991                  NaN
+hu_ha/eval_daily_dilemmas                              NaN         0.999                  NaN
+instructions/anthropic_harmless_refusal                NaN           NaN                1.000
+instructions/bbq_substitution                          NaN           NaN                0.985
+instructions/hc_context_drift                          NaN           NaN                1.000
+instructions/hc_contradiction                          NaN           NaN                0.966
+instructions/mm_substitution                           NaN           NaN                0.980
+instructions/oig_context_drift                         NaN           NaN                0.946
+instructions/oig_omission                              NaN           NaN                0.630
+```
+
+## Accuracy and TPR@1%FPR by concept
+
+```
+                      accuracy                                         tpr_at_fpr                                 
+arm          within/highstakes within/hu_ha within/instructions within/highstakes within/hu_ha within/instructions
+name                                                                                                              
+highstakes               0.917          NaN                 NaN             0.508          NaN                 NaN
+hu_ha                      NaN         0.93                 NaN               NaN        0.675                 NaN
+instructions               NaN          NaN               0.869               NaN          NaN               0.574
+```
 
 ## Reproducing
 

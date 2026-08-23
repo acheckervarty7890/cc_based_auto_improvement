@@ -1,6 +1,6 @@
 # Concept probes trained on the dsv4pro synthetic cuts
 
-_Generated 2026-08-23 23:09:20Z._
+_Generated 2026-08-23 23:49:23Z._
 
 ## What is being measured
 
@@ -20,12 +20,12 @@ activations precomputed.
 
 ## Mean AUROC across eval splits
 
-| arm | hu_ha | highstakes |
-| --- | --- | --- |
-| `seq_ens10` / val=`dev` | 0.888 | — |
-| `seq_ens10` / val=`split` | 0.898 | — |
-| `single` / val=`dev` | 0.888 | 0.792 |
-| `single` / val=`split` | 0.871 | 0.818 |
+| arm | hu_ha | instructions | highstakes |
+| --- | --- | --- | --- |
+| `seq_ens10` / val=`dev` | 0.888 | 0.579 | 0.843 |
+| `seq_ens10` / val=`split` | 0.898 | 0.588 | 0.839 |
+| `single` / val=`dev` | 0.888 | 0.570 | 0.792 |
+| `single` / val=`split` | 0.871 | 0.562 | 0.818 |
 
 ## hu_ha — AUROC per eval split
 
@@ -38,17 +38,26 @@ single    dev                  0.993        0.709                  0.868        
           split                0.994        0.625                  0.893                0.974  0.871
 ```
 
-## instructions
+## instructions — AUROC per eval split
 
-_In progress — 0/4 probes fitted, no eval yet._
+```
+dataset             anthropic_harmless_refusal  bbq_substitution  hc_context_drift  hc_contradiction  mm_substitution  oig_context_drift  oig_omission   MEAN
+config    val_mode                                                                                                                                           
+seq_ens10 dev                            0.788             0.644             0.519             0.525            0.516              0.486         0.574  0.579
+          split                          0.766             0.635             0.536             0.548            0.509              0.537         0.585  0.588
+single    dev                            0.842             0.605             0.502             0.500            0.468              0.511         0.561  0.570
+          split                          0.723             0.578             0.500             0.499            0.548              0.550         0.537  0.562
+```
 
 ## highstakes — AUROC per eval split
 
 ```
-dataset          anthropic_hh_balanced  mt_balanced  mts_balanced  toolace_balanced   MEAN
-config val_mode                                                                           
-single dev                       0.917        0.745         0.900             0.607  0.792
-       split                     0.965        0.725         0.926             0.656  0.818
+dataset             anthropic_hh_balanced  mt_balanced  mts_balanced  toolace_balanced   MEAN
+config    val_mode                                                                           
+seq_ens10 dev                       0.952        0.840         0.879             0.702  0.843
+          split                     0.960        0.817         0.889             0.689  0.839
+single    dev                       0.917        0.745         0.900             0.607  0.792
+          split                     0.965        0.725         0.926             0.656  0.818
 ```
 
 ## Reproducing
