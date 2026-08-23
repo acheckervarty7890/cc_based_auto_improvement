@@ -1,6 +1,6 @@
 # Concept probes trained on the dsv4pro synthetic cuts
 
-_Generated 2026-08-23 22:29:16Z._
+_Generated 2026-08-23 23:09:20Z._
 
 ## What is being measured
 
@@ -20,12 +20,12 @@ activations precomputed.
 
 ## Mean AUROC across eval splits
 
-| arm | hu_ha |
-| --- | --- |
-| `seq_ens10` / val=`dev` | 0.888 |
-| `seq_ens10` / val=`split` | 0.898 |
-| `single` / val=`dev` | 0.888 |
-| `single` / val=`split` | 0.871 |
+| arm | hu_ha | highstakes |
+| --- | --- | --- |
+| `seq_ens10` / val=`dev` | 0.888 | — |
+| `seq_ens10` / val=`split` | 0.898 | — |
+| `single` / val=`dev` | 0.888 | 0.792 |
+| `single` / val=`split` | 0.871 | 0.818 |
 
 ## hu_ha — AUROC per eval split
 
@@ -42,9 +42,14 @@ single    dev                  0.993        0.709                  0.868        
 
 _In progress — 0/4 probes fitted, no eval yet._
 
-## highstakes
+## highstakes — AUROC per eval split
 
-_In progress — 2/4 probes fitted, no eval yet._
+```
+dataset          anthropic_hh_balanced  mt_balanced  mts_balanced  toolace_balanced   MEAN
+config val_mode                                                                           
+single dev                       0.917        0.745         0.900             0.607  0.792
+       split                     0.965        0.725         0.926             0.656  0.818
+```
 
 ## Reproducing
 
