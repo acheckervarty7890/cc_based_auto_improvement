@@ -1,26 +1,20 @@
-# Concept probes trained on the llama-3.1-8b synthetic cuts
+# Concept probes trained on the llama8b synthetic cuts
 
-_Generated 2026-08-23 20:33:01Z._
+_Generated 2026-08-23 21:09:12Z._
 
 ## What is being measured
 
-Each probe is trained on its own concept's `data/<concept>_llama8b.jsonl` — ~50
-balanced two-turn conversations written by llama-3.1-8b to exhibit that concept's
-positive and negative class — and scored on that concept's real eval splits at full
-size. So this is a transfer question: how much of a concept does a 50-row synthetic
-cut teach a probe? Model `google/gemma-3-27b-it`, layer 32, arch
-`linear_then_softmax`, seed 42, activations precomputed.
+Each probe is trained on its own concept's `data/<concept>_llama8b.jsonl` — ~50 balanced two-turn
+conversations written by **meta-llama Llama-3.1-8B** to exhibit that concept's positive and
+negative class — and scored on that concept's real eval splits at full size. So this
+is a transfer question: how much of a concept does a 50-row synthetic cut teach a
+probe? Model `google/gemma-3-27b-it`, layer 32, arch `linear_then_softmax`, seed 42,
+activations precomputed.
 
 | axis | values |
 | --- | --- |
 | probe config | `single` · `seq_ens10` (10 members, `PROBE_FUSED_ENSEMBLE=0`, fit sequentially under the repo-pinned `ENSEMBLE_SEEDS`) |
 | validation | `dev` (the concept's `dev_samples/` set; all ~50 rows train) · `split` (0.2 of the training data via `stable_train_test_split`, leaving ~40 to train) |
-
-| concept | training file | rows | labels |
-| --- | --- | --- | --- |
-| `hu_ha` | `data/hu_harm_llama8b.jsonl` | 49 (24/25) | `harmful_to_human` / `not_harmful_to_human` |
-| `highstakes` | `data/highstakes_llama8b.jsonl` | 50 (25/25) | `high-stakes` / `low-stakes` |
-| `instructions` | `data/instructions_llama8b.jsonl` | 50 (25/25) | `assistant_follows_the_instruction` / `assistant_does_not_follow_the_instruction` |
 
 4 probes per concept, 12 in total.
 
@@ -142,12 +136,12 @@ arms), so it is more plausibly variance than an ensemble effect.
 ## Reproducing
 
 ```bash
-.venv_claude/bin/python scripts/llama8b_concept_probes.py --phase all
+.venv_claude/bin/python scripts/concept_probes.py --generator llama8b --phase all
 ```
 
-`prepare` extracts all 149 conversations once into a master blob and slices each
-(concept, validation mode) train/val activation cache out of it, so the six
-combinations do not each trigger their own gemma-3-27b load. The dev blobs and the
-activation cache dir are shared with `results_generalization/` — the base blobs are
-keyed on the training file's own hash and the dev blobs on the dev files' bytes, so
-neither can collide. After `prepare`, no fit loads a model.
+`prepare` extracts every requested generator's conversations in ONE model load and
+slices each (concept, validation mode) train/val activation cache out of that master,
+addressing rows by conversation content. The dev blobs and the activation cache dir
+are shared across generators and with `results_generalization/` — base blobs are keyed
+on the training file's own hash and dev blobs on the dev files' bytes, so neither can
+collide. After `prepare`, no fit loads a model.
