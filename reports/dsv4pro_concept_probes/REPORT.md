@@ -1,6 +1,6 @@
 # Concept probes trained on the dsv4pro synthetic cuts
 
-_Generated 2026-08-23 21:49:13Z._
+_Generated 2026-08-23 22:29:16Z._
 
 ## What is being measured
 
@@ -20,11 +20,23 @@ activations precomputed.
 
 ## Mean AUROC across eval splits
 
-_No eval results yet._
+| arm | hu_ha |
+| --- | --- |
+| `seq_ens10` / val=`dev` | 0.888 |
+| `seq_ens10` / val=`split` | 0.898 |
+| `single` / val=`dev` | 0.888 |
+| `single` / val=`split` | 0.871 |
 
-## hu_ha
+## hu_ha — AUROC per eval split
 
-_In progress — 0/4 probes fitted, no eval yet._
+```
+dataset             eval_ai_dilemmas  eval_ant_hh  eval_balanced_refusal  eval_daily_dilemmas   MEAN
+config    val_mode                                                                                  
+seq_ens10 dev                  0.994        0.686                  0.886                0.988  0.888
+          split                0.993        0.708                  0.902                0.991  0.898
+single    dev                  0.993        0.709                  0.868                0.984  0.888
+          split                0.994        0.625                  0.893                0.974  0.871
+```
 
 ## instructions
 
@@ -32,7 +44,7 @@ _In progress — 0/4 probes fitted, no eval yet._
 
 ## highstakes
 
-_In progress — 0/4 probes fitted, no eval yet._
+_In progress — 2/4 probes fitted, no eval yet._
 
 ## Reproducing
 

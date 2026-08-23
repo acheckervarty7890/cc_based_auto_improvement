@@ -1,6 +1,6 @@
 # Cross-concept ceiling
 
-_Generated 2026-08-23 21:49:13Z._
+_Generated 2026-08-23 22:29:17Z._
 
 ## What is being measured
 

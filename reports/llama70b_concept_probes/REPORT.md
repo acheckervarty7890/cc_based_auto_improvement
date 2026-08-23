@@ -1,6 +1,6 @@
 # Concept probes trained on the llama70b synthetic cuts
 
-_Generated 2026-08-23 21:49:13Z._
+_Generated 2026-08-23 22:29:16Z._
 
 ## What is being measured
 
@@ -20,12 +20,12 @@ activations precomputed.
 
 ## Mean AUROC across eval splits
 
-| arm | hu_ha |
-| --- | --- |
-| `seq_ens10` / val=`dev` | 0.846 |
-| `seq_ens10` / val=`split` | 0.800 |
-| `single` / val=`dev` | 0.852 |
-| `single` / val=`split` | 0.855 |
+| arm | hu_ha | instructions | highstakes |
+| --- | --- | --- | --- |
+| `seq_ens10` / val=`dev` | 0.846 | 0.771 | 0.918 |
+| `seq_ens10` / val=`split` | 0.800 | 0.813 | 0.877 |
+| `single` / val=`dev` | 0.852 | 0.778 | 0.900 |
+| `single` / val=`split` | 0.855 | 0.825 | 0.895 |
 
 ## hu_ha — AUROC per eval split
 
@@ -38,13 +38,27 @@ single    dev                  0.861        0.737                  0.841        
           split                0.836        0.719                  0.910                0.955  0.855
 ```
 
-## instructions
+## instructions — AUROC per eval split
 
-_In progress — 0/4 probes fitted, no eval yet._
+```
+dataset             anthropic_harmless_refusal  bbq_substitution  hc_context_drift  hc_contradiction  mm_substitution  oig_context_drift  oig_omission   MEAN
+config    val_mode                                                                                                                                           
+seq_ens10 dev                            0.348             0.899             0.767             0.908            0.936              0.746         0.797  0.771
+          split                          0.565             0.915             0.820             0.912            0.946              0.745         0.790  0.813
+single    dev                            0.534             0.863             0.714             0.909            0.934              0.714         0.776  0.778
+          split                          0.773             0.933             0.798             0.870            0.911              0.766         0.724  0.825
+```
 
-## highstakes
+## highstakes — AUROC per eval split
 
-_In progress — 2/4 probes fitted, no eval yet._
+```
+dataset             anthropic_hh_balanced  mt_balanced  mts_balanced  toolace_balanced   MEAN
+config    val_mode                                                                           
+seq_ens10 dev                       0.958        0.893         0.954             0.868  0.918
+          split                     0.961        0.778         0.899             0.869  0.877
+single    dev                       0.947        0.854         0.942             0.856  0.900
+          split                     0.957        0.816         0.944             0.861  0.895
+```
 
 ## Reproducing
 
