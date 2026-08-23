@@ -1642,6 +1642,10 @@ async def run_redteam(
         # judge decides what the labels mean, so it gets the same definition of the
         # concept the attacker is shown (`_build_full_system_prompt`).
         probe_description=probe.description,
+        # Config, not probe metadata: it describes the eval SPLITS this run is scored
+        # against, which the probe pickle knows nothing about. Reaches the two
+        # summarizers only; "" (the default) leaves their prompts untouched.
+        eval_data_description=config.eval.data_description,
     )
 
     store = JsonlStore(path=jpath)

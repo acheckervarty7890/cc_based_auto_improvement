@@ -385,6 +385,15 @@ eval:                                 # OPTIONAL: dataset message transforms app
   convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
   eval_max_samples: int               # balanced subsample per eval split (0 = full split). Unset (None)
                                       #   → the CLI's --eval-max-samples default; the flag overrides.
+  data_description: str               # OPTIONAL free text: what the EVAL SPLITS hold — in particular the
+                                      #   distinct KINDS of conversation the probe is scored on. Changes no
+                                      #   data path; it is prompt material for the judge's two SUMMARIZERS
+                                      #   only (never its classification prompt). When set, both memos are
+                                      #   organized around those kinds and must name the ones a round /
+                                      #   cycle left untouched — the memos being the only channel into a
+                                      #   later attacker session, this is where eval coverage gets steered.
+                                      #   Unset ⇒ every judge prompt is byte-identical to what it was
+                                      #   before this knob existed.
 kaggle:                               # OPTIONAL: pull PRECOMPUTED eval activations from Kaggle
   owner: <kaggle username>            #   instead of extracting them (see kaggle_activations.py).
   eval_dataset_slug: <template>       #   slug + file templates, formatted with BOTH `split=<split stem>`
@@ -663,6 +672,48 @@ is hoping for, and at classification time the judge still never sees the probe's
 or prediction. Unset (the default), every prompt is byte-identical to what it was
 before the description was threaded in.
 
+**The summarizers can also be shown what the EVAL DATA holds**
+(`LLMJudge.eval_data_description` ← the config's `eval.data_description`, threaded in by
+`run_redteam` — it is a property of the run's eval splits, not of the probe, so unlike
+the concept description it is *not* read off the pickle). It is for a description that
+enumerates the distinct **kinds of conversation** the probe is scored on — one per eval
+split, typically. Where it lands and why:
+
+- **Both summarizers, never the classifier.** It is rendered as one extra
+  `## Task context` bullet (`_eval_data_context_line`, continuation lines indented so an
+  enumeration reads as part of the bullet rather than as further context bullets), and
+  it adds a coverage paragraph to each summarizer's *system* prompt
+  (`_round_coverage_paragraph`, `_iteration_coverage_paragraph`) plus one question to
+  each user prompt (`_eval_coverage_question` → the round prompt's item 5;
+  `_eval_coverage_qualifier` → a clause on the iteration prompt's item 3). It is
+  deliberately kept **out of `_build_judge_request`**: the concept description has to
+  reach classification because the judge is the source of truth for what the labels
+  mean, whereas describing the *test set* to the labeller could only move the labelling
+  function.
+- **What the paragraphs ask for.** That the named kinds become the write-up's
+  coordinates: which kinds this round's/cycle's evidence actually came from, which were
+  left untouched, and a concrete opening (a role, a request, a situation) for each of
+  those — with breadth across the kinds worth more than another variant of whichever one
+  the last round found easiest.
+- **Why the memo is the place to do it.** Under `view_limit: 0` + `batch_submissions` a
+  session sees no past attempts and no verdicts, so the rolling and cross-iteration
+  memos are the *only* thing crossing into an attacker session. Steering the memo is the
+  one available way to steer coverage across the eval splits.
+- **Unset (the default) it is inert**, and not merely by convention: every helper
+  returns `""`, `_iteration_summary_system("")` returns `_ITERATION_SUMMARY_SYSTEM`
+  verbatim (which is why that constant is assembled from a `_HEAD`/`_TAIL` pair — the
+  paragraph has to go *before* the closing word-budget sentence), and all six prompts
+  are byte-identical to their pre-knob text. Verified by diffing rendered prompts, not
+  by inspection.
+- **Nothing else reads it**: no cache key, no data path, no attacker prompt. A run that
+  only adds or edits this text reuses every activation blob it would have anyway, and
+  changes only what the judge writes in the memos.
+
+`scripts/verify_eval_description_prompts.py` pins both halves — inert when unset,
+exactly those four insertions when set — by rendering all six prompts and diffing them.
+It needs no network, GPU or probe. `scripts/replay_round_memo.py --eval-data-description`
+replays a real round's memo with the knob on, to see what it actually changes.
+
 The same judge also maintains the **rolling strategy memo** via
 `summarize_round(records, *, round_num, error_type, true_class_label,
 prior_summary="")`: it renders every attempt of the round (status, attacker model,
@@ -719,7 +770,10 @@ max_successes=30)`, called once per rotation *before* the retrain. Under its own
 retrained on these misclassified samples, and asked for three things: failure modes
 now covered by retraining, conversation types already handled correctly, and regions
 of the input space not yet examined — folding `prior_memo` in by rewriting rather
-than appending, capped at `_ITERATION_MEMO_WORD_BUDGET` (~900) words. Only the
+than appending, capped at `_ITERATION_MEMO_WORD_BUDGET` (~900) words — under its own
+`_iteration_summary_system(eval_data_description)`, which is that constant plus the
+coverage paragraph when an eval-data description is set and the constant itself when it
+is not. Only the
 `max_successes` most recent successes are rendered (0 = all); returns `prior_memo`
 unchanged when the iteration produced neither successes nor a round memo.
 
@@ -1704,7 +1758,11 @@ resumed run's CSV covers only the iterations that run actually executed.
   judge is told the two candidate labels — and the probe's `description`, so it
   knows what concept they name — but is **not** told which one the caller is
   hoping for, nor what the probe scored, so it acts as an independent
-  classifier. `success` is computed in `tools.py` after both run.
+  classifier. `success` is computed in `tools.py` after both run. Note what the
+  *classification* prompt is allowed to carry: the concept description belongs there
+  (the judge defines the labels), `eval.data_description` does not (describing the
+  test set to the labeller can only move the labelling function — it is summarizer-only
+  by construction, see `llm_judge`).
 - **Count tokens through `token_budget`, never by hand.** Both traps in
   `tokenize_inputs` (the no-op `<bos>` strip ⇒ never subtract 1; the chat template's
   own special tokens ⇒ `add_special_tokens=False`) are baked into `count_tokens`, and
