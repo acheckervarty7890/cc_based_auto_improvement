@@ -1,6 +1,6 @@
 # Generalization tests — probes trained on the general dataset
 
-_Generated 2026-08-23 18:55:55Z. Regenerated automatically every 30 minutes while the run is in flight._
+_Generated 2026-08-23 18:56:59Z. Regenerated automatically every 30 minutes while the run is in flight._
 
 ## What is being measured
 
@@ -90,36 +90,76 @@ iii_general_pos      seq_ens10 dev                       0.409        0.467     
                                split                     0.376        0.516         0.214             0.349  0.363
 ```
 
-## Findings so far
+## Findings
 
-**A trainer bug had to be fixed before any of this was readable.** `linear_then_softmax`
-defaults to `batch_size: 16, gradient_accumulation_steps: 4`, and the trainer steps only
-on `(batch_idx + 1) % accumulation == 0` with no end-of-epoch flush
-(`pytorch_classifiers.py:299-327`). The 50-row variants under a 0.2 split leave 39
-training rows = 3 batches, so `optimizer.step()` never fired and the probe was returned
-at its initialization — two variants with different data *and* different labels produced
-a bitwise-identical probe (`be87fde7dde9`), `best_epoch=1`, loss pinned at ln 2,
-validation AUROC exactly 0.5. Fixed by capping accumulation at the batch count, which is
-a no-op for every arm that already had ≥4 batches (verified bit-identical) and changes
-only the degenerate cells.
+### Mean AUROC by variant (averaged over config and validation mode)
 
-**The random-label controls transfer as well as, or better than, the real signal.** On
-hu_ha, variants i and ii average 0.58–0.62 mean AUROC while `iii_general_pos` — the
-actual general/not_general distinction — averages 0.54–0.56. A probe fit to 50
-conversations with meaningless labels transfers better than one fit to the real one.
+| variant | hu_ha | instructions | highstakes |
+| --- | --- | --- | --- |
+| `i_general_random` | 0.603 | 0.521 | 0.521 |
+| `ii_notgeneral_random` | 0.592 | 0.538 | 0.539 |
+| `iii_general_pos` | 0.556 | 0.521 | **0.367** |
+| `iii_general_neg` | 0.493 | 0.508 | **0.686** |
 
-**One split carries almost all of the signal, and it is the refusal split in both
-concepts.** hu_ha's `eval_balanced_refusal` runs 0.74–0.88 while its three siblings sit
-at 0.46–0.61; instructions' `anthropic_harmless_refusal` runs 0.70–0.87 while its six
-siblings sit near 0.5. General-vs-specialized language plausibly correlates with
-refusal-shaped language; nothing else here is far from chance.
+### 1. A trainer bug had to be fixed before any of this was readable
 
-**Label inversion is not a clean mirror.** `iii_general_neg` sits at ~0.49 throughout
-while `iii_general_pos` is ~0.55. If inversion were exact these would reflect around
-0.5, so the fits are not symmetric under a label flip.
+`linear_then_softmax` defaults to `batch_size: 16, gradient_accumulation_steps: 4`,
+and the trainer steps only on `(batch_idx + 1) % accumulation == 0` with no
+end-of-epoch flush (`pytorch_classifiers.py:299-327`). The 50-row variants under a
+0.2 split leave 39 training rows = 3 batches, so `optimizer.step()` never fired and
+the probe was returned at its initialization — two variants with different data *and*
+different labels produced a bitwise-identical probe (`be87fde7dde9`), `best_epoch=1`,
+loss pinned at ln 2, validation AUROC exactly 0.5. Fixed by capping accumulation at
+the batch count: a no-op for every arm that already had >= 4 batches (verified
+bit-identical), changing only the degenerate cells.
 
-**The 10-member sequential ensemble barely moves anything** (≤0.02 mean vs the single
-probe), which is the expected result when members over the same activations agree.
+### 2. Generality transfers to high-stakes, and not to the other two concepts
+
+This is the headline, and it is concept-dependent in a way worth taking seriously.
+On **highstakes**, the real general/not_general distinction is far from chance in
+both directions: `iii_general_neg` (i.e. `not_general` -> high-stakes) reaches
+**0.686** mean AUROC and `iii_general_pos` falls to **0.367**. Per split,
+`mts_balanced` hits 0.906-0.916 against 0.177-0.214 inverted. The direction is
+interpretable: specialized/expert conversations — clinical dosing, tax code,
+litigation procedure — read as high-stakes, and everyday ones as low-stakes.
+
+On **hu_ha** and **instructions** the same training data lands at 0.49-0.56, i.e.
+at or below the random-label controls. So this is not a general "any direction
+transfers" effect; generality genuinely overlaps with stakes and genuinely does not
+overlap with harm or instruction-following.
+
+### 3. On highstakes the label inversion mirrors; elsewhere it cannot
+
+highstakes `iii_general_neg` 0.686 vs `iii_general_pos` 0.367 sum to ~1.05, close to
+the 1.0 an exact mirror would give — the fit is nearly symmetric under a label flip
+when there is real signal to flip. On hu_ha and instructions both directions sit near
+0.5, where mirroring carries no information.
+
+### 4. The random-label controls are not at chance
+
+Variants i and ii are 50 conversations of a single generality class with labels
+assigned at random, so they carry no signal by construction — yet they score 0.52-0.60
+mean AUROC, and on hu_ha (0.59-0.60) they beat the real distinction (0.556). A
+direction fit to 50 arbitrary labels in 5376 dimensions is not a uniform-random
+direction, and it lands somewhere mildly predictive. Treat ~0.55 as the effective
+noise floor for this setup rather than 0.50 — which is exactly what makes the
+highstakes 0.686/0.367 result meaningful and the hu_ha/instructions numbers not.
+
+### 5. One eval split usually carries the signal, and it is often the refusal split
+
+hu_ha's `eval_balanced_refusal` runs 0.74-0.88 while its three siblings sit at
+0.46-0.61; instructions' `anthropic_harmless_refusal` runs 0.70-0.87 against six
+siblings near 0.5. On highstakes the outlier is `mts_balanced` (0.91) — but that split
+is only 86 rows, so its confidence interval is wide. Note highstakes'
+`anthropic_hh_balanced`, the largest split at 2984 rows, stays near 0.46 in every arm.
+
+### 6. Neither the ensemble nor the validation source changes much
+
+The 10-member sequential ensemble moves the mean by <= 0.02 against a single probe
+almost everywhere — expected when members fit the same activations. The dev-set vs
+0.2-split validation choice is likewise mostly within 0.02; the largest gap is
+highstakes `i_general_random`/`single` (dev 0.482 vs split 0.542), which is a
+random-label arm and so is noise.
 
 ## Reproducing
 
