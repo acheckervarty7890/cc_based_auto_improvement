@@ -1,0 +1,17 @@
+Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
+[model_loading] loading google/gemma-3-27b-it, truncated to 33 layers (probe reads layer 32); max_memory={0: '22GiB', 'cpu': '45GiB'} (from AGENTIC_REDTEAM_MAX_MEMORY)
+[tuberlens] loading google/gemma-3-27b-it on device_map='auto'; max_memory={0: '22GiB', 'cpu': '45GiB'}
+Some parameters are on the meta device because they were offloaded to the cpu.
+
+   row  tokens     repeat  published    batched
+   135      31   0.00e+00   0.00e+00   9.58e-03
+   147     118   0.00e+00   0.00e+00   1.65e-02
+   218      28   0.00e+00   0.00e+00   9.22e-03
+   275      87   0.00e+00   0.00e+00   1.13e-02
+
+median relative L2 error:
+  repeat     0.000e+00
+  published  0.000e+00
+  batched    1.042e-02
+
+reading: `repeat` and `published` at 0 mean extraction is bit-exact and machine-independent at batch size 1 — there is no drift to hide behind, so the `batched` figure is the whole effect of raising BATCH_SIZE. This is why the red-team cache is built one row at a time.

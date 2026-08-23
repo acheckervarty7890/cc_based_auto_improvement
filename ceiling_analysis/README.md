@@ -168,3 +168,58 @@ in full.
 The written answer lives in `results/SUMMARY.md`, and the same numbers as a standalone
 page at https://claude.ai/code/artifact/35391e55-8c9c-40dd-a01a-f353a215de5a
 (regenerate with `build_artifact.py` and republish the same path to update it in place).
+
+---
+
+## Running it on experiment22 (this branch)
+
+The two concepts above (`highstakes`, `hu_ha`) are the study as it was first run, and their
+activations are not on this box. What *is* here is **experiment22**: the human-harm concept,
+a 10-member ensemble over gemma-3-27b-it L32, dev-validated, in two arms that differ only in
+the attacker model. Both are registered in `ca_common.CONCEPTS`:
+
+| concept key | arm | red-team set |
+| --- | --- | --- |
+| `hu_ha_dd_gptoss120b` | `openai/gpt-oss-120b` | `probes/hu_harm_gemma27b_gptoss120b_datadesc/redteam_postprocessed_iter5.jsonl` (588 rows) |
+| `hu_ha_dd_deepseekv4pro` | `deepseek/deepseek-v4-pro` | `probes/hu_harm_gemma27b_deepseekv4pro_datadesc/redteam_postprocessed_iter5.jsonl` (920 rows) |
+
+They share `acts_name="hu_ha"`, so one set of eval/dev blobs and one per-conversation
+red-team cache serves both; only the pooled `redteam_base_pool.pt` differs.
+
+**Nothing is fetched from Kaggle here.** `prep_local_activations.py` builds `ceiling_acts/hu_ha/`
+out of the caches the run itself wrote — eval blobs linked, the whole-dev-set blob sliced per
+split, the per-conversation red-team cache linked, and the 50 base rows split out of the base
+blob and re-keyed. It verifies rather than assumes the two facts that would corrupt everything
+downstream: that the sources are right-padded, and that base blob row *i* really is base file
+row *i* (checked per row against a fresh tokenization).
+
+The entry point is `run_ceiling_exp22.sh` at the repo root — force-added, because `.gitignore`'s
+unanchored `run*.sh` matches it. It skips the download waits, points the verification scripts at
+an experiment22 arm (their `--concept` default is `hu_ha`, which has no blobs here), and runs
+ceiling + sweep for both arms.
+
+`make_report.py` needs **matplotlib**, which is not in `requirements.txt`
+(`pip install matplotlib` into `.venv_claude`); everything else runs on the pinned environment.
+
+### One caveat on provenance, and why the verification step is not optional here
+
+This cache is **mixed**. Arm 2's red-team blobs were written by the experiment run itself,
+during the retrain this box performed. Arm 1's did not survive the box that produced them and
+were re-extracted by `extract_redteam_activations.py` afterwards. Since batched extraction
+drifts ~1e-2 from single-row extraction (see the table above), two halves of one training set
+computed on different paths would put the arms on different scales. Measured on this box:
+
+| check | result |
+| --- | --- |
+| cached blob vs a fresh single-row extraction | relative L2 `0.00e+00` on every sampled row |
+| local batch-1 vs the run's own blob | `0.000e+00` |
+| local batch-4 vs local batch-1 | `1.042e-02` |
+| ragged fit vs stock `ProbeFactory.build` | `max |AUROC difference| = 0.00e+00`, same `best_epoch` |
+
+### The ceiling is arm-independent, and that is checked
+
+`run_ceiling.py` fits inside the eval splits and early-stops on the reserved dev slice; it
+never touches red-team data. So the two arms' ceilings are the same computation under the same
+seeds, and they come out **bit-identical** at every rung (0.943861 / 0.960486 / 0.977657 /
+0.984422). Both are run anyway — `make_report` reads one JSON per concept, and the agreement is
+a free determinism check.

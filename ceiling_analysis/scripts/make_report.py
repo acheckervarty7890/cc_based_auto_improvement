@@ -59,6 +59,20 @@ REFERENCE = {
         ("experiment17 gpt-oss-120b, ens10, dev-validated",
          "exp17_hu_harm_gptoss120b_ens10_devval_comparison.csv"),
     ],
+    # experiment22's two dataset-description arms. Each arm's context is its OWN run, not
+    # the other's: the probe description reaches the judge, so the arms' training labels are
+    # not row-for-row comparable, and only their eval numbers read against each other.
+    # Both CSVs are the run's comparison table with its backfilled early rounds merged in
+    # (cli.py rewrites the CSV in process, so a resumed run's own file starts at the
+    # iteration it resumed from).
+    "hu_ha_dd_gptoss120b": [
+        ("experiment22 arm 1 gpt-oss-120b, ens10, dev-validated",
+         "exp22_hu_harm_gptoss120b_datadesc_comparison.csv"),
+    ],
+    "hu_ha_dd_deepseekv4pro": [
+        ("experiment22 arm 2 deepseek-v4-pro, ens10, dev-validated",
+         "exp22_hu_harm_deepseekv4pro_datadesc_comparison.csv"),
+    ],
 }
 
 
