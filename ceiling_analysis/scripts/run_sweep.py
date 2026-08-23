@@ -77,7 +77,13 @@ def evaluate(probe, eval_srcs, chunk: int = 64) -> dict:
 
 
 def run_concept(concept: C.Concept, args) -> None:
-    log_path = C.RESULTS / f"sweep_{concept.name}.jsonl"
+    # An unnormalized run at the default fit seed writes the plain filename it always did;
+    # anything else writes its own, so a probe-design study never overwrites the sweep it is
+    # measured against.
+    suffix = "" if args.norm is None else f"__norm-{args.norm}"
+    if args.fit_seed is not None:
+        suffix += f"__fit{args.fit_seed}"
+    log_path = C.RESULTS / f"sweep_{concept.name}{suffix}.jsonl"
     done = C.done_keys(log_path, KEY_FIELDS) if args.resume else set()
 
     eval_srcs = C.eval_sources(concept)
@@ -156,6 +162,8 @@ def run_concept(concept: C.Concept, args) -> None:
                 metrics = evaluate(probe, eval_srcs)
                 row = {
                     "concept": concept.name,
+                    "norm": C.NORM,
+                    "fit_seed": C.FIT_SEED,
                     "arm": arm,
                     "dev_seed": dev_seed,
                     "n_dev": n_dev,
@@ -184,7 +192,25 @@ def main() -> int:
     ap.add_argument("--dev-seeds", nargs="*", type=int, default=[0, 1, 2])
     ap.add_argument("--n-points", type=int, default=10)
     ap.add_argument("--no-resume", dest="resume", action="store_false")
+    ap.add_argument("--fit-seed", type=int, default=None,
+                    help="seed for the head's init and batch order (default 42). "
+                         "--dev-seeds still governs which dev rows are drawn, so varying "
+                         "THIS re-fits the same data — which is the only replication the "
+                         "N=0 point can have, since no dev rows are drawn there. Suffixes "
+                         "the output filename.")
+    ap.add_argument("--norm", default=None,
+                    help="normalization step in front of the head (see ca_norm.KINDS). "
+                         "Omit for the unnormalized architecture every experiment used; "
+                         "passing it also suffixes the output filename.")
     args = ap.parse_args()
+    if args.fit_seed is not None:
+        C.FIT_SEED = args.fit_seed
+    if args.norm is not None:
+        import ca_norm
+
+        if args.norm not in ca_norm.KINDS:
+            ap.error(f"--norm must be one of {ca_norm.KINDS}")
+        C.NORM = args.norm
     for name in args.concepts:
         run_concept(C.CONCEPTS[name], args)
     return 0

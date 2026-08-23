@@ -287,3 +287,36 @@ intact.
 
 The full write-up, including the per-split and per-metric breakdowns, is
 `results/NORM_SUMMARY.md`.
+
+### The same question, on the sweep
+
+`run_sweep.py --norm <kind>` applies the step to the dev sweep, which is the operational
+version of the ceiling question: base + red-team successes plus N dev rows, over 10 points
+and three arms. `run_norm_sweep_exp22.sh` runs it for LayerNorm against the existing
+unnormalized sweep, and `norm_sweep_report.py` writes `results/NORM_SWEEP_SUMMARY.md`.
+
+**LayerNorm is ahead at 24 of the 24 informative points**, by +0.0072 on average — a bigger
+and far steadier effect than the +0.0020 the ceiling showed at its top rung, which is what
+the ceiling's own size-dependence predicted: every sweep point trains on less
+eval-distribution data than the ceiling's *smallest* rung. By arm: `mixed` +0.0039 (10/10),
+`dev_only` +0.0078 (7/7), `finetune` +0.0115 (7/7). It also tightens the spread across dev
+draws to 0.86x. None of it closes the gap to the ceiling — the best sweep point moves 0.9534
+-> 0.9573 against 0.9844. A better-conditioned head, not more information.
+
+Two harness details the report has to handle, both of which would otherwise be averaged in
+as measurements:
+
+* **Points where no optimizer step fires.** `batch_size × gradient_accumulation_steps` is
+  64, so a `dev_only` fit on 24 or 48 rows returns its random init (AUROC ~0.52, *identical*
+  at both N — that is the tell).
+* **`checkpoint_kept: "finetuned"` does not mean the fine-tune did anything.**
+  `finetune_head` restores stage 1 only when the fine-tuned weights score *worse*, so a
+  second stage that never stepped — under 64 dev rows — is reported as `"finetuned"` with
+  `val_auroc_stage1 == val_auroc_finetuned`. The test has to be on `n_dev`, not on the
+  recorded `n_train` (which includes the whole red-team set) and not on `checkpoint_kept`.
+
+**And one number worth propagating.** The sweep fits N=0 — the point every write-up quotes
+as "red-team only" — exactly once, since no dev rows are drawn there and the draw seed is
+meaningless. Re-fit under four head seeds it is **0.9039 +- 0.0088**, not the 0.9164 the
+seed-42 run reported: that was the best of the four, and the spread is 0.0197. The
+red-team-only-to-ceiling gap for this arm is therefore ~0.080 on average rather than 0.068.
