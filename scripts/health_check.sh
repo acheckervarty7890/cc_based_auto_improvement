@@ -38,11 +38,36 @@ for c in hu_ha instructions highstakes; do
 done
 
 # --- warnings ---------------------------------------------------------------------
-if [ -n "$proc" ] && [ "$gpu_util" -lt 5 ] && [ "$gpu_used" -lt 1000 ]; then
-  echo "WARN gpu idle (${gpu_util}%, ${gpu_used} MiB) while a run is active - check for host-resident fallback"
+# Neither GPU idleness nor a quiet log means trouble. The eval phase reads 46 GB of
+# cached blobs for the high-stakes splits, so the card sits at 0% for minutes at a time
+# and a single torch.load of the 33 GB anthropic blob emits no output at all while it
+# runs. The signal that holds across every phase is whether the process is still burning
+# CPU. Warn only when nothing at all moved: no CPU time, no log growth, no GPU.
+if [ -n "$proc" ]; then
+  pid=$(echo "$proc" | awk '{print $1}')
+  live_log=$(ls -t logs/gen_*.log 2>/dev/null | head -1)
+  cpu0=$(awk '{print $14+$15}' /proc/"$pid"/stat 2>/dev/null || echo 0)
+  size0=$(stat -c %s "$live_log" 2>/dev/null || echo 0)
+  peak=0
+  for _ in 1 2 3 4 5 6; do
+    u=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits | head -1)
+    [ "$u" -gt "$peak" ] && peak=$u
+    sleep 2
+  done
+  cpu1=$(awk '{print $14+$15}' /proc/"$pid"/stat 2>/dev/null || echo 0)
+  size1=$(stat -c %s "$live_log" 2>/dev/null || echo 0)
+  if [ "$peak" -lt 5 ] && [ "$size1" -le "$size0" ] && [ "$cpu1" -le "$cpu0" ]; then
+    echo "WARN stalled: pid $pid burned no CPU, gpu peak ${peak}%, and $live_log did not grow over 12s"
+  fi
 fi
-if [ "$swap_used" -gt 1024 ]; then
-  echo "WARN swap in use (${swap_used} MiB) - the activation set may have outgrown RAM"
+
+# Swap alone is not pressure. Loading a 33 GB activation blob pushes the kernel to
+# reclaim cold pages, so a GB or so of swap appears with tens of GB still free. What
+# matters is available RAM running out, or swap large enough to mean real thrashing.
+if [ "$mem_avail" -lt 8192 ]; then
+  echo "WARN only ${mem_avail} MiB RAM available - a retrain OOM-kill looks like exit 137, no traceback"
+elif [ "$swap_used" -gt 4096 ]; then
+  echo "WARN ${swap_used} MiB swapped with ${mem_avail} MiB available - check for thrashing"
 fi
 if [ "$disk_avail" -lt 60 ]; then
   echo "WARN only ${disk_avail} GiB free on /workspace"

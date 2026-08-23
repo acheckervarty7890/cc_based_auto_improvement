@@ -1,6 +1,6 @@
 # Generalization tests — probes trained on the general dataset
 
-_Generated 2026-08-23 18:25:53Z. Regenerated automatically every 30 minutes while the run is in flight._
+_Generated 2026-08-23 18:55:55Z. Regenerated automatically every 30 minutes while the run is in flight._
 
 ## What is being measured
 
@@ -80,7 +80,10 @@ ii_notgeneral_random seq_ens10 dev                       0.569        0.374     
                                split                     0.575        0.377         0.736             0.552  0.560
                      single    dev                       0.528        0.410         0.621             0.513  0.518
                                split                     0.614        0.342         0.693             0.549  0.549
-iii_general_neg      single    dev                       0.464        0.736         0.906             0.649  0.689
+iii_general_neg      seq_ens10 dev                       0.458        0.720         0.911             0.668  0.689
+                               split                     0.455        0.713         0.915             0.655  0.684
+                     single    dev                       0.464        0.736         0.906             0.649  0.689
+                               split                     0.463        0.705         0.916             0.648  0.683
 iii_general_pos      seq_ens10 dev                       0.409        0.467         0.188             0.397  0.365
                                split                     0.423        0.538         0.177             0.398  0.384
                      single    dev                       0.414        0.469         0.195             0.341  0.355
