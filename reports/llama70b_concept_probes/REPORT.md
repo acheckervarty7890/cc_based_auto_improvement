@@ -1,6 +1,6 @@
 # Concept probes trained on the llama70b synthetic cuts
 
-_Generated 2026-08-24 04:20:03Z._
+_Generated 2026-08-24 10:13:50Z._
 
 ## What is being measured
 
@@ -62,12 +62,12 @@ single    dev                       0.947        0.854         0.942            
 
 ## Findings
 
-See `reports/concept_probes_summary.md` for the three-generator comparison and
+See `reports/concept_probes_summary.md` for the four-generator comparison and
 `reports/cross_concept_ceiling/REPORT.md` for the ceiling these numbers should be read
 against (hu_ha 0.977, highstakes 0.963, instructions 0.946).
 
 llama-3.3-70B is the **strongest generator for highstakes (0.897) and instructions
-(0.797)** and the weakest of the three for hu_ha (0.838). Its instructions cut is the
+(0.797)** and the weakest of the four for hu_ha (0.838). Its instructions cut is the
 only one of the nine (generator x concept) cells that gets an instructions probe near its
 ceiling — 0.797 against 0.946, where llama8b reaches 0.670 and dsv4pro 0.575.
 

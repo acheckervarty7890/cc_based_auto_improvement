@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 """Train probes on a generator's synthetic cut of each concept, and score them.
 
-Three attacker-model "generators" have each written ~50 balanced two-turn conversations
+Four attacker-model "generators" have each written ~50 balanced two-turn conversations
 per concept, exhibiting that concept's positive and negative class:
 
     llama8b    data/<concept>_llama8b.jsonl        (meta-llama Llama-3.1-8B)
     llama70b   data/<concept>_llama70b_50.jsonl    (meta-llama Llama-3.3-70B)
     dsv4pro    data/<concept>_dsv4pro.jsonl        (deepseek v4 pro)
+    nemotron550b  data/<concept>_nemotron550b.jsonl (nvidia Nemotron 550B)
 
 Every probe is trained on one such cut and scored on that concept's real eval splits at
 full size, so this is a transfer question: how much of a concept does a 50-row synthetic
@@ -114,6 +115,7 @@ GENERATORS = {
     "llama8b": "llama8b",
     "llama70b": "llama70b_50",
     "dsv4pro": "dsv4pro",
+    "nemotron550b": "nemotron550b",
 }
 
 CONFIGS = {"single": 1, "seq_ens10": 10}

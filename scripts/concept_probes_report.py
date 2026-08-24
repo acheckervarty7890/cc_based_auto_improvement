@@ -26,6 +26,7 @@ GENERATORS = {
     "llama8b": ("meta-llama Llama-3.1-8B", "data/<concept>_llama8b.jsonl"),
     "llama70b": ("meta-llama Llama-3.3-70B", "data/<concept>_llama70b_50.jsonl"),
     "dsv4pro": ("deepseek v4 pro", "data/<concept>_dsv4pro.jsonl"),
+    "nemotron550b": ("nvidia Nemotron 550B", "data/<concept>_nemotron550b.jsonl"),
 }
 
 
@@ -156,11 +157,11 @@ def write_summary() -> None:
             df["concept"] = c
             frames.append(df)
     lines = [
-        "# Concept probes — three generators compared",
+        f"# Concept probes — {len(GENERATORS)} generators compared",
         "",
         f"_Generated {now}._",
         "",
-        "The same experiment run on three ~50-row synthetic cuts per concept, one per",
+        f"The same experiment run on {len(GENERATORS)} ~50-row synthetic cuts per concept, one per",
         "generating model. Every cell is mean AUROC over that concept's eval splits.",
         "",
     ]
