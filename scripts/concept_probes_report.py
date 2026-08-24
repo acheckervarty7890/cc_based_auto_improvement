@@ -178,6 +178,9 @@ def write_summary() -> None:
                   all_df.pivot_table(index=["generator", "config", "val_mode"],
                                      columns="concept", values="auroc").round(3).to_string(),
                   "```", ""]
+    narrative = REPO_ROOT / "reports" / "concept_probes_summary_findings.md"
+    if narrative.exists():
+        lines += [narrative.read_text().rstrip(), ""]
     out.write_text("\n".join(lines) + "\n")
     print(f"wrote {out}")
 

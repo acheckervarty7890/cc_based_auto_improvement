@@ -30,8 +30,11 @@ Sizing. The full pool is 6576 rows, and pooling pads everything to the longest s
 1024 tokens — 72 GB of fp16 activations, which neither fits the box nor the card. Each
 split is therefore balanced-subsampled to `--per-split` rows (default 100, which is this
 repo's own `--eval-max-samples` default), giving 1500 pooled rows = 16.5 GB, of which a
-1200-row training fold is 13.2 GB and does fit the 24 GB card alongside the 3.3 GB
-validation slice — so the fits are GPU-resident and cost minutes rather than hours.
+1200-row training fold is 13.2 GB. The validation slice is drawn the same way, per DEV
+SPLIT, so at the default it is 1092 rows / 12 GB: together those exceed the 24 GB card,
+so a fold runs ~350 s rather than the ~60 s a fully-staged fit would take. Lower
+``--dev-per-split`` to trade validation size for speed; what the protocol requires is
+only that the slice be the SAME for every fold and every arm, which it is either way.
 
 No model is ever loaded: every eval and dev activation is read from the blobs already
 under activations/{eval,dev}/<concept>/.
@@ -314,8 +317,9 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--per-split", type=int, default=100,
                     help="Balanced eval rows per split (default 100; 50 per class)")
-    ap.add_argument("--dev-per-concept", type=int, default=100,
-                    help="Balanced dev rows per concept for the fixed validation slice")
+    ap.add_argument("--dev-per-split", type=int, default=100,
+                    help="Balanced dev rows per DEV SPLIT for the fixed validation slice "
+                         "(default 100 => 1092 rows over the 15 dev splits)")
     ap.add_argument("--folds", type=int, default=N_FOLDS)
     ap.add_argument("--arm", action="append",
                     choices=["within", "cross_native", "cross_aligned"],
@@ -342,7 +346,7 @@ def main() -> int:
 
     print("assembling the fixed validation slice from dev_samples/ ...")
     dev_parts = [
-        build_concept_pool("dev", c, max(1, args.dev_per_concept // 2))
+        build_concept_pool("dev", c, max(1, args.dev_per_split // 2))
         for c in CONCEPTS
     ]
     validation = _concatenate_consuming(dev_parts)
