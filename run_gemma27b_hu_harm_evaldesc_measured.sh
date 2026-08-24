@@ -1,31 +1,33 @@
 #!/usr/bin/env bash
 set -e
 
-# ONE ARM: experiment23's memo-ladder ARM 3 re-run with `probe.description` REMOVED.
-# HUMAN-HARM concept, attacking a 10-MEMBER DEEP ENSEMBLE over google/gemma-3-27b-it (L32),
-# for TEN iterations, with the probe fit validated against a HELD-OUT DEV SET
-# (dev_samples/hu_ha).
+# ONE ARM: experiment23's memo-ladder ARM 3 re-run with `eval.data_description` REWRITTEN
+# FROM THE SPLITS THEMSELVES. HUMAN-HARM concept, attacking a 10-MEMBER DEEP ENSEMBLE over
+# google/gemma-3-27b-it (L32), for TEN iterations, with the probe fit validated against a
+# HELD-OUT DEV SET (dev_samples/hu_ha).
 #
 #                                cross_iteration_memos   eval.data_description   probe.description
 #   exp23 ARM 1  control                         false                   unset       one-liner
 #   exp23 ARM 2  memo                             true                   unset       one-liner
-#   exp23 ARM 3  memo + evaldesc                  true      the four data kinds      one-liner
-#   THIS RUN     ditto, no probe description      true      the four data kinds       ABSENT
+#   exp23 ARM 3  memo + evaldesc                  true    four kinds, 1 line ea.     one-liner
+#   THIS RUN     richer evaldesc                  true    four kinds, MEASURED       one-liner
 #
-# THE QUESTION. `probe.description` is the concept text that reaches the ATTACKER, the
-# JUDGE'S CLASSIFICATION PROMPT and both SUMMARIZERS. Removing it leaves the four data kinds
-# in `eval.data_description` as the only concept text anywhere in the run — and those reach
-# the two summarizers ONLY. So: with the concept defined nowhere but the memo-writer's own
-# context, does arm 3's behaviour survive?
+# THE QUESTION. exp23's description gave each of the four eval kinds one sentence of gist.
+# This one is written from eval_sets/hu_ha/*.jsonl and adds, per kind, HOW its two classes are
+# constructed (three of the four are PAIRED — same user turn, two assistant replies — so the
+# label is a function of the assistant turn alone there) and WHICH surface feature is
+# CONFOUNDED with the label in it (balanced_refusal's negative class is 200 bare refusals from
+# ~43 templates; daily_dilemmas inverts the length relation; the other two carry none).
+# llm_judge's two coverage paragraphs were extended to make the memo-writer read its evidence
+# against those two facts. So: does a description that names each kind's construction and
+# confound steer coverage better than one that names only the kinds?
 #
-# WHAT IS AND IS NOT COMPARABLE TO EXPERIMENT23. Dropping the description moves the JUDGE'S
-# classification prompt, i.e. the labelling function. So:
-#   - COMPARABLE: the eval comparison CSVs. The eval splits carry their own labels and
-#     evaluate_probe never reads a probe description.
-#   - NOT COMPARABLE: success rate, clone rate and the red-team training labels — those are
-#     defined by a judge that is now prompted differently.
-# There is no no-description CONTROL yet (exp23's three arms all carry the one-liner), so the
-# red-team-side numbers here are this run's own baseline, not a rung on that ladder.
+# COMPARABILITY TO EXPERIMENT23 IS FULL, on every metric. `probe.description` is unchanged —
+# the same one-line definition every hu_harm arm since experiment17 has carried — so the
+# ATTACKER prompt and the JUDGE'S CLASSIFICATION PROMPT are byte-identical to arm 3's and the
+# labelling function has not moved. Only the two SUMMARIZER prompts differ, which is the
+# variable. Read this directly against
+# results_hu_harm_gemma27b_gptoss120b_s3_evaldesc/ (exp23 arm 3).
 #
 # THE SCHEDULE, carried unchanged from experiment23:
 #
@@ -39,13 +41,13 @@ set -e
 # 150/iteration, x10 iterations = ~1500 attempts.
 #
 # WHERE IT WRITES:
-#   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_nodesc.md
-#     -> results_hu_harm_gemma27b_gptoss120b_s3_evaldesc_nodesc/
-#        probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_nodesc
+#   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_measured.md
+#     -> results_hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured/
+#        probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured
 #
 # ACTIVATIONS. The shared cache dir (results_hu_harm_gemma27b_batch_ablation/) is the one
 # experiments 11/16/17/20/21/22/23 wrote, and no cache key mentions the memo knobs, the
-# eval-data description, THE PROBE DESCRIPTION, view_limit, sessions_per_model, ensemble_size
+# eval-data description, view_limit, sessions_per_model, ensemble_size
 # or the iteration count. So on a box that ran any of those, the eval blobs, the base blob and
 # the dev blob are already warm and the only new extraction is this run's own novel red-team
 # conversations. The output and probe dirs are NOT shared.
@@ -53,7 +55,7 @@ set -e
 # Usage:
 #   export OPENROUTER_API_KEY=...
 #   mkdir -p logs
-#   nohup bash run_gemma27b_hu_harm_evaldesc_nodesc.sh > logs/run_evaldesc_nodesc.out 2>&1 &
+#   nohup bash run_gemma27b_hu_harm_evaldesc_measured.sh > logs/run_evaldesc_measured.out 2>&1 &
 #
 # Checkpointing (so a wiped container can --resume): start failsafe_commit.sh alongside it —
 # its built-in stage list already points at this arm:
@@ -146,9 +148,9 @@ echo ">>>   otherwise filled by this run — eval blobs come from Kaggle, no 27B
 # --- run -------------------------------------------------------------------------------------
 OUTAGE_EXIT_CODE=3   # cli.OUTAGE_EXIT_CODE — "OpenRouter is unusable"
 
-CONFIG=configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_nodesc.md
-PROBE_DIR=probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_nodesc
-LOG=logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_nodesc.log
+CONFIG=configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_measured.md
+PROBE_DIR=probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured
+LOG=logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured.log
 
 echo ">>> $(date -Is)  START $CONFIG  -> $PROBE_DIR   (log: $LOG)"
 rc=0

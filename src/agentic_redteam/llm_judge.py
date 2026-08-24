@@ -844,6 +844,14 @@ def _round_coverage_paragraph(eval_data_description: str) -> str:
 
     ``""`` when no eval-data description is set — the memo then has no kinds to be
     organized around, and the prompt stays exactly as it was.
+
+    The description a caller supplies may say more about each kind than its gist: how
+    that kind's two classes are CONSTRUCTED (paired — the same user turn under both
+    labels — or unpaired), and which surface feature is CONFOUNDED with the label
+    there. Where it does, those lines are what let the memo distinguish a finding
+    about the concept from a finding about one split's artefact, so this paragraph
+    asks for them explicitly. A description that states neither simply yields nothing
+    on those clauses; nothing here requires them to be present.
     """
     if not (eval_data_description or "").strip():
         return ""
@@ -855,6 +863,18 @@ def _round_coverage_paragraph(eval_data_description: str) -> str:
         "many samples it holds — so an untouched kind is a more valuable note than a "
         "further variant of the examined one. Give each untouched kind a concrete "
         "opening — a role, a request, a situation — rather than a general direction.\n\n"
+        "Where the Task context also states HOW a kind's two classes are constructed "
+        "and WHICH surface feature is confounded with the label in it, read this "
+        "round's evidence against that. Two things follow. First, a weakness observed "
+        "in a kind whose classes differ only in the assistant's turn is evidence about "
+        "the assistant's turn; the same weakness observed where the user's turn also "
+        "varies is not, and the write-up should not state it as though it were. "
+        "Second, a pattern that matches a kind's named confound is the weaker reading "
+        "of the evidence, not the stronger one: say so, and say which other kind would "
+        "separate the two readings, since a confound present in one kind and absent "
+        "from another is exactly what makes that comparison decisive. Do not carry a "
+        "conclusion drawn inside one kind over to another whose construction or "
+        "confound the Task context describes differently.\n\n"
     )
 
 
@@ -874,7 +894,15 @@ def _iteration_coverage_paragraph(eval_data_description: str) -> str:
         "role, a request, a situation — not a general direction. Breadth across the "
         "kinds is worth more than depth within whichever one this cycle happened to "
         "concentrate on, and a kind that produced only variants of one another should "
-        "be named as settled so the next cycle moves to a different one. "
+        "be named as settled so the next cycle moves to a different one. Where the Task "
+        "context also states how a kind's two classes are constructed and which surface "
+        "feature is confounded with the label in it, treat an untested construction or "
+        "an unseparated confound as an unexamined region in its own right — a kind "
+        "whose evidence is fully explained by its own named confound has not yet been "
+        "examined, however many samples came from it — and name in section (3) the kind "
+        "that would separate the readings. Sections (1) and (2) should likewise say "
+        "which kind each failure mode or correct behaviour was observed in, since a "
+        "mode established in one construction does not transfer to a different one. "
     )
 
 
@@ -884,7 +912,10 @@ def _eval_coverage_question(eval_data_description: str) -> str:
         return ""
     return (
         "\n5. Which of the kinds of conversation named in the Task context below did "
-        "this round's samples actually come from, and which were left untouched?"
+        "this round's samples actually come from, and which were left untouched? For "
+        "the kinds it did reach: is what you observed also explained by that kind's "
+        "own construction or its named confound, and if so which other kind would "
+        "tell the two apart?"
     )
 
 
@@ -894,7 +925,9 @@ def _eval_coverage_qualifier(eval_data_description: str) -> str:
         return ""
     return (
         " — in particular, which of the kinds of conversation named in the Task "
-        "context below this cycle's evidence under-represents or never reached"
+        "context below this cycle's evidence under-represents or never reached, and "
+        "which of those kinds' constructions or named confounds it has not yet "
+        "separated"
     )
 
 

@@ -4,8 +4,8 @@
 # RESUMED after the container is wiped.
 #
 # MULTI-STAGE: one poller covers a whole sequence of runs. Here it is configured
-# for the SINGLE stage launched by run_gemma27b_hu_harm_evaldesc_nodesc.sh
-# (experiment23 arm 3 with probe.description removed).
+# for the SINGLE stage launched by run_gemma27b_hu_harm_evaldesc_measured.sh
+# (experiment23 arm 3 with a rewritten eval.data_description).
 # You give it N stages —
 # each a (config, probe-out-dir, log-file) triple, in launch order — and it polls
 # stage 1's artifacts until that run FINISHES, then automatically hands itself
@@ -25,7 +25,7 @@
 # checkpoints on top of it. One experiment (all its stages) per branch.
 #
 # This is a STANDALONE poller: you launch the training yourself (as in
-# run_gemma27b_hu_harm_evaldesc_nodesc.sh), then start this alongside it. It watches the
+# run_gemma27b_hu_harm_evaldesc_measured.sh), then start this alongside it. It watches the
 # ACTIVE stage's --probe-out-dir for red-team **phase markers**
 # (redteam_done_iter*.marker) and newly retrained probes (probe_iter*.pkl) — the
 # exact points cli.py's --resume keys off — and, on every new one, force-adds all
@@ -48,12 +48,12 @@
 # Exit: once the LAST stage finishes, the poller makes a final commit and exits 0.
 # Stopping it early by hand (Ctrl-C / kill) also makes a final commit via the trap.
 #
-# Defaults target the ONE arm launched by run_gemma27b_hu_harm_evaldesc_nodesc.sh:
+# Defaults target the ONE arm launched by run_gemma27b_hu_harm_evaldesc_measured.sh:
 # experiment23's memo-ladder arm 3 (human-harm concept, gemma-3-27b-it L32, 10-member
-# ensemble, attacker openai/gpt-oss-120b) re-run with `probe.description` REMOVED:
-#   stage 1  configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_nodesc.md
-#            probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_nodesc
-#            logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_nodesc.log
+# ensemble, attacker openai/gpt-oss-120b) re-run with `eval.data_description` rewritten:
+#   stage 1  configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_measured.md
+#            probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured
+#            logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured.log
 #
 # NOTE this arm runs TEN iterations, so the stage is long: the poller's per-marker and
 # per-probe checkpoints matter more here than they did on the 5-iteration runs.
@@ -66,7 +66,7 @@
 #   git fetch origin && git checkout experiment24_cloud
 #
 #   # 1) launch the arm
-#   nohup bash run_gemma27b_hu_harm_evaldesc_nodesc.sh > logs/run_evaldesc_nodesc.out 2>&1 &
+#   nohup bash run_gemma27b_hu_harm_evaldesc_measured.sh > logs/run_evaldesc_measured.out 2>&1 &
 #
 #   # 2) launch the failsafe — it follows the stage, then exits.
 #   nohup bash failsafe_commit.sh > logs/failsafe_commit.out 2>&1 &
@@ -98,13 +98,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 CONFIGS=(
-    "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_nodesc.md"
+    "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_measured.md"
 )
 PROBE_DIRS=(
-    "probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_nodesc"
+    "probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured"
 )
 LOG_FILES=(
-    "logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_nodesc.log"
+    "logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured.log"
 )
 
 REMOTE="origin"
