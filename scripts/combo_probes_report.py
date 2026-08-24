@@ -189,6 +189,11 @@ def main() -> int:
         "layer 32, `linear_then_softmax`, seed 42, scored on full eval splits off precomputed",
         "activations. Every cell below is mean AUROC over that concept's eval splits.",
         "",
+        "A standalone reading version of these results — same numbers, laid out for the eye —",
+        "is [`pooling-generators.html`](pooling-generators.html). It is a hand-written",
+        "**snapshot**, not a generated file: if a rerun changes the numbers below, that page",
+        "does not follow.",
+        "",
     ]
 
     pending = [c for c in CONCEPTS if c not in data]

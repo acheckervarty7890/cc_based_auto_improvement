@@ -1,0 +1,689 @@
+<title>Does Pooling Generators Help?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+  :root{
+    --ground:#F1F2F4;
+    --surface:#F8F9FA;
+    --ink:#15181E;
+    --muted:#666D78;
+    --faint:#8A9099;
+    --rule:#D6DAE0;
+    --rule-soft:#E4E7EC;
+    --accent:#1F4A5C;
+    --accent-soft:#E3ECEF;
+    --add:#1C6B57;
+    --add-soft:#E1EFEA;
+    --dil:#9E4227;
+    --dil-soft:#F5E5DF;
+    --flat:#6F7681;
+    --flat-soft:#E6E8EC;
+    --shadow:0 1px 0 rgba(21,24,30,.04);
+
+    --f-display:"Newsreader",Georgia,"Times New Roman",serif;
+    --f-body:"Public Sans","Helvetica Neue",Arial,sans-serif;
+    --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+
+    --measure:68ch;
+    --wide:min(96vw,1080px);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#101319;
+      --surface:#161A21;
+      --ink:#E7E9ED;
+      --muted:#98A0AB;
+      --faint:#767E89;
+      --rule:#282E38;
+      --rule-soft:#20252D;
+      --accent:#7FB6C9;
+      --accent-soft:#17252C;
+      --add:#54BC9C;
+      --add-soft:#12241F;
+      --dil:#DE8B6D;
+      --dil-soft:#2A1B15;
+      --flat:#8B929D;
+      --flat-soft:#1C2129;
+      --shadow:0 1px 0 rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#101319;
+    --surface:#161A21;
+    --ink:#E7E9ED;
+    --muted:#98A0AB;
+    --faint:#767E89;
+    --rule:#282E38;
+    --rule-soft:#20252D;
+    --accent:#7FB6C9;
+    --accent-soft:#17252C;
+    --add:#54BC9C;
+    --add-soft:#12241F;
+    --dil:#DE8B6D;
+    --dil-soft:#2A1B15;
+    --flat:#8B929D;
+    --flat-soft:#1C2129;
+    --shadow:0 1px 0 rgba(0,0,0,.3);
+  }
+
+  *,*::before,*::after{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--ink);
+    font-family:var(--f-body);
+    font-size:16.5px;
+    line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{
+    max-width:var(--wide);
+    margin:0 auto;
+    padding:0 24px 96px;
+    display:flex;
+    flex-direction:column;
+    gap:0;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead{
+    padding:64px 0 40px;
+    border-bottom:1px solid var(--rule);
+    display:flex;
+    flex-direction:column;
+    gap:20px;
+  }
+  .eyebrow{
+    font-family:var(--f-mono);
+    font-size:11.5px;
+    font-weight:500;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--accent);
+  }
+  h1{
+    font-family:var(--f-display);
+    font-optical-sizing:auto;
+    font-weight:700;
+    font-size:clamp(2.5rem,6vw,4.1rem);
+    line-height:1.03;
+    letter-spacing:-.02em;
+    text-wrap:balance;
+    margin:0;
+    max-width:16ch;
+  }
+  .dek{
+    font-family:var(--f-display);
+    font-size:clamp(1.1rem,2.1vw,1.35rem);
+    line-height:1.5;
+    color:var(--muted);
+    margin:0;
+    max-width:56ch;
+  }
+  .runmeta{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px 28px;
+    font-family:var(--f-mono);
+    font-size:12px;
+    color:var(--faint);
+    padding-top:8px;
+  }
+  .runmeta b{color:var(--muted);font-weight:500}
+
+  /* ---------- section scaffolding ---------- */
+  section{
+    padding:52px 0;
+    border-bottom:1px solid var(--rule-soft);
+    display:flex;
+    flex-direction:column;
+    gap:22px;
+  }
+  section:last-of-type{border-bottom:0}
+  h2{
+    font-family:var(--f-display);
+    font-weight:600;
+    font-size:clamp(1.5rem,3vw,2rem);
+    line-height:1.15;
+    letter-spacing:-.015em;
+    text-wrap:balance;
+    margin:0;
+    max-width:24ch;
+  }
+  h3{
+    font-family:var(--f-body);
+    font-weight:600;
+    font-size:.95rem;
+    letter-spacing:.005em;
+    margin:0;
+  }
+  p{margin:0;max-width:var(--measure)}
+  .lede{font-size:1.06rem}
+  a{color:var(--accent);text-underline-offset:3px;text-decoration-thickness:1px}
+  a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:2px}
+  code,.mono{font-family:var(--f-mono);font-size:.86em}
+  code{
+    background:var(--flat-soft);
+    padding:.1em .34em;
+    border-radius:3px;
+  }
+  strong{font-weight:600}
+
+  /* ---------- the verdict ---------- */
+  .verdict{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
+    gap:1px;
+    background:var(--rule);
+    border:1px solid var(--rule);
+    border-radius:2px;
+  }
+  .verdict > div{
+    background:var(--surface);
+    padding:26px 24px 24px;
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .stat{
+    font-family:var(--f-mono);
+    font-weight:700;
+    font-size:2.6rem;
+    line-height:1;
+    letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums;
+  }
+  .stat.win{color:var(--add)}
+  .stat.tie{color:var(--flat)}
+  .stat-label{font-size:.9rem;color:var(--muted);max-width:30ch}
+  .stat-note{
+    font-family:var(--f-mono);
+    font-size:11px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--faint);
+  }
+
+  /* ---------- behaviour cards ---------- */
+  .behaviours{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(275px,1fr));
+    gap:18px;
+  }
+  .bh{
+    border:1px solid var(--rule);
+    border-top-width:3px;
+    border-radius:2px;
+    background:var(--surface);
+    padding:22px 22px 24px;
+    display:flex;
+    flex-direction:column;
+    gap:12px;
+    box-shadow:var(--shadow);
+  }
+  .bh.add{border-top-color:var(--add)}
+  .bh.dil{border-top-color:var(--dil)}
+  .bh.flat{border-top-color:var(--flat)}
+  .bh-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+  .bh-name{font-family:var(--f-mono);font-size:13px;font-weight:700;letter-spacing:.02em}
+  .chip{
+    font-family:var(--f-mono);
+    font-size:10.5px;
+    font-weight:500;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    padding:3px 8px;
+    border-radius:2px;
+    white-space:nowrap;
+  }
+  .chip.add{background:var(--add-soft);color:var(--add)}
+  .chip.dil{background:var(--dil-soft);color:var(--dil)}
+  .chip.flat{background:var(--flat-soft);color:var(--flat)}
+  .bh p{font-size:.92rem;color:var(--muted);max-width:none}
+  .bh-fig{
+    font-family:var(--f-mono);
+    font-variant-numeric:tabular-nums;
+    font-size:1.7rem;
+    font-weight:700;
+    letter-spacing:-.02em;
+    line-height:1;
+  }
+  .bh.add .bh-fig{color:var(--add)}
+  .bh.dil .bh-fig{color:var(--dil)}
+  .bh.flat .bh-fig{color:var(--flat)}
+  .bh-fig small{
+    display:block;
+    font-family:var(--f-body);
+    font-size:.78rem;
+    font-weight:400;
+    letter-spacing:0;
+    color:var(--faint);
+    margin-top:6px;
+  }
+
+  /* ---------- chart ---------- */
+  figure{margin:0;display:flex;flex-direction:column;gap:12px}
+  .chartwrap{
+    border:1px solid var(--rule);
+    border-radius:2px;
+    background:var(--surface);
+    padding:20px 18px 14px;
+    overflow-x:auto;
+  }
+  .chartwrap svg{display:block;min-width:520px;width:100%;height:auto}
+  .axis-label,.tick{font-family:"JetBrains Mono",monospace;font-size:11px;fill:var(--faint)}
+  .series-label{font-family:"JetBrains Mono",monospace;font-size:11.5px;font-weight:700}
+  .grid{stroke:var(--rule-soft);stroke-width:1}
+  figcaption{font-size:.85rem;color:var(--faint);max-width:var(--measure)}
+
+  /* ---------- tables ---------- */
+  .tablewrap{
+    overflow-x:auto;
+    border:1px solid var(--rule);
+    border-radius:2px;
+    background:var(--surface);
+  }
+  table{border-collapse:collapse;width:100%;font-size:13.5px}
+  th,td{
+    padding:7px 14px;
+    text-align:right;
+    white-space:nowrap;
+    border-bottom:1px solid var(--rule-soft);
+  }
+  th{
+    font-family:var(--f-mono);
+    font-size:10.5px;
+    font-weight:500;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color:var(--faint);
+    text-align:right;
+    background:var(--surface);
+    position:sticky;
+    top:0;
+  }
+  th:first-child,td:first-child{text-align:left}
+  td{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+  td.label{font-weight:500;color:var(--ink)}
+  tbody tr:last-child td{border-bottom:0}
+  tr.rule-top td{border-top:1px solid var(--rule)}
+  tr.hi td{background:var(--accent-soft)}
+  .up{color:var(--add)}
+  .down{color:var(--dil)}
+  .zero{color:var(--faint)}
+  caption{
+    caption-side:top;
+    text-align:left;
+    padding:14px 14px 10px;
+    font-size:.85rem;
+    color:var(--muted);
+    border-bottom:1px solid var(--rule);
+  }
+
+  /* ---------- misc ---------- */
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:26px}
+  .note{
+    border-left:2px solid var(--accent);
+    padding:2px 0 2px 18px;
+    color:var(--muted);
+    font-size:.94rem;
+    max-width:var(--measure);
+  }
+  details{
+    border:1px solid var(--rule);
+    border-radius:2px;
+    background:var(--surface);
+    padding:0;
+  }
+  summary{
+    cursor:pointer;
+    padding:14px 18px;
+    font-family:var(--f-mono);
+    font-size:12px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--accent);
+  }
+  details[open] summary{border-bottom:1px solid var(--rule-soft)}
+  .details-body{padding:18px;display:flex;flex-direction:column;gap:14px}
+  .details-body p{font-size:.92rem;color:var(--muted)}
+  footer{
+    padding:40px 0 0;
+    border-top:1px solid var(--rule);
+    font-family:var(--f-mono);
+    font-size:11.5px;
+    color:var(--faint);
+    line-height:1.8;
+  }
+  ul.tight{margin:0;padding-left:1.15em;max-width:var(--measure);color:var(--muted);font-size:.94rem}
+  ul.tight li{margin-bottom:7px}
+  @media (prefers-reduced-motion:no-preference){
+    .bh{transition:border-color .18s ease}
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">Activation probes · gemma-3-27b layer 32 · 90 probes</div>
+    <h1>Does pooling generators help?</h1>
+    <p class="dek">Four models each wrote ~50 synthetic training conversations per concept. We already knew what each was worth alone. This is what they are worth combined — every one of the 15 non-empty subsets, trained and scored.</p>
+    <div class="runmeta">
+      <span><b>15</b> pools</span>
+      <span><b>2</b> validation sources</span>
+      <span><b>3</b> concepts</span>
+      <span><b>90</b> single probes</span>
+      <span><b>seed</b> 42</span>
+      <span><b>arch</b> linear_then_softmax</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="eyebrow">The answer</div>
+    <h2>Pooling is a hedge, not a gain.</h2>
+    <div class="verdict">
+      <div>
+        <div class="stat win">57<span style="color:var(--faint)">/66</span></div>
+        <div class="stat-label">pools beat the <strong>mean</strong> of their own members' solo scores</div>
+        <div class="stat-note">reliable</div>
+      </div>
+      <div>
+        <div class="stat tie">33<span style="color:var(--faint)">/66</span></div>
+        <div class="stat-label">pools beat the <strong>best</strong> of their members</div>
+        <div class="stat-note">an exact coin flip</div>
+      </div>
+    </div>
+    <p class="lede">Concatenating cuts reliably protects you from having picked a bad generator. It does not reliably beat having picked the good one. So the interesting question is not <em>does pooling help</em> but <em>when does it do more than average</em> — and that turns out to depend entirely on which concept you are on.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">Three concepts, three behaviours</div>
+    <h2>The same procedure is additive, dilutive, or inert depending on the target.</h2>
+    <div class="behaviours">
+
+      <div class="bh add">
+        <div class="bh-head">
+          <span class="bh-name">highstakes</span>
+          <span class="chip add">Additive</span>
+        </div>
+        <div class="bh-fig">4 / 4<small>splits where all four beats the best single generator</small></div>
+        <p>Monotone in pool size in both validation modes, 0.838&nbsp;→&nbsp;0.939. The pool beats its best member in 20 of 22 cells. The generators are finding different parts of the concept and the parts add up.</p>
+      </div>
+
+      <div class="bh dil">
+        <div class="bh-head">
+          <span class="bh-name">instructions</span>
+          <span class="chip dil">Dilutive</span>
+        </div>
+        <div class="bh-fig">2 / 7<small>splits where all four beats the best single generator</small></div>
+        <p>Mean AUROC still climbs with pool size, but only out of the hole the three weak generators dug. <code>llama70b</code> alone scores 0.825 and no pool reaches it. <code>hc_context_drift</code> falls 0.798&nbsp;→&nbsp;0.648.</p>
+      </div>
+
+      <div class="bh flat">
+        <div class="bh-head">
+          <span class="bh-name">hu_ha</span>
+          <span class="chip flat">Inert</span>
+        </div>
+        <div class="bh-fig">0.044<small>total spread across all 30 cells (0.851–0.895)</small></div>
+        <p>Nothing moves. The pool-size curve is not even monotone under <code>dev</code> validation. This concept was the flattest across generators and it is the flattest across pools too.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Pool size</div>
+    <h2>Mean AUROC as generators are added</h2>
+    <figure>
+      <div class="chartwrap">
+        <svg viewBox="0 0 660 330" role="img" aria-label="Line chart of mean AUROC against number of generators pooled, for three concepts. Highstakes rises steeply from 0.838 to 0.939; instructions rises from 0.660 to 0.779; hu_ha is nearly flat from 0.868 to 0.893.">
+          <line class="grid" x1="70" y1="240.7" x2="600" y2="240.7"></line>
+          <line class="grid" x1="70" y1="182.2" x2="600" y2="182.2"></line>
+          <line class="grid" x1="70" y1="123.7" x2="600" y2="123.7"></line>
+          <line class="grid" x1="70" y1="65.1" x2="600" y2="65.1"></line>
+          <text class="tick" x="60" y="244.7" text-anchor="end">0.60</text>
+          <text class="tick" x="60" y="186.2" text-anchor="end">0.70</text>
+          <text class="tick" x="60" y="127.7" text-anchor="end">0.80</text>
+          <text class="tick" x="60" y="69.1" text-anchor="end">0.90</text>
+
+          <line class="grid" x1="70" y1="278" x2="600" y2="278"></line>
+          <text class="tick" x="70" y="296" text-anchor="middle">1</text>
+          <text class="tick" x="246.7" y="296" text-anchor="middle">2</text>
+          <text class="tick" x="423.3" y="296" text-anchor="middle">3</text>
+          <text class="tick" x="600" y="296" text-anchor="middle">4</text>
+          <text class="axis-label" x="335" y="320" text-anchor="middle">generators pooled</text>
+
+          <polyline fill="none" stroke="var(--add)" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"
+                    points="70,101.4 246.7,71.6 423.3,51.7 600,42.3"></polyline>
+          <circle cx="70" cy="101.4" r="3.4" fill="var(--add)"></circle>
+          <circle cx="246.7" cy="71.6" r="3.4" fill="var(--add)"></circle>
+          <circle cx="423.3" cy="51.7" r="3.4" fill="var(--add)"></circle>
+          <circle cx="600" cy="42.3" r="4.6" fill="var(--add)"></circle>
+          <text class="series-label" x="590" y="28" text-anchor="end" fill="var(--add)">highstakes  0.939</text>
+
+          <polyline fill="none" stroke="var(--flat)" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"
+                    points="70,83.9 246.7,78.0 423.3,74.5 600,69.2"></polyline>
+          <circle cx="70" cy="83.9" r="3.4" fill="var(--flat)"></circle>
+          <circle cx="246.7" cy="78.0" r="3.4" fill="var(--flat)"></circle>
+          <circle cx="423.3" cy="74.5" r="3.4" fill="var(--flat)"></circle>
+          <circle cx="600" cy="69.2" r="4.6" fill="var(--flat)"></circle>
+          <text class="series-label" x="590" y="92" text-anchor="end" fill="var(--flat)">hu_ha  0.893</text>
+
+          <polyline fill="none" stroke="var(--dil)" stroke-width="2.25" stroke-linejoin="round" stroke-linecap="round"
+                    points="70,205.6 246.7,184.5 423.3,153.5 600,136.0"></polyline>
+          <circle cx="70" cy="205.6" r="3.4" fill="var(--dil)"></circle>
+          <circle cx="246.7" cy="184.5" r="3.4" fill="var(--dil)"></circle>
+          <circle cx="423.3" cy="153.5" r="3.4" fill="var(--dil)"></circle>
+          <circle cx="600" cy="136.0" r="4.6" fill="var(--dil)"></circle>
+          <text class="series-label" x="590" y="158" text-anchor="end" fill="var(--dil)">instructions  0.779</text>
+        </svg>
+      </div>
+      <figcaption><code>val=split</code> shown. The instructions curve rises steadily and still ends 0.046 below what <code>llama70b</code> scores on its own — rising with pool size and beating the best member are different questions.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <div class="eyebrow">Is a pool more than the average of its parts?</div>
+    <h2>Against the mean member, and against the best one</h2>
+    <p>For every pool of two or more: its AUROC minus the <strong>mean</strong> of its members' solo scores, and minus the <strong>best</strong> of them. If pooling only averaged its inputs the first column would sit at zero; if it added coverage the second would be positive.</p>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Concept</th><th>Validation</th><th>− mean(members)</th><th>Wins</th><th>− best(member)</th><th>Wins</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="label">hu_ha</td><td>dev</td><td class="up">+0.008</td><td>7/11</td><td class="down">−0.007</td><td>3/11</td></tr>
+          <tr><td class="label">hu_ha</td><td>split</td><td class="up">+0.013</td><td>10/11</td><td class="up">+0.007</td><td>7/11</td></tr>
+          <tr class="rule-top"><td class="label">instructions</td><td>dev</td><td class="up">+0.065</td><td>9/11</td><td class="down">−0.016</td><td>1/11</td></tr>
+          <tr><td class="label">instructions</td><td>split</td><td class="up">+0.063</td><td>9/11</td><td class="down">−0.040</td><td>2/11</td></tr>
+          <tr class="rule-top hi"><td class="label">highstakes</td><td>dev</td><td class="up">+0.056</td><td>11/11</td><td class="up">+0.020</td><td>9/11</td></tr>
+          <tr class="hi"><td class="label">highstakes</td><td>split</td><td class="up">+0.068</td><td>11/11</td><td class="up">+0.037</td><td>11/11</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Highstakes is the only concept where pooling is doing something other than averaging — and there it is unambiguous, winning every cell under <code>split</code> validation.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">Split by split</div>
+    <h2>All four generators against the best single one</h2>
+    <p>Pooled means average over splits, which can hide a pool that wins on one and loses on another. These are the per-split numbers under <code>val=split</code>.</p>
+
+    <div class="tablewrap">
+      <table>
+        <caption><strong>highstakes</strong> — all four wins on 4/4 splits, by 0.006 to 0.127.</caption>
+        <thead><tr><th>Training data</th><th>anthropic_hh</th><th>mt</th><th>mts</th><th>toolace</th></tr></thead>
+        <tbody>
+          <tr><td class="label">llama70b alone</td><td>0.957</td><td>0.816</td><td>0.944</td><td>0.861</td></tr>
+          <tr><td class="label">all four</td><td class="up">0.975</td><td class="up">0.943</td><td class="up">0.970</td><td class="up">0.867</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption><strong>instructions</strong> — all four wins on only 2/7 splits, and loses badly on two.</caption>
+        <thead><tr><th>Training data</th><th>ant_refusal</th><th>bbq_sub</th><th>hc_drift</th><th>hc_contra</th><th>mm_sub</th><th>oig_drift</th><th>oig_omission</th></tr></thead>
+        <tbody>
+          <tr><td class="label">llama70b alone</td><td>0.773</td><td>0.933</td><td>0.798</td><td>0.870</td><td>0.911</td><td>0.766</td><td>0.724</td></tr>
+          <tr><td class="label">all four</td><td class="up">0.846</td><td class="down">0.882</td><td class="down">0.648</td><td class="up">0.893</td><td class="down">0.886</td><td class="down">0.696</td><td class="down">0.599</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <caption><strong>hu_ha</strong> — all four wins on 3/4 splits, but only one difference exceeds 0.01.</caption>
+        <thead><tr><th>Training data</th><th>ai_dilemmas</th><th>ant_hh</th><th>balanced_refusal</th><th>daily_dilemmas</th></tr></thead>
+        <tbody>
+          <tr><td class="label">nemotron550b alone</td><td>0.973</td><td>0.723</td><td>0.826</td><td>0.981</td></tr>
+          <tr><td class="label">all four</td><td class="up">0.977</td><td class="zero">0.722</td><td class="up">0.884</td><td class="up">0.989</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Which generator to add</div>
+    <h2>A solo score predicts a marginal contribution — but only within a concept</h2>
+    <p>Each figure is the mean AUROC change from adding that generator to a pool, averaged over the seven non-empty subsets of the other three, so every generator is scored against the same seven baselines.</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Generator</th><th>Validation</th><th>highstakes</th><th>hu_ha</th><th>instructions</th></tr></thead>
+        <tbody>
+          <tr><td class="label">llama8b</td><td>dev</td><td class="up">+0.029</td><td class="down">−0.007</td><td class="up">+0.016</td></tr>
+          <tr><td class="label">llama8b</td><td>split</td><td class="up">+0.036</td><td class="up">+0.004</td><td class="up">+0.045</td></tr>
+          <tr class="rule-top hi"><td class="label">llama70b</td><td>dev</td><td class="up">+0.066</td><td class="down">−0.004</td><td class="up">+0.163</td></tr>
+          <tr class="hi"><td class="label">llama70b</td><td>split</td><td class="up">+0.077</td><td class="up">+0.001</td><td class="up">+0.150</td></tr>
+          <tr class="rule-top"><td class="label">dsv4pro</td><td>dev</td><td class="up">+0.007</td><td class="up">+0.028</td><td class="up">+0.007</td></tr>
+          <tr><td class="label">dsv4pro</td><td>split</td><td class="up">+0.019</td><td class="up">+0.022</td><td class="down">−0.004</td></tr>
+          <tr class="rule-top"><td class="label">nemotron550b</td><td>dev</td><td class="up">+0.027</td><td class="down">−0.004</td><td class="down">−0.011</td></tr>
+          <tr><td class="label">nemotron550b</td><td>split</td><td class="up">+0.024</td><td class="up">+0.005</td><td class="down">−0.021</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid2">
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <h3>Correlation, solo score vs marginal contribution</h3>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Scope</th><th>Pearson</th><th>Spearman</th></tr></thead>
+            <tbody>
+              <tr><td class="label">hu_ha</td><td>+0.716</td><td>+0.762</td></tr>
+              <tr><td class="label">instructions</td><td>+0.967</td><td>+0.786</td></tr>
+              <tr><td class="label">highstakes</td><td>+0.890</td><td>+0.881</td></tr>
+              <tr class="rule-top"><td class="label">all concepts pooled</td><td class="down">+0.239</td><td class="down">+0.274</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <h3>There is no generally useful generator</h3>
+        <p style="color:var(--muted);font-size:.94rem"><code>llama70b</code> is worth +0.15 on instructions and roughly nothing on hu_ha. <code>dsv4pro</code> is the only generator with a positive contribution on hu_ha, and is worth +0.007/−0.004 on instructions.</p>
+        <p style="color:var(--muted);font-size:.94rem">This is the same ranking inversion the solo-score study found, reappearing in a completely different set of probes fit on different data — which makes it a consistency check on both results rather than a repeat of one.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Headroom</div>
+    <h2>Best pool against the concept's ceiling</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Concept</th><th>Best single</th><th></th><th>Best pool</th><th></th><th>All four</th><th>Ceiling</th></tr></thead>
+        <tbody>
+          <tr><td class="label">hu_ha</td><td>dsv / dev</td><td>0.888</td><td>l8b+l70b+dsv / dev</td><td>0.895</td><td>0.893</td><td class="zero">0.977</td></tr>
+          <tr><td class="label">instructions</td><td>l70b / split</td><td>0.825</td><td>l70b / split</td><td>0.825</td><td class="down">0.779</td><td class="zero">0.946</td></tr>
+          <tr class="hi"><td class="label">highstakes</td><td>l70b / dev</td><td>0.900</td><td>all four / split</td><td class="up">0.939</td><td class="up">0.939</td><td class="zero">0.963</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Two hundred synthetic rows land within <strong>0.024</strong> of the high-stakes ceiling — a probe of the same family trained on eval-distribution data. On the other two concepts the pooling gain closed nothing: they were already at the plateau a 50-row cut reaches.</p>
+    <p class="note">The ceiling is a pooled-across-splits AUROC on a balanced 100-per-class subsample, not a mean of per-split AUROCs. Read it as a reference point rather than a directly comparable cell.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">The smallest term</div>
+    <h2>Validation source costs 40× and moves ±0.02</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Concept</th><th>Mean dev − split</th><th>Mean abs diff</th><th>dev wins</th><th>Dev set</th><th>Dev fit</th><th>Split fit</th></tr></thead>
+        <tbody>
+          <tr><td class="label">hu_ha</td><td>−0.006</td><td>0.010</td><td>4/15</td><td>290 rows</td><td>9s</td><td>2s</td></tr>
+          <tr><td class="label">instructions</td><td>−0.019</td><td>0.026</td><td>6/15</td><td>436 rows</td><td>10s</td><td>3s</td></tr>
+          <tr><td class="label">highstakes</td><td>+0.003</td><td>0.013</td><td>8/15</td><td>1908 rows</td><td>79s</td><td>2s</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The <code>dev</code> arm scores the whole held-out dev set every epoch, which on high-stakes' 1908 rows is a 79-second median fit against 2 seconds for the 0.2 split. That is a poor trade for ±0.02 at this scale — but the reason to use a fixed dev set is comparability across retraining iterations, not accuracy, and these numbers leave that reason untouched.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">Full matrix</div>
+    <h2>Every pool, both validation sources, all three concepts</h2>
+    <div class="tablewrap" style="max-height:560px">
+      <table>
+        <thead><tr><th>Pool</th><th>Validation</th><th>hu_ha</th><th>instructions</th><th>highstakes</th></tr></thead>
+        <tbody>
+          <tr><td class="label">l8b</td><td>dev</td><td>0.851</td><td>0.633</td><td>0.874</td></tr>
+          <tr><td class="label">l8b</td><td>split</td><td>0.871</td><td>0.678</td><td>0.828</td></tr>
+          <tr><td class="label">l70b</td><td>dev</td><td>0.852</td><td>0.778</td><td>0.900</td></tr>
+          <tr><td class="label">l70b</td><td>split</td><td>0.855</td><td class="up">0.825</td><td>0.895</td></tr>
+          <tr><td class="label">dsv</td><td>dev</td><td>0.888</td><td>0.570</td><td>0.792</td></tr>
+          <tr><td class="label">dsv</td><td>split</td><td>0.871</td><td>0.562</td><td>0.818</td></tr>
+          <tr><td class="label">nem</td><td>dev</td><td>0.875</td><td>0.574</td><td>0.835</td></tr>
+          <tr><td class="label">nem</td><td>split</td><td>0.876</td><td>0.574</td><td>0.811</td></tr>
+          <tr class="rule-top"><td class="label">l8b+l70b</td><td>dev</td><td>0.852</td><td>0.754</td><td>0.895</td></tr>
+          <tr><td class="label">l8b+l70b</td><td>split</td><td>0.864</td><td>0.803</td><td>0.908</td></tr>
+          <tr><td class="label">l8b+dsv</td><td>dev</td><td>0.887</td><td>0.617</td><td>0.868</td></tr>
+          <tr><td class="label">l8b+dsv</td><td>split</td><td>0.884</td><td>0.682</td><td>0.870</td></tr>
+          <tr><td class="label">l8b+nem</td><td>dev</td><td>0.856</td><td>0.581</td><td>0.896</td></tr>
+          <tr><td class="label">l8b+nem</td><td>split</td><td>0.875</td><td>0.619</td><td>0.894</td></tr>
+          <tr><td class="label">l70b+dsv</td><td>dev</td><td>0.893</td><td>0.772</td><td>0.911</td></tr>
+          <tr><td class="label">l70b+dsv</td><td>split</td><td class="up">0.894</td><td>0.752</td><td>0.925</td></tr>
+          <tr><td class="label">l70b+nem</td><td>dev</td><td>0.857</td><td>0.746</td><td>0.928</td></tr>
+          <tr><td class="label">l70b+nem</td><td>split</td><td>0.863</td><td>0.764</td><td>0.915</td></tr>
+          <tr><td class="label">dsv+nem</td><td>dev</td><td>0.892</td><td>0.568</td><td>0.851</td></tr>
+          <tr><td class="label">dsv+nem</td><td>split</td><td>0.887</td><td>0.555</td><td>0.823</td></tr>
+          <tr class="rule-top"><td class="label">l8b+l70b+dsv</td><td>dev</td><td class="up">0.895</td><td>0.775</td><td>0.932</td></tr>
+          <tr><td class="label">l8b+l70b+dsv</td><td>split</td><td>0.891</td><td>0.780</td><td>0.927</td></tr>
+          <tr><td class="label">l8b+l70b+nem</td><td>dev</td><td>0.856</td><td>0.773</td><td>0.936</td></tr>
+          <tr><td class="label">l8b+l70b+nem</td><td>split</td><td>0.868</td><td>0.766</td><td>0.934</td></tr>
+          <tr><td class="label">l8b+dsv+nem</td><td>dev</td><td>0.881</td><td>0.646</td><td>0.889</td></tr>
+          <tr><td class="label">l8b+dsv+nem</td><td>split</td><td>0.890</td><td>0.686</td><td>0.899</td></tr>
+          <tr><td class="label">l70b+dsv+nem</td><td>dev</td><td>0.883</td><td>0.767</td><td>0.928</td></tr>
+          <tr><td class="label">l70b+dsv+nem</td><td>split</td><td>0.888</td><td>0.765</td><td>0.933</td></tr>
+          <tr class="rule-top"><td class="label">l8b+l70b+dsv+nem</td><td>dev</td><td>0.865</td><td>0.744</td><td>0.935</td></tr>
+          <tr class="hi"><td class="label">l8b+l70b+dsv+nem</td><td>split</td><td>0.893</td><td>0.779</td><td class="up">0.939</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">Highlighted cells are each concept's best. <code>l8b</code> = llama8b, <code>l70b</code> = llama70b, <code>dsv</code> = dsv4pro, <code>nem</code> = nemotron550b.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">Method</div>
+    <h2>How 90 probes were fitted without loading a model once</h2>
+    <p>Each generator's conversations were already extracted into a master activation blob by the earlier solo-score run. The train/validation split is <em>content-deterministic</em> — a conversation falls on the same side of the line in every pool it appears in — so each pool's cache blob could be assembled by addressing rows in those masters by conversation content and padding them to a common width. Every fit then found its cache populated.</p>
+    <p>That claim is verified rather than asserted: a singleton pool's training file is byte-identical to that generator's own cut, so its probe must reproduce the earlier run exactly. Across all <strong>24</strong> comparable arms, the largest absolute per-split AUROC difference is <strong>0.00e+00</strong>.</p>
+    <p>The evaluation was restructured the same way. Scoring one probe at a time re-reads a split's activations for every probe, which for high-stakes means 46&nbsp;GB read thirty times over. Instead each split is read once and all thirty of that concept's probes are scored against it, using the same metric function as the standard evaluator.</p>
+
+    <details>
+      <summary>Caveats worth carrying</summary>
+      <div class="details-body">
+        <p><strong>Each cell is one probe, not a distribution.</strong> There is no seed replication here, and a companion study measured single-probe seed-to-seed movement of up to 0.055 AUROC on this same data. Differences below roughly 0.02 should be read as noise — which is most of hu_ha.</p>
+        <p><strong>Pool size is confounded with row count.</strong> A four-generator pool has both more diversity <em>and</em> four times the rows of a single cut, and this design cannot separate the two. A size-matched control — 200 rows from a single generator — is what would.</p>
+        <p><strong>The gradient-accumulation guard is load-bearing.</strong> The default architecture steps the optimizer only every fourth batch with no end-of-epoch flush, so a training set yielding fewer than four batches returns a probe at its initialization. Every ~40-row arm here would hit that exactly; the accumulation is capped at the batch count, which is a no-op for any fit with four or more.</p>
+      </div>
+    </details>
+  </section>
+
+  <footer>
+    90 single probes · google/gemma-3-27b-it layer 32 · linear_then_softmax · seed 42<br>
+    Full splits scored off precomputed activations · every figure computed from the eval CSVs, none typed in
+  </footer>
+
+</div>

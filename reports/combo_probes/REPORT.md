@@ -1,6 +1,6 @@
 # Pooled generators — one single probe per subset of the four synthetic cuts
 
-_Generated 2026-08-24 11:25:31Z._
+_Generated 2026-08-24 13:30:44Z._
 
 ## What is being measured
 
@@ -22,6 +22,11 @@ ensembles — crossed with the two validation sources:
 30 probes per concept, 90 in total. `google/gemma-3-27b-it`
 layer 32, `linear_then_softmax`, seed 42, scored on full eval splits off precomputed
 activations. Every cell below is mean AUROC over that concept's eval splits.
+
+A standalone reading version of these results — same numbers, laid out for the eye —
+is [`pooling-generators.html`](pooling-generators.html). It is a hand-written
+**snapshot**, not a generated file: if a rerun changes the numbers below, that page
+does not follow.
 
 ## Mean AUROC by pool and validation source
 
