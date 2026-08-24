@@ -2,7 +2,7 @@
 # ARM 3 (MEMO + A ONE-KIND EVAL-DATA DESCRIPTION) — experiment23's memo-ladder arm 3 re-run
 # with the eval-data description narrowed to a SINGLE data kind (ant_hh) and written from that
 # split itself. HUMAN-HARM concept, probe = a 10-MEMBER DEEP ENSEMBLE over
-# google/gemma-3-27b-it (L32), validated against a HELD-OUT DEV SET, run for TEN iterations.
+# google/gemma-3-27b-it (L32), validated against a HELD-OUT DEV SET, run for FIVE iterations.
 #
 # WHERE THIS SITS. experiment23 ran a three-rung ladder, one attacker (openai/gpt-oss-120b),
 # each rung adding exactly one channel:
@@ -67,7 +67,7 @@
 #     batch_target: 30          unchanged in value; see the note on it below, it is now inert
 #
 # VOLUME: 3 sessions x 5 conversations x 5 rounds = 75 attempts per error type per
-# iteration, x2 error types = 150/iteration, x10 iterations = ~1500 attempts per arm (vs
+# iteration, x2 error types = 150/iteration, x5 iterations = ~750 attempts per arm (vs
 # experiment20/22's ~500/iteration over 5 iterations = ~2500). So each retrain sees FEWER new
 # successes than those runs did, and there are twice as many retrains: the training set grows
 # in smaller steps over a longer arc. Read the comparison CSVs as a curve, not as endpoints —
@@ -112,8 +112,8 @@ attacker:
                                   #   a --resume.
                                   #   Independent of round_summaries (on by default), whose memo RESETS at
                                   #   every iteration — that reset is exactly what this bridges.
-                                  #   At --iterations 10 there are NINE boundaries for it to cross, twice
-                                  #   experiment20's four.
+                                  #   At --iterations 5 there are FOUR boundaries for it to cross —
+                                  #   the same number experiment20/22 gave it.
   cross_iteration_memo_word_budget: 150   # default 900, which is the wrong number here: at
                                   #   judge.max_tokens: 1024 (~625 words at this register's measured 0.61
                                   #   words/token) a 900-word memo is guillotined mid-sentence, and it is
@@ -266,8 +266,8 @@ validation:
                                    #      successes lands in validation, so the set the fit
                                    #      early-stops against changes shape at every retrain and
                                    #      iteration N's checkpoint is not selected against the
-                                   #      same data as iteration N-1's. Over TEN iterations that
-                                   #      drift would be worse than it was over five.
+                                   #      same data as iteration N-1's. Fixing it matters at any
+                                   #      iteration count; it simply compounds with more of them.
                                    #   2. The base data AND the red-team successes now train IN
                                    #      FULL — nothing is held out of either.
                                    #   --test-size / --split-field are IGNORED while this is set

@@ -3,7 +3,7 @@ set -e
 
 # TWO ARMS: experiment23's memo-ladder ARM 3 re-run twice with `eval.data_description`
 # narrowed to a SINGLE eval split — a DIFFERENT split in each arm. HUMAN-HARM concept,
-# attacking a 10-MEMBER DEEP ENSEMBLE over google/gemma-3-27b-it (L32), for TEN iterations,
+# attacking a 10-MEMBER DEEP ENSEMBLE over google/gemma-3-27b-it (L32), for FIVE iterations,
 # with the probe fit validated against a HELD-OUT DEV SET (dev_samples/hu_ha).
 #
 #                              cross_iteration_memos   eval.data_description   probe.description
@@ -48,7 +48,7 @@ set -e
 #     batch_target: 30          inert: a round produces at most 3 x 5 = 15 attempts
 #
 # VOLUME: 15 attempts/round x 5 rounds = 75 per error type per iteration, x2 error types =
-# 150/iteration, x10 iterations = ~1500 attempts.
+# 150/iteration, x5 iterations = ~750 attempts per arm.
 #
 # WHERE IT WRITES:
 #   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_anthh.md
@@ -114,7 +114,7 @@ echo ">>> HF token: present (${#HF_TOKEN} chars)"
 #
 # Why pin at all: every tuberlens load uses device_map="auto", and UNPINNED accelerate infers
 # the budget from whatever is FREE AT LOAD TIME. The model is reloaded on every red-team
-# rotation and every retrain — 10 iterations x 2 error types x 2 arms of them here — so one unlucky
+# rotation and every retrain — 5 iterations x 2 error types x 2 arms of them here — so one unlucky
 # reload silently shifts the split and spills the executed tail to DISK. Measured elsewhere in
 # this repo at 48-264 s/sample against ~2.8 s/sample resident.
 #
@@ -132,7 +132,7 @@ echo ">>> max_memory pinned: $AGENTIC_REDTEAM_MAX_MEMORY (placement only — doe
 # Defaults to 0 = SEQUENTIAL, matching experiment21/22/23, so this run's probes are fit on the
 # same path those runs' were and the CSVs stay directly readable against them. That costs
 # wall-clock: the fused path stacks the 10 members and steps them under vmap (measured 3.8x on
-# a comparable shape), and this runs 10 retrains per arm, 20 in all.
+# a comparable shape), and this runs 5 retrains per arm, 10 in all.
 #
 # Export PROBE_FUSED_ENSEMBLE=1 before launching to take that speedup. What it costs is exact
 # comparability of the probes themselves with experiment21/22/23, which ran sequential: the
@@ -161,9 +161,11 @@ OUTAGE_EXIT_CODE=3   # cli.OUTAGE_EXIT_CODE — "OpenRouter is unusable"
 run_arm () {  # $1 = config, $2 = probe-out-dir, $3 = logfile
     echo ">>> $(date -Is)  START $1  -> $2   (log: $3)"
     local rc=0
-    # --iterations 10: ten red-team → retrain → eval cycles, i.e. NINE iteration boundaries for
-    # the cross-iteration memo to cross. Same as experiment23, so the curves are the same
-    # length, and identical in both arms — the arms differ in one config block, nothing else.
+    # --iterations 5: five red-team → retrain → eval cycles, i.e. FOUR iteration boundaries for
+    # the cross-iteration memo to cross — the same number experiment20/22 gave it, and half
+    # experiment23's. Identical in both arms: the arms differ in one config block, nothing
+    # else. Note this makes each arm's comparison CSV five rows where experiment23's arm 3 has
+    # ten, so read the two as curves over iterations, not endpoint against endpoint.
     #
     # NOT passing --ensemble-size or --dev-data here on purpose. Both flags OVERRIDE the config
     # (precedence is flag > config), and both are properties of the probe both arms share, so
@@ -172,7 +174,7 @@ run_arm () {  # $1 = config, $2 = probe-out-dir, $3 = logfile
     # edit. --test-size / --split-field are likewise absent: dev_data makes retrain.py ignore
     # them.
     .venv_claude/bin/python scripts/iterative_retrain.py "$1" \
-        --iterations 10 \
+        --iterations 5 \
         --base-training-data data/hu_harm_llama70b_50.jsonl \
         --probe-out-dir "$2" \
         --eval --eval-dataset-dir eval_sets/hu_ha \

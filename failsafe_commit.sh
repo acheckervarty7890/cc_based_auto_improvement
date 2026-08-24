@@ -60,8 +60,8 @@
 #                      probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal
 #                      logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal.log
 #
-# NOTE each arm runs TEN iterations, so a stage is long: the poller's per-marker and
-# per-probe checkpoints matter more here than they did on the 5-iteration runs.
+# NOTE each arm runs FIVE iterations, so a stage is still hours long: the poller's
+# per-marker and per-probe checkpoints are what make a wiped container resumable.
 #
 # Typical use on the remote box (two terminals / two nohups):
 #
