@@ -4,9 +4,9 @@
 # RESUMED after the container is wiped.
 #
 # MULTI-STAGE: one poller covers a whole sequence of runs. Here it is configured
-# for the TWO stages launched by run_gemma27b_hu_harm_evaldesc_arms.sh
-# (experiment23 arm 3 re-run twice with a one-split eval.data_description —
-# ant_hh, then balanced_refusal).
+# for the TWO stages launched by run_gemma27b_instructions_evaldesc_arms.sh
+# (the instruction-following concept with a one-split eval.data_description —
+# oig_omission, then oig_context_drift).
 # You give it N stages —
 # each a (config, probe-out-dir, log-file) triple, in launch order — and it polls
 # stage 1's artifacts until that run FINISHES, then automatically hands itself
@@ -26,7 +26,7 @@
 # checkpoints on top of it. One experiment (all its stages) per branch.
 #
 # This is a STANDALONE poller: you launch the training yourself (as in
-# run_gemma27b_hu_harm_evaldesc_arms.sh), then start this alongside it. It watches the
+# run_gemma27b_instructions_evaldesc_arms.sh), then start this alongside it. It watches the
 # ACTIVE stage's --probe-out-dir for red-team **phase markers**
 # (redteam_done_iter*.marker) and newly retrained probes (probe_iter*.pkl) — the
 # exact points cli.py's --resume keys off — and, on every new one, force-adds all
@@ -49,31 +49,31 @@
 # Exit: once the LAST stage finishes, the poller makes a final commit and exits 0.
 # Stopping it early by hand (Ctrl-C / kill) also makes a final commit via the trap.
 #
-# Defaults target the TWO arms launched by run_gemma27b_hu_harm_evaldesc_arms.sh, in that
-# order: experiment23's memo-ladder arm 3 (human-harm concept, gemma-3-27b-it L32, 10-member
-# ensemble, attacker openai/gpt-oss-120b) re-run twice with `eval.data_description` narrowed
-# to ONE eval split, a different split each time:
-#   stage 1 (ant_hh)   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_anthh.md
-#                      probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh
-#                      logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh.log
-#   stage 2 (refusal)  configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_refusal.md
-#                      probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal
-#                      logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal.log
+# Defaults target the TWO arms launched by run_gemma27b_instructions_evaldesc_arms.sh, in
+# that order: the instruction-following concept (gemma-3-27b-it L32, 10-member ensemble,
+# attacker openai/gpt-oss-120b, blind + batch) run twice with `eval.data_description`
+# narrowed to ONE eval split, a different split each time:
+#   stage 1 (omission)  configs/gptoss120b_instructions_gemma27b_evaldesc_omission.md
+#                       probes/instructions_gemma27b_evaldesc_omission
+#                       logs/run_instructions_gemma27b_evaldesc_omission.log
+#   stage 2 (drift)     configs/gptoss120b_instructions_gemma27b_evaldesc_drift.md
+#                       probes/instructions_gemma27b_evaldesc_drift
+#                       logs/run_instructions_gemma27b_evaldesc_drift.log
 #
-# NOTE each arm runs TEN iterations, so a stage is long: the poller's per-marker and
-# per-probe checkpoints matter more here than they did on the 5-iteration runs.
+# Each arm runs FIVE iterations at ~250 attempts per error type per iteration, so a stage is
+# long and the per-marker / per-probe checkpoints are what make a wiped container cheap.
 #
 # Typical use on the remote box (two terminals / two nohups):
 #
 #   # 0) check out this experiment's branch (the failsafe pushes onto whatever is
 #   #    checked out — it does NOT create or switch branches for you). For this
-#   #    experiment that branch is experiment24_cloud.
-#   git fetch origin && git checkout experiment24_cloud
+#   #    experiment that branch is experiment25_cloud.
+#   git fetch origin && git checkout experiment25_cloud
 #
 #   # 1) launch BOTH arms (the runner runs them sequentially)
-#   nohup bash run_gemma27b_hu_harm_evaldesc_arms.sh > logs/run_evaldesc_arms.out 2>&1 &
+#   nohup bash run_gemma27b_instructions_evaldesc_arms.sh > logs/run_evaldesc_arms.out 2>&1 &
 #
-#   # 2) launch the ONE failsafe — it follows arm 3a, then 3b, then exits.
+#   # 2) launch the ONE failsafe — it follows the omission arm, then the drift arm, then exits.
 #   nohup bash failsafe_commit.sh > logs/failsafe_commit.out 2>&1 &
 #
 # Single-run (old) usage is unchanged — pass one triple:
@@ -87,7 +87,7 @@
 #       --config configs/b.md --probe-out-dir probes/b --log-file logs/b.log
 #
 # To RESUME on a fresh container (check out the same branch you pushed to):
-#   git fetch origin && git checkout experiment24_cloud
+#   git fetch origin && git checkout experiment25_cloud
 #   # then re-run the SAME runner/iterative_retrain.py command with --resume
 #   # (default); it picks up from the latest probe_iterN.pkl and skips red-team
 #   # phases whose markers were committed. Restarting this failsafe on that branch
@@ -103,16 +103,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 CONFIGS=(
-    "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_anthh.md"
-    "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_refusal.md"
+    "configs/gptoss120b_instructions_gemma27b_evaldesc_omission.md"
+    "configs/gptoss120b_instructions_gemma27b_evaldesc_drift.md"
 )
 PROBE_DIRS=(
-    "probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh"
-    "probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal"
+    "probes/instructions_gemma27b_evaldesc_omission"
+    "probes/instructions_gemma27b_evaldesc_drift"
 )
 LOG_FILES=(
-    "logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh.log"
-    "logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal.log"
+    "logs/run_instructions_gemma27b_evaldesc_omission.log"
+    "logs/run_instructions_gemma27b_evaldesc_drift.log"
 )
 
 REMOTE="origin"

@@ -211,8 +211,9 @@ class LLMJudge:
     # It says nothing about which label the caller is hoping for, so the judge
     # stays unbiased; see `_concept_block`.
     probe_description: str = ""
-    # OPTIONAL free text describing the EVAL DATA the classifier is scored on — in
-    # particular the distinct KINDS of conversation its splits hold. Unlike
+    # OPTIONAL free text describing the EVAL DATA the classifier is scored on — on
+    # this branch, ONE kind of conversation, including any surface cue that runs
+    # with the label in it (see `_round_coverage_paragraph`). Unlike
     # `probe_description`, which says what the labels MEAN and is therefore needed to
     # classify at all, this says nothing about the concept, so it is deliberately kept
     # OUT of the classification prompt: describing the test set to the labeller could
@@ -855,19 +856,26 @@ def _round_coverage_paragraph(eval_data_description: str) -> str:
     wording if that is what you want.
 
     The description may also name a surface feature CONFOUNDED with the label in the
-    data — as the balanced_refusal arm's does, where the non-harmful side is almost
-    entirely bare refusals. Where it does, that line is what lets the memo tell a
-    finding about the concept from a finding about the artefact, so this paragraph
-    asks for it. Where it does not — as the ant_hh arm's does not — the clause yields
-    nothing and costs one sentence; nothing here requires such a statement.
+    data — as both of the instruction arms' do, where the not-following side is either
+    the shorter reply (oig_omission) or a restatement of the previous one
+    (oig_context_drift). Where it does, that line is what lets the memo tell a finding
+    about the concept from a finding about the artefact, so this paragraph asks for it.
+    Where a description names no such cue the clause yields nothing and costs one
+    sentence; nothing here requires such a statement.
+
+    The wording is concept-agnostic on purpose — "either side of the label", not the
+    concept's own class names — so the same paragraph serves a harm probe and an
+    instruction-following one. The concept's meaning reaches the prompt through
+    `probe_description`; this paragraph only says how to read evidence against the data.
 
     Kept deliberately narrow. An earlier version also carried a guard against inferring
     "same request, different reply, therefore the classifier reads the reply" from data
-    the description called UNPAIRED, and cited a length cue as an example confound. Both
-    arms' descriptions were since trimmed to semantics only — no pairing, no counts, no
-    lengths — so neither could fire, and prompt text that cannot fire is still text the
-    model reads past. Restore them from git history if a description states pairing or
-    lengths again.
+    the description called UNPAIRED, and cited a length cue as an example confound. The
+    descriptions in use were since trimmed to semantics only — no pairing, no counts, no
+    lengths — so neither clause could fire, and prompt text that cannot fire is still
+    text the model reads past. Restore them from git history if a description states
+    pairing or lengths again. (oig_context_drift IS fully paired, but its description
+    says so only in the config's comments, not in the prompt text.)
     """
     if not (eval_data_description or "").strip():
         return ""
@@ -882,9 +890,9 @@ def _round_coverage_paragraph(eval_data_description: str) -> str:
         "about where the classifier is scored — name that difference rather than "
         "blurring it, and do not count such samples as having examined the data. Where "
         "the round's samples do match the shape, say what within it remains untried — "
-        "which requests, which kinds of reply, which ways of being harmful or harmless "
-        "— and give each a concrete opening: an actual request, an actual reply, not a "
-        "general direction.\n\n"
+        "which requests, which kinds of reply, which ways of landing on either side of "
+        "the label — and give each a concrete opening: an actual request, an actual "
+        "reply, not a general direction.\n\n"
         "Where the Task context names a surface cue that runs with the label in this "
         "data, or warns that one misleads, read the round's evidence against it. A "
         "pattern that matches such a cue is the WEAKER reading of the evidence, not the "
@@ -914,8 +922,9 @@ def _iteration_coverage_paragraph(eval_data_description: str) -> str:
         "much did not — evidence drawn from conversations unlike it settles nothing "
         "about where the classifier is scored and must not be counted as coverage. "
         "Then name what inside the shape has not been tried: which requests, which "
-        "kinds of reply, which ways of being harmful or harmless, each with a concrete "
-        "opening rather than a general direction. Where the Task context names a "
+        "kinds of reply, which ways of landing on either side of the label, each with "
+        "a concrete opening rather than a general direction. Where the Task context "
+        "names a "
         "surface cue that runs with the label in this data, treat a conclusion that is "
         "fully explained by that cue as NOT yet established — a cycle whose evidence is "
         "entirely accounted for by the cue has not examined the concept, however many "

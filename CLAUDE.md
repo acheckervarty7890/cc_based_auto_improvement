@@ -394,15 +394,17 @@ eval:                                 # OPTIONAL: dataset message transforms app
   convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
   eval_max_samples: int               # balanced subsample per eval split (0 = full split). Unset (None)
                                       #   → the CLI's --eval-max-samples default; the flag overrides.
-  data_description: str               # OPTIONAL free text: what the EVAL SPLITS hold — in particular the
-                                      #   distinct KINDS of conversation the probe is scored on. Changes no
-                                      #   data path; it is prompt material for the judge's two SUMMARIZERS
-                                      #   only (never its classification prompt). When set, both memos are
-                                      #   organized around those kinds and must name the ones a round /
-                                      #   cycle left untouched — the memos being the only channel into a
-                                      #   later attacker session, this is where eval coverage gets steered.
-                                      #   Unset ⇒ every judge prompt is byte-identical to what it was
-                                      #   before this knob existed.
+  data_description: str               # OPTIONAL free text: what the EVAL DATA holds — on this branch ONE
+                                      #   kind of conversation (what its labels mean, what each side looks
+                                      #   like, and any surface cue that runs with the label there).
+                                      #   Changes no data path; it is prompt material for the judge's two
+                                      #   SUMMARIZERS only (never its classification prompt). When set,
+                                      #   both memos are measured against that kind — how much of a round's
+                                      #   / cycle's evidence had that shape, what within it is untried, and
+                                      #   whether a finding is fully explained by the named cue. The memos
+                                      #   being the only channel into a later attacker session, this is
+                                      #   where coverage gets steered. Unset ⇒ every judge prompt is
+                                      #   byte-identical to what it was before this knob existed.
 kaggle:                               # OPTIONAL: pull PRECOMPUTED eval activations from Kaggle
   owner: <kaggle username>            #   instead of extracting them (see kaggle_activations.py).
   eval_dataset_slug: <template>       #   slug + file templates, formatted with BOTH `split=<split stem>`
@@ -684,9 +686,11 @@ before the description was threaded in.
 **The summarizers can also be shown what the EVAL DATA holds**
 (`LLMJudge.eval_data_description` ← the config's `eval.data_description`, threaded in by
 `run_redteam` — it is a property of the run's eval splits, not of the probe, so unlike
-the concept description it is *not* read off the pickle). It is for a description that
-enumerates the distinct **kinds of conversation** the probe is scored on — one per eval
-split, typically. Where it lands and why:
+the concept description it is *not* read off the pickle). **On this branch the coverage
+paragraphs assume it describes ONE kind of conversation** — typically a single eval split:
+what its two labels mean, an example on each side, and any surface cue that runs with the
+label there. (Main's versions assume several and steer for breadth across them; a
+multi-kind description set here would be steered for depth instead.) Where it lands and why:
 
 - **Both summarizers, never the classifier.** It is rendered as one extra
   `## Task context` bullet (`_eval_data_context_line`, continuation lines indented so an
@@ -699,11 +703,15 @@ split, typically. Where it lands and why:
   reach classification because the judge is the source of truth for what the labels
   mean, whereas describing the *test set* to the labeller could only move the labelling
   function.
-- **What the paragraphs ask for.** That the named kinds become the write-up's
-  coordinates: which kinds this round's/cycle's evidence actually came from, which were
-  left untouched, and a concrete opening (a role, a request, a situation) for each of
-  those — with breadth across the kinds worth more than another variant of whichever one
-  the last round found easiest.
+- **What the paragraphs ask for.** That the described kind becomes the write-up's
+  yardstick: how much of this round's/cycle's evidence actually consisted of
+  conversations of that shape (evidence unlike it is not coverage and must be named as
+  such), what *within* the shape is still untried — each with a concrete opening, an
+  actual request and an actual reply rather than a general direction — and, where the
+  description names a surface cue that runs with the label, that a finding fully
+  explained by that cue is reported as the WEAKER reading, together with what would
+  separate the two readings. The wording is concept-agnostic ("either side of the
+  label"), so the same paragraphs serve a harm probe and an instruction-following one.
 - **Why the memo is the place to do it.** Under `view_limit: 0` + `batch_submissions` a
   session sees no past attempts and no verdicts, so the rolling and cross-iteration
   memos are the *only* thing crossing into an attacker session. Steering the memo is the

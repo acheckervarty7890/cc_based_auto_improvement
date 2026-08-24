@@ -293,16 +293,17 @@ class EvalConfig:
       full split). ``None`` means "unset in config" so the CLI falls back to
       its ``--eval-max-samples`` default; the ``--eval-max-samples`` flag, when
       passed, overrides this.
-    - ``data_description``: OPTIONAL free text describing what the eval splits
-      hold — in particular the distinct KINDS of conversation the probe is
-      scored on. It changes no data path at all; it is prompt material, handed
+    - ``data_description``: OPTIONAL free text describing what the eval data
+      holds — on this branch, ONE kind of conversation: what its two labels
+      mean, what each side looks like, and any surface cue that runs with the
+      label there. It changes no data path at all; it is prompt material, handed
       to the judge's two SUMMARIZERS (never to its classification prompt, which
       must not learn about the test set) so the rolling and cross-iteration
-      memos are organized around those kinds and name the ones a round or cycle
-      left untouched. The memos are what a later attacker session reads, so this
-      is the one place coverage across the eval splits can be steered. Unset
-      (the default), every judge prompt is byte-identical to what it was before
-      this knob existed.
+      memos are measured against that kind — how much of a round's or cycle's
+      evidence actually had that shape, and what within the shape is still
+      untried. The memos are what a later attacker session reads, so this is the
+      one place coverage can be steered. Unset (the default), every judge prompt
+      is byte-identical to what it was before this knob existed.
     """
 
     combine_consecutive_messages: bool = False
