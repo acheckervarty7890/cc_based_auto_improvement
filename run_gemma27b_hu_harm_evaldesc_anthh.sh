@@ -1,26 +1,29 @@
 #!/usr/bin/env bash
 set -e
 
-# ONE ARM: experiment23's memo-ladder ARM 3 re-run with `eval.data_description` REWRITTEN
-# FROM THE SPLITS THEMSELVES. HUMAN-HARM concept, attacking a 10-MEMBER DEEP ENSEMBLE over
-# google/gemma-3-27b-it (L32), for TEN iterations, with the probe fit validated against a
-# HELD-OUT DEV SET (dev_samples/hu_ha).
+# ONE ARM: experiment23's memo-ladder ARM 3 re-run with `eval.data_description` narrowed to a
+# SINGLE data kind (ant_hh) and written from that split itself. HUMAN-HARM concept, attacking
+# a 10-MEMBER DEEP ENSEMBLE over google/gemma-3-27b-it (L32), for TEN iterations, with the
+# probe fit validated against a HELD-OUT DEV SET (dev_samples/hu_ha).
 #
 #                                cross_iteration_memos   eval.data_description   probe.description
 #   exp23 ARM 1  control                         false                   unset       one-liner
 #   exp23 ARM 2  memo                             true                   unset       one-liner
 #   exp23 ARM 3  memo + evaldesc                  true    four kinds, 1 line ea.     one-liner
-#   THIS RUN     richer evaldesc                  true    four kinds, MEASURED       one-liner
+#   THIS RUN     ONE-kind evaldesc                true    ant_hh only, MEASURED      one-liner
 #
-# THE QUESTION. exp23's description gave each of the four eval kinds one sentence of gist.
-# This one is written from eval_sets/hu_ha/*.jsonl and adds, per kind, HOW its two classes are
-# constructed (three of the four are PAIRED — same user turn, two assistant replies — so the
-# label is a function of the assistant turn alone there) and WHICH surface feature is
-# CONFOUNDED with the label in it (balanced_refusal's negative class is 200 bare refusals from
-# ~43 templates; daily_dilemmas inverts the length relation; the other two carry none).
-# llm_judge's two coverage paragraphs were extended to make the memo-writer read its evidence
-# against those two facts. So: does a description that names each kind's construction and
-# confound steer coverage better than one that names only the kinds?
+# THE QUESTION. exp23's arm 3 named all four eval_sets/hu_ha splits, so its memos were steered
+# to SPREAD over them. This one names ONE — ant_hh, the ordinary chat exchanges from
+# Anthropic's HH-RLHF corpus — and describes it in depth from the split itself: two-message
+# shape, UNPAIRED (133 distinct prompts / 134 rows, so the label cannot be established by
+# contrast), NO length confound (both classes ~200-220 chars), and register misleading in both
+# directions. llm_judge's coverage paragraphs and questions were rewritten to match — with one
+# kind there is nothing to spread over, so they ask how much of a round's evidence HAD that
+# shape and what within it is untried. So: does concentrating the memo on one kind buy more on
+# that kind than spreading it over four buys overall?
+#
+# THE EVAL IS UNCHANGED — the probe is still scored on all four hu_ha splits and the
+# comparison CSV still reports all four. Only what the memo-writer is told has narrowed.
 #
 # COMPARABILITY TO EXPERIMENT23 IS FULL, on every metric. `probe.description` is unchanged —
 # the same one-line definition every hu_harm arm since experiment17 has carried — so the
@@ -41,9 +44,9 @@ set -e
 # 150/iteration, x10 iterations = ~1500 attempts.
 #
 # WHERE IT WRITES:
-#   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_measured.md
-#     -> results_hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured/
-#        probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured
+#   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_anthh.md
+#     -> results_hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh/
+#        probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh
 #
 # ACTIVATIONS. The shared cache dir (results_hu_harm_gemma27b_batch_ablation/) is the one
 # experiments 11/16/17/20/21/22/23 wrote, and no cache key mentions the memo knobs, the
@@ -55,7 +58,7 @@ set -e
 # Usage:
 #   export OPENROUTER_API_KEY=...
 #   mkdir -p logs
-#   nohup bash run_gemma27b_hu_harm_evaldesc_measured.sh > logs/run_evaldesc_measured.out 2>&1 &
+#   nohup bash run_gemma27b_hu_harm_evaldesc_anthh.sh > logs/run_evaldesc_anthh.out 2>&1 &
 #
 # Checkpointing (so a wiped container can --resume): start failsafe_commit.sh alongside it —
 # its built-in stage list already points at this arm:
@@ -148,9 +151,9 @@ echo ">>>   otherwise filled by this run — eval blobs come from Kaggle, no 27B
 # --- run -------------------------------------------------------------------------------------
 OUTAGE_EXIT_CODE=3   # cli.OUTAGE_EXIT_CODE — "OpenRouter is unusable"
 
-CONFIG=configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_measured.md
-PROBE_DIR=probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured
-LOG=logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_measured.log
+CONFIG=configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_anthh.md
+PROBE_DIR=probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh
+LOG=logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh.log
 
 echo ">>> $(date -Is)  START $CONFIG  -> $PROBE_DIR   (log: $LOG)"
 rc=0
