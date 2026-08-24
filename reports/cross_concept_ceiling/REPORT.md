@@ -1,6 +1,6 @@
 # Cross-concept ceiling
 
-_Generated 2026-08-24 04:20:04Z._
+_Generated 2026-08-24 04:32:42Z._
 
 ## What is being measured
 
@@ -157,6 +157,61 @@ drop of any split when the probe is shared (0.809 aligned, −0.119). `anthropic
 behaves the same way (0.987 → 0.897, −0.090). So the cost of a shared direction is not
 spread evenly: it lands almost entirely on highstakes' two largest splits, which is also
 why highstakes shows the biggest concept-level drop in finding 1.
+
+### 5. The shared probe ranks well and is useless at high precision
+
+AUROC is the whole story above, and it should not be. TPR at 1% FPR, same probes, same
+out-of-fold scores:
+
+| arm | hu_ha | highstakes | instructions |
+| --- | --- | --- | --- |
+| `within/<concept>` | 0.675 | 0.508 | 0.574 |
+| `cross/aligned` | **0.000** | **0.000** | **0.000** |
+| `cross/native` | **0.000** | **0.000** | **0.000** |
+
+Every per-concept ceiling probe recovers half to two-thirds of the positive class while
+allowing 1% false positives. Both cross-concept probes recover **none** — on any concept.
+Pooled accuracy at threshold 0.5 stays respectable (0.871 aligned, 0.810 native), so this
+is not a probe that has failed; it is a probe whose score distribution has no clean
+high-precision tail once three concepts share one direction.
+
+That materially qualifies finding 1. "Collapsing three concepts into one direction costs
+0.011-0.050 AUROC" is true and is the wrong summary if the deployment question is *flag
+the top few percent with confidence* — there, the cost is the entire operating point.
+Whatever the shared direction is doing, it is separating the bulk of the classes without
+preserving the extreme-confidence ordering that each per-concept probe has.
+
+## What `pooled` means (and does not)
+
+The `pooled` / `ALL` row is AUROC over **every row of that arm's own training pool**, from
+each row's single out-of-fold score.
+
+For a `within/<concept>` arm the pool *is* that one concept, so `pooled` is identical to
+that arm's concept row by construction — not a second measurement. Only the two `cross/*`
+arms pool anything: 1486 rows (not 1500 — `mts_balanced` holds 86 rows, so the balanced
+draw takes 43 per class rather than 50), split hu_ha 400 / highstakes 386 /
+instructions 700, and exactly balanced at 743 positive / 743 negative.
+
+**Pooled AUROC is a stricter question than the concept AUROCs, not an average of them.**
+It ranks all 1486 rows on one list and asks whether a row that is its *own* concept's
+positive class outranks rows that are their concepts' negative class, across concept
+boundaries. Per-concept AUROC is invariant to a constant per-concept score offset; pooled
+is not. A probe that pushed every highstakes row above every hu_ha row would leave the
+three concept AUROCs untouched and collapse the pooled one. So `pooled` is what tests
+whether the three concepts land on a **common scale**, not merely whether each is
+separable.
+
+By that test `aligned` passes and `native` does not quite:
+
+| arm | pooled | unweighted mean of its 3 concept AUROCs | delta |
+| --- | --- | --- | --- |
+| `cross/aligned` | 0.937 | 0.936 | **+0.000** |
+| `cross/native` | 0.889 | 0.897 | **-0.008** |
+
+Aligned loses nothing to cross-concept offset. Native pays a small penalty on top of its
+already-lower per-concept scores — which is what a concept whose polarity is fighting the
+other two should look like. (The mean is unweighted and `pooled` is not a weighted average
+of it at all; the comparison is a diagnostic for offset, not an identity.)
 
 ## Method notes
 
