@@ -4,8 +4,9 @@
 # RESUMED after the container is wiped.
 #
 # MULTI-STAGE: one poller covers a whole sequence of runs. Here it is configured
-# for the SINGLE stage launched by run_gemma27b_hu_harm_evaldesc_anthh.sh
-# (experiment23 arm 3 with an ant_hh-only eval.data_description).
+# for the TWO stages launched by run_gemma27b_hu_harm_evaldesc_arms.sh
+# (experiment23 arm 3 re-run twice with a one-split eval.data_description —
+# ant_hh, then balanced_refusal).
 # You give it N stages —
 # each a (config, probe-out-dir, log-file) triple, in launch order — and it polls
 # stage 1's artifacts until that run FINISHES, then automatically hands itself
@@ -25,7 +26,7 @@
 # checkpoints on top of it. One experiment (all its stages) per branch.
 #
 # This is a STANDALONE poller: you launch the training yourself (as in
-# run_gemma27b_hu_harm_evaldesc_anthh.sh), then start this alongside it. It watches the
+# run_gemma27b_hu_harm_evaldesc_arms.sh), then start this alongside it. It watches the
 # ACTIVE stage's --probe-out-dir for red-team **phase markers**
 # (redteam_done_iter*.marker) and newly retrained probes (probe_iter*.pkl) — the
 # exact points cli.py's --resume keys off — and, on every new one, force-adds all
@@ -48,14 +49,18 @@
 # Exit: once the LAST stage finishes, the poller makes a final commit and exits 0.
 # Stopping it early by hand (Ctrl-C / kill) also makes a final commit via the trap.
 #
-# Defaults target the ONE arm launched by run_gemma27b_hu_harm_evaldesc_anthh.sh:
-# experiment23's memo-ladder arm 3 (human-harm concept, gemma-3-27b-it L32, 10-member
-# ensemble, attacker openai/gpt-oss-120b) re-run with `eval.data_description` narrowed to ant_hh:
-#   stage 1  configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_anthh.md
-#            probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh
-#            logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh.log
+# Defaults target the TWO arms launched by run_gemma27b_hu_harm_evaldesc_arms.sh, in that
+# order: experiment23's memo-ladder arm 3 (human-harm concept, gemma-3-27b-it L32, 10-member
+# ensemble, attacker openai/gpt-oss-120b) re-run twice with `eval.data_description` narrowed
+# to ONE eval split, a different split each time:
+#   stage 1 (ant_hh)   configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_anthh.md
+#                      probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh
+#                      logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh.log
+#   stage 2 (refusal)  configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_refusal.md
+#                      probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal
+#                      logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal.log
 #
-# NOTE this arm runs TEN iterations, so the stage is long: the poller's per-marker and
+# NOTE each arm runs TEN iterations, so a stage is long: the poller's per-marker and
 # per-probe checkpoints matter more here than they did on the 5-iteration runs.
 #
 # Typical use on the remote box (two terminals / two nohups):
@@ -65,10 +70,10 @@
 #   #    experiment that branch is experiment24_cloud.
 #   git fetch origin && git checkout experiment24_cloud
 #
-#   # 1) launch the arm
-#   nohup bash run_gemma27b_hu_harm_evaldesc_anthh.sh > logs/run_evaldesc_anthh.out 2>&1 &
+#   # 1) launch BOTH arms (the runner runs them sequentially)
+#   nohup bash run_gemma27b_hu_harm_evaldesc_arms.sh > logs/run_evaldesc_arms.out 2>&1 &
 #
-#   # 2) launch the failsafe — it follows the stage, then exits.
+#   # 2) launch the ONE failsafe — it follows arm 3a, then 3b, then exits.
 #   nohup bash failsafe_commit.sh > logs/failsafe_commit.out 2>&1 &
 #
 # Single-run (old) usage is unchanged — pass one triple:
@@ -99,12 +104,15 @@ cd "$REPO_ROOT"
 
 CONFIGS=(
     "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_anthh.md"
+    "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_s3_itermemo150_evaldesc_refusal.md"
 )
 PROBE_DIRS=(
     "probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh"
+    "probes/hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal"
 )
 LOG_FILES=(
     "logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_anthh.log"
+    "logs/run_hu_harm_gemma27b_gptoss120b_s3_evaldesc_refusal.log"
 )
 
 REMOTE="origin"
