@@ -1,6 +1,6 @@
 # Cross-concept ceiling
 
-_Generated 2026-08-24 00:29:28Z._
+_Generated 2026-08-24 01:09:31Z._
 
 ## What is being measured
 
@@ -39,52 +39,52 @@ the precomputed blobs.
 ## Pooled AUROC (all rows of the arm's own pool)
 
 ```
-arm   cross/native  within/highstakes  within/hu_ha  within/instructions
-name                                                                    
-ALL          0.889              0.963         0.977                0.946
+arm   cross/aligned  cross/native  within/highstakes  within/hu_ha  within/instructions
+name                                                                                   
+ALL           0.937         0.889              0.963         0.977                0.946
 ```
 
 ## AUROC by concept
 
 ```
-arm           cross/native  within/highstakes  within/hu_ha  within/instructions
-name                                                                            
-highstakes           0.900              0.963           NaN                  NaN
-hu_ha                0.930                NaN         0.977                  NaN
-instructions         0.862                NaN           NaN                0.946
+arm           cross/aligned  cross/native  within/highstakes  within/hu_ha  within/instructions
+name                                                                                           
+highstakes            0.913         0.900              0.963           NaN                  NaN
+hu_ha                 0.961         0.930                NaN         0.977                  NaN
+instructions          0.935         0.862                NaN           NaN                0.946
 ```
 
 ## AUROC by eval split
 
 ```
-arm                                      cross/native  within/highstakes  within/hu_ha  within/instructions
-name                                                                                                       
-highstakes/anthropic_hh_balanced                0.858              0.987           NaN                  NaN
-highstakes/mt_balanced                          0.946              0.974           NaN                  NaN
-highstakes/mts_balanced                         0.970              0.959           NaN                  NaN
-highstakes/toolace_balanced                     0.835              0.928           NaN                  NaN
-hu_ha/eval_ai_dilemmas                          0.983                NaN         1.000                  NaN
-hu_ha/eval_ant_hh                               0.847                NaN         0.895                  NaN
-hu_ha/eval_balanced_refusal                     0.920                NaN         0.991                  NaN
-hu_ha/eval_daily_dilemmas                       0.943                NaN         0.999                  NaN
-instructions/anthropic_harmless_refusal         0.946                NaN           NaN                1.000
-instructions/bbq_substitution                   0.922                NaN           NaN                0.985
-instructions/hc_context_drift                   0.994                NaN           NaN                1.000
-instructions/hc_contradiction                   0.891                NaN           NaN                0.966
-instructions/mm_substitution                    0.977                NaN           NaN                0.980
-instructions/oig_context_drift                  0.875                NaN           NaN                0.946
-instructions/oig_omission                       0.477                NaN           NaN                0.630
+arm                                      cross/aligned  cross/native  within/highstakes  within/hu_ha  within/instructions
+name                                                                                                                      
+highstakes/anthropic_hh_balanced                 0.897         0.858              0.987           NaN                  NaN
+highstakes/mt_balanced                           0.959         0.946              0.974           NaN                  NaN
+highstakes/mts_balanced                          0.967         0.970              0.959           NaN                  NaN
+highstakes/toolace_balanced                      0.809         0.835              0.928           NaN                  NaN
+hu_ha/eval_ai_dilemmas                           1.000         0.983                NaN         1.000                  NaN
+hu_ha/eval_ant_hh                                0.867         0.847                NaN         0.895                  NaN
+hu_ha/eval_balanced_refusal                      0.923         0.920                NaN         0.991                  NaN
+hu_ha/eval_daily_dilemmas                        1.000         0.943                NaN         0.999                  NaN
+instructions/anthropic_harmless_refusal          0.985         0.946                NaN           NaN                1.000
+instructions/bbq_substitution                    0.977         0.922                NaN           NaN                0.985
+instructions/hc_context_drift                    0.973         0.994                NaN           NaN                1.000
+instructions/hc_contradiction                    0.924         0.891                NaN           NaN                0.966
+instructions/mm_substitution                     0.995         0.977                NaN           NaN                0.980
+instructions/oig_context_drift                   0.982         0.875                NaN           NaN                0.946
+instructions/oig_omission                        0.552         0.477                NaN           NaN                0.630
 ```
 
 ## Accuracy and TPR@1%FPR by concept
 
 ```
-                 accuracy                                                      tpr_at_fpr                                                   
-arm          cross/native within/highstakes within/hu_ha within/instructions cross/native within/highstakes within/hu_ha within/instructions
-name                                                                                                                                        
-highstakes          0.829             0.917          NaN                 NaN          0.0             0.508          NaN                 NaN
-hu_ha               0.860               NaN         0.93                 NaN          0.0               NaN        0.675                 NaN
-instructions        0.771               NaN          NaN               0.869          0.0               NaN          NaN               0.574
+                  accuracy                                                                    tpr_at_fpr                                                                
+arm          cross/aligned cross/native within/highstakes within/hu_ha within/instructions cross/aligned cross/native within/highstakes within/hu_ha within/instructions
+name                                                                                                                                                                    
+highstakes           0.839        0.829             0.917          NaN                 NaN           0.0          0.0             0.508          NaN                 NaN
+hu_ha                0.892        0.860               NaN         0.93                 NaN           0.0          0.0               NaN        0.675                 NaN
+instructions         0.876        0.771               NaN          NaN               0.869           0.0          0.0               NaN          NaN               0.574
 ```
 
 ## Reproducing
