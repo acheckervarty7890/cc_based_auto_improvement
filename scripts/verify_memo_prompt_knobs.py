@@ -18,11 +18,17 @@ summarizer system + user, classification system + messages) both ways and assert
 
   1. UNSET  — every prompt is byte-identical to the pre-knob text, which is
      reconstructed here from the same building blocks the module exports.
-  2. SET    — exactly four things change, all of them in the summarizers: one extra
+  2. SET    — exactly four things change in the summarizers: one extra
      `## Task context` bullet in each user prompt, the coverage paragraph in each
-     system prompt, question 5 in the round user prompt and the qualifier on question 3
-     of the iteration one. The CLASSIFICATION prompt must not move at all — describing
-     the eval set to the labeller would move the labelling function.
+     system prompt, question 6 in the round user prompt and the qualifier on question 3
+     of the iteration one. With `judge.eval_scope_check` OFF the CLASSIFICATION prompt
+     must not move at all — that is the setting in which the labeller stays blind to
+     the eval data.
+  3. SCOPE  — with `eval_scope_check` ON *and* a description set, the classification
+     prompt gains the constraint block and the three scope fields in its JSON contract,
+     and the round memo gains the rejected-samples paragraph and its question. Both are
+     inert with either half missing, and the contrastive generator's prompt and cache
+     key move with the description in exactly the same way.
 
 No network, no GPU, no probe: it only builds prompt strings.
 
@@ -37,6 +43,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import agentic_redteam.llm_judge as L  # noqa: E402
+import agentic_redteam.preprocessing as P  # noqa: E402
 from agentic_redteam.llm_judge import LLMJudge  # noqa: E402
 from agentic_redteam.persistence import AttemptRecord, Conversation, Message  # noqa: E402
 
@@ -83,7 +90,7 @@ RECORDS = [
 ]
 
 
-def render(eval_description: str) -> dict[str, str]:
+def render(eval_description: str, *, scope_check: bool = False) -> dict[str, str]:
     """Every prompt this judge would send, keyed by name."""
     judge = LLMJudge(
         model="m",
@@ -94,6 +101,7 @@ def render(eval_description: str) -> dict[str, str]:
         max_tokens=1024,
         probe_description=PROBE_DESC,
         eval_data_description=eval_description,
+        eval_scope_check=scope_check,
     )
     out: dict[str, str] = {}
     real = LLMJudge._summarization_call
@@ -124,14 +132,16 @@ def render(eval_description: str) -> dict[str, str]:
     finally:
         LLMJudge._summarization_call = real
 
-    _, system = L._build_judge_request(
+    msgs, system = L._build_judge_request(
         Conversation(messages=(Message("user", "hi"), Message("assistant", "yo"))),
         "JUDGE PROMPT",
         "pos",
         "neg",
         PROBE_DESC,
+        eval_description if scope_check else "",
     )
     out["classification / system"] = system
+    out["classification / user"] = msgs[-1]["content"]
     return out
 
 
@@ -181,8 +191,8 @@ def main() -> int:
         "classification prompt UNCHANGED (the labeller never hears about the eval set)",
     )
     check(
-        "\n5. How much of this round's evidence" in on["per-round insights / user"],
-        "round user prompt gains question 5",
+        "How much of this round's evidence" in on["per-round insights / user"],
+        "round user prompt gains the coverage question",
     )
     check(
         "in particular, what within the kind of conversation"
@@ -215,6 +225,94 @@ def main() -> int:
     check(
         on["cross-cycle insights / system"].endswith(L._iteration_summary_tail()),
         "iteration coverage paragraph goes BEFORE the word budget, not after it",
+    )
+
+    print("\nscope check — the eval description as a CONSTRAINT (judge.eval_scope_check):")
+    scope_off = render(EVAL_DESC, scope_check=False)
+    scope_on = render(EVAL_DESC, scope_check=True)
+    check(
+        scope_off["classification / system"] == off["classification / system"]
+        and scope_off["classification / user"] == off["classification / user"],
+        "check OFF: classification prompt UNCHANGED (the labeller stays blind)",
+    )
+    check(
+        L._scope_block("") == "" and L._scope_block("  \n ") == "",
+        "no description ⇒ no constraint block, whatever the knob says",
+    )
+    check(
+        "## The data this classifier is evaluated on" in scope_on["classification / system"]
+        and EVAL_DESC in scope_on["classification / system"],
+        "check ON: classification system prompt gains the constraint block",
+    )
+    check(
+        all(
+            k in scope_on["classification / user"]
+            for k in ('"in_scope"', '"violated_constraint"', '"scope_reason"')
+        )
+        and not any(
+            k in scope_off["classification / user"]
+            for k in ("in_scope", "violated_constraint", "scope_reason")
+        ),
+        "check ON: the JSON contract gains the three scope fields, and only then",
+    )
+    check(
+        "made after you have classified it" in scope_on["classification / system"]
+        and "The label and confidence above are unaffected"
+        in scope_on["classification / user"],
+        "the scope verdict is asked for separately from, and after, the label",
+    )
+    check(
+        "\n5. Which samples were REJECTED" in scope_on["per-round insights / user"]
+        and "\n5. Which samples were REJECTED" not in scope_off["per-round insights / user"],
+        "check ON: round user prompt gains the rejected-samples question",
+    )
+    check(
+        "inside them by construction" in scope_on["per-round insights / system"]
+        and "inside them by construction" not in scope_off["per-round insights / system"],
+        "check ON: round system prompt gains the discourage-the-rejected-kind paragraph",
+    )
+    check(
+        scope_on["cross-cycle insights / system"] == scope_off["cross-cycle insights / system"],
+        "the cross-iteration memo prompt is untouched by the scope check",
+    )
+
+    print("\ncontrastive generator — the same description as a generation constraint:")
+    gen_off = P._generation_system_prompt("pos", "neg")
+    check(
+        P._generation_system_prompt("pos", "neg", eval_data_description="") == gen_off
+        and P._generation_system_prompt("pos", "neg", eval_data_description="  \n") == gen_off,
+        "unset ⇒ generation prompt byte-identical to the pre-knob one",
+    )
+    gen_on = P._generation_system_prompt("pos", "neg", eval_data_description=EVAL_DESC)
+    check(
+        EVAL_DESC in gen_on
+        and "must stay within what that description actually constrains" in gen_on,
+        "set ⇒ the description and the generation constraint reach the prompt",
+    )
+    # The loosening is itself a contract: neither the scope ask nor the generation ask
+    # may reintroduce a shape requirement the description does not state.
+    check(
+        "Do not treat details of its examples as requirements." in gen_on,
+        "the generator is told the description's examples are not requirements",
+    )
+    # The loosening is a contract in its own right: the ask must reject only against what
+    # the description STATES, and must say outright that an unstated shape is not grounds.
+    check(
+        "Reject it ONLY when it is not that task at all" in scope_on["classification / user"]
+        and "Everything the description leaves open is in scope"
+        in scope_on["classification / user"]
+        and "a different number of parts" in scope_on["classification / user"],
+        "the scope ask rejects only STATED constraints, never an inferred shape",
+    )
+    check(
+        P._guidance_fingerprint("", "neg", None) == ""
+        and P._guidance_fingerprint("", "neg", None, "") == "",
+        "unset ⇒ empty fingerprint, so existing contrastive caches still hit",
+    )
+    check(
+        P._guidance_fingerprint("cd", "neg", {"neg": "g"})
+        != P._guidance_fingerprint("cd", "neg", {"neg": "g"}, EVAL_DESC),
+        "set ⇒ a NEW cache key, so pairs are not reused across a changed constraint",
     )
 
     print("\nword budget — the memo's length knob:")

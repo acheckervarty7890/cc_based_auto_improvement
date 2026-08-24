@@ -329,6 +329,16 @@ judge:
   max_tokens: int                     # also caps the rolling memo's word budget
                                       #   (min(200, max(150, 0.45 × max_tokens)) — the
                                       #   200-word target governs at any max_tokens ≥ 512)
+  eval_scope_check: bool              # default TRUE, but INERT unless eval.data_description is set.
+                                      #   Enforces that description as a CONSTRAINT at classification
+                                      #   time: the judge additionally decides whether each candidate is
+                                      #   the KIND of conversation the probe is scored on, and one that
+                                      #   is not comes back with a `violated_constraint` snake_case tag.
+                                      #   tools.py then records the attempt WITH the tag and refuses it
+                                      #   as a success (so it never becomes training data), and the round
+                                      #   memo is shown the tags and asked to steer the next round away
+                                      #   from that form. false ⇒ the labeller stays blind to the eval
+                                      #   data, exactly as before this knob existed.
   hide_opposite_direction: bool       # default TRUE. Withhold misclassifications pointing the
                                       #   OTHER way from error_type (a false positive turned up
                                       #   during a false_negative hunt) from the round memo, so
@@ -394,7 +404,10 @@ eval:                                 # OPTIONAL: dataset message transforms app
   convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
   eval_max_samples: int               # balanced subsample per eval split (0 = full split). Unset (None)
                                       #   → the CLI's --eval-max-samples default; the flag overrides.
-  data_description: str               # OPTIONAL free text: what the EVAL DATA holds — on this branch ONE
+  data_description: str               # ALSO the constraint judge.eval_scope_check enforces at
+                                      #   classification time, and the form preprocessing's contrastive
+                                      #   generator must generate within.
+                                      # OPTIONAL free text: what the EVAL DATA holds — on this branch ONE
                                       #   kind of conversation (what its labels mean, what each side looks
                                       #   like, and any surface cue that runs with the label there).
                                       #   Changes no data path; it is prompt material for the judge's two
@@ -450,7 +463,10 @@ newly persisted**, False if it was a duplicate — `tools.py` uses that to
 attribute the row to the submitting session. Each row carries
 `{sample, probe_score, probe_predicts_positive, judge_label, judge_reason,
 judge_confidence, success, attacker_model, run_id, round, iteration, error_type,
-pos_class_label, neg_class_label}` — `judge_label` is the class label the judge
+pos_class_label, neg_class_label}` plus, only when the scope check rejected it,
+`{violated_constraint, scope_reason}` (omitted entirely when empty, so a run without
+`judge.eval_scope_check` writes byte-identical rows and old rows read back in-scope)
+— `judge_label` is the class label the judge
 picked (human-readable, e.g. "high-stakes"), or `""` if the judge response was
 unparseable, and `judge_confidence` is 1–10 (0 when missing/unparseable; it
 feeds `retrain_probe(min_judge_confidence=)`, which the CLI supplies from
@@ -692,17 +708,18 @@ what its two labels mean, an example on each side, and any surface cue that runs
 label there. (Main's versions assume several and steer for breadth across them; a
 multi-kind description set here would be steered for depth instead.) Where it lands and why:
 
-- **Both summarizers, never the classifier.** It is rendered as one extra
+- **Both summarizers, and — only under `judge.eval_scope_check` — the classifier.** It is rendered as one extra
   `## Task context` bullet (`_eval_data_context_line`, continuation lines indented so an
   enumeration reads as part of the bullet rather than as further context bullets), and
   it adds a coverage paragraph to each summarizer's *system* prompt
   (`_round_coverage_paragraph`, `_iteration_coverage_paragraph`) plus one question to
   each user prompt (`_eval_coverage_question` → the round prompt's item 5;
   `_eval_coverage_qualifier` → a clause on the iteration prompt's item 3). It is
-  deliberately kept **out of `_build_judge_request`**: the concept description has to
+  kept out of `_build_judge_request` **by default**: the concept description has to
   reach classification because the judge is the source of truth for what the labels
   mean, whereas describing the *test set* to the labeller could only move the labelling
-  function.
+  function. `judge.eval_scope_check` (default on, inert with no description) is the
+  opt-in exception — see **Scope check** below.
 - **What the paragraphs ask for.** That the described kind becomes the write-up's
   yardstick: how much of this round's/cycle's evidence actually consisted of
   conversations of that shape (evidence unlike it is not coverage and must be named as
@@ -726,8 +743,48 @@ multi-kind description set here would be steered for depth instead.) Where it la
   only adds or edits this text reuses every activation blob it would have anyway, and
   changes only what the judge writes in the memos.
 
-`scripts/verify_memo_prompt_knobs.py` pins both halves — inert when unset, exactly those
-four insertions when set — by rendering all six prompts and diffing them, and covers the
+**Scope check (`judge.eval_scope_check`, default on, inert with no eval-data
+description).** With both set, `_scope_block` puts the description into the
+classification *system* prompt as a statement about the DATA, and `_scope_request` adds a
+second ask to the classification turn: after the label, is this conversation within that
+data's constraints? The JSON contract grows `in_scope` / `violated_constraint` /
+`scope_reason`, and `LLMJudge.evaluate` returns them on the `JudgeVerdict`. Three
+properties are load-bearing:
+
+- **The scope verdict is asked for after the label, and only against what the description
+  STATES.** That is what keeps this from being the thing the classification prompt always
+  avoided. It does not make the labeller blind again — the description is in its context
+  either way — which is exactly why this is a knob rather than automatic. A config that
+  needs the labeller blind sets it false and every prompt returns to what it was.
+- **It rejects as little as possible, on purpose.** Both the ask and the generator
+  instruction say outright that anything the description leaves open — topic, wording,
+  length, layout, how many parts a request has, whether source material is supplied — is
+  not a constraint, and that an unusual instance of the described task is kept. A check
+  that infers unstated constraints narrows the attacker to whatever shape the
+  description's examples happened to use, which is the opposite of the point; the example
+  tags in the prompt (`not_the_described_task`, `label_undecidable_here`) are generic for
+  the same reason. Write descriptions the same way: say what decides the label, and say
+  what is free to vary.
+- **It fails OPEN.** `_parse_judge_json` returns a tag only when the judge said
+  `in_scope: false` **and** named the constraint; a missing verdict, a missing tag, an
+  unparseable response, or a judge that volunteers the field when it was not asked
+  (`_scope_check_active` false) all read as in scope. A candidate is never rejected on an
+  answer the judge did not give.
+- **A rejection is recorded, not discarded.** `tools.handle_submit_conversation` checks it
+  *before* the label comparison, forces `success=False` (so the sample can never reach the
+  training set) with `outcome="out_of_scope"`, and persists the row with its tag — because
+  the round memo is the only channel back into a later attacker session.
+  `summarize_round` renders those rows as `REJECTED` with their tag, counts them
+  separately from successes *and* failures (a rejected sample was never evidence about the
+  classifier, so folding it into "fail" would report ground the round never reached), and
+  `_scope_memo_paragraph` + `_scope_question` ask the memo to name the rejected forms and
+  give the shape a sample must have instead. Tags are normalized to short snake_case
+  (`_normalize_constraint_tag`) so they can be counted across rounds.
+
+`scripts/verify_memo_prompt_knobs.py` pins all of it — inert when unset, exactly the four
+summarizer insertions when the description is set, exactly the classification + round-memo
+insertions when the scope check is also on, and the contrastive generator's prompt and
+cache key — by rendering the prompts and diffing them, and covers the
 memo word budget the same way. It needs no network, GPU or probe.
 `scripts/replay_round_memo.py --eval-data-description` replays a real round's memo with the
 knob on, to see what it actually changes.
@@ -1540,6 +1597,20 @@ set, so configs that don't use them keep byte-identical keys (existing caches st
 hit), and it covers only the *target* label's guidance, so editing one class's text
 doesn't invalidate the other direction's pairs.
 
+**The eval-data description as a generation constraint** (`eval_data_description=`,
+threaded from the config's `eval.data_description` by `cli` → `retrain_probe` →
+`_build_redteam_dataset`). `_eval_data_instruction` injects it verbatim and tells the
+generator to keep the pair inside what the description **states** — the same task, its
+class decided on the same terms — changing the class, not the task, while everything the
+description leaves open (topic, wording, length, layout, number of parts, supplied
+material or not) varies freely and the description's examples are explicitly not
+requirements. Same reason as the judge's scope check: these pairs become training data
+for a probe scored on that data, so a pair shaped unlike it trains on a distribution
+nothing measures. It is folded into `_guidance_fingerprint`, and therefore the contrastive
+cache key, exactly as the other two knobs are — editing the description mints fresh pairs
+instead of reusing ones written to the older constraint; unset, both the fingerprint and
+the prompt are byte-identical to before.
+
 **Length safeguard on generated pairs** (`token_budget=`, a `TokenBudget` built by
 `retrain._build_redteam_dataset` from the *probe's* `model_name` + transforms and
 `preprocessing.max_sample_tokens`). The cap is stated in the generation prompt
@@ -1787,9 +1858,16 @@ resumed run's CSV covers only the iterations that run actually executed.
   hoping for, nor what the probe scored, so it acts as an independent
   classifier. `success` is computed in `tools.py` after both run. Note what the
   *classification* prompt is allowed to carry: the concept description belongs there
-  (the judge defines the labels), `eval.data_description` does not (describing the
-  test set to the labeller can only move the labelling function — it is summarizer-only
-  by construction, see `llm_judge`).
+  (the judge defines the labels), and `eval.data_description` reaches it **only** under
+  `judge.eval_scope_check`, where it is a constraint on the candidate's FORM asked about
+  after the label — never a hint about which label to pick. With that knob off it stays
+  summarizer-only, which is what it was by construction before the knob existed.
+- **A scope rejection is not a failure, and never training data.** `violated_constraint`
+  marks a candidate that is not the kind of conversation the probe is scored on: record
+  it, tag it, keep it out of `success`, and show it to the round memo so the next round
+  stops writing that form. Anything that counts attempts (memo aggregates, offline
+  analyses) must count rejections as their own class rather than as failures — they are
+  not evidence about the classifier at all.
 - **Count tokens through `token_budget`, never by hand.** Both traps in
   `tokenize_inputs` (the no-op `<bos>` strip ⇒ never subtract 1; the chat template's
   own special tokens ⇒ `add_special_tokens=False`) are baked into `count_tokens`, and

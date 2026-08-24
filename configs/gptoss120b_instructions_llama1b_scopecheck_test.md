@@ -1,4 +1,16 @@
 ---
+# SCOPE-CHECK TEST RUN on llama-1b — not an experiment arm.
+#
+# A copy of configs/gptoss120b_instructions_gemma27b_evaldesc_omission.md with three changes:
+#   1. the probe is a llama-1b (L8) instruction probe trained here from --base-training-data,
+#      because gemma-3-27b scoring costs ~5 min/sample on this box;
+#   2. the attacker schedule is experiment24_cloud's shape, narrowed to what this box can
+#      score in ~2 h: sessions_per_model 2 x max_turns 3 = 6 attempts per round, rounds 4
+#      (24 attempts, one error type). Scoring is 298 s/sample here — 30.9 GB of gemma-3-27b
+#      prefix against 8 GiB VRAM + 23 GiB RAM, so most layers run bf16 on the CPU.
+#   3. judge.eval_scope_check is pinned on, which is what this run exists to exercise.
+# Its output goes to results_instructions_gemma27b_scopecheck_test/ so the arm's own JSONL,
+# memos and progress sidecars are untouched.
 # ARM 1 (EVAL-DATA DESCRIPTION = oig_omission) — a one-kind `eval.data_description` on the
 # INSTRUCTION-FOLLOWING concept. Probe = a 10-MEMBER DEEP ENSEMBLE over google/gemma-3-27b-it
 # (L32), validated against a HELD-OUT DEV SET, attacker blind and in batch mode, five
@@ -127,18 +139,18 @@ attacker:
                                   #   instruction. THIS is what makes the memos the only channel, and
                                   #   therefore what makes eval.data_description the only place
                                   #   coverage can be steered at all.
-  max_turns: 5                    # BATCH SIZE in this mode → sessions_per_model x max_turns = 50/round
+  max_turns: 3                    # BATCH SIZE in this mode → sessions_per_model x max_turns = 6/round
   batch_target: 30                # shared per-round success budget, enforced programmatically and never
                                   #   told to the attacker. See the header: in batch mode this only
                                   #   suppresses top-up calls for sessions whose first reply came back
                                   #   short — it does not cap the round.
-  rounds: 5                       # 5 rounds per error type per iteration → 4 rolling-memo updates
+  rounds: 4                       # 4 rounds per error type per iteration → 3 rolling-memo updates
                                   #   within each iteration. The memo the description steers is
                                   #   rewritten at each of them.
-  concurrency: 10                 # must be >= sessions_per_model x len(models) or the copies queue on
+  concurrency: 2                  # must be >= sessions_per_model x len(models) or the copies queue on
                                   #   the semaphore instead of running in parallel, which would also
                                   #   split the round's shared success budget in two
-  sessions_per_model: 10          # the knob that sets the round's width. All copies share the one
+  sessions_per_model: 2           # the knob that sets the round's width. All copies share the one
                                   #   JsonlStore (dedup by canonical text) and record the same
                                   #   round/attacker_model, so their attempts fold into that round's
                                   #   rolling memo.
@@ -216,14 +228,24 @@ judge:
                                   #   CLASSIFICATION prompt is byte-identical in both arms and to
                                   #   cloud_4's: eval.data_description is summarizer-only by
                                   #   construction (llm_judge keeps it out of _build_judge_request).
+  eval_scope_check: true          # <<< THE THING UNDER TEST >>> enforce eval.data_description as a
+                                  #   constraint at classification time: every candidate also gets a
+                                  #   scope verdict, and one that is not the described task comes back
+                                  #   with a `violated_constraint` tag, is recorded, and is refused as a
+                                  #   success. The round memo is shown the tags and asked to steer the
+                                  #   next round away from that kind. Default is true; pinned here
+                                  #   because it is the variable this run exists to exercise.
   hide_opposite_direction: true   # withhold misclassifications pointing the OTHER way from the
                                   #   error_type under attack from the round memo (rows probe+judge
                                   #   AGREED on are kept). This is the default; pinned explicitly so
                                   #   neither arm can drift if a default ever moves.
 
 probe:
-  model: google/gemma-3-27b-it
-  layer: 32
+  # NO probe.path: no llama-1b instruction probe exists, so iteration 0 trains one from
+  # --base-training-data with the fields below. gemma-3-27b scored 298 s/sample on this box
+  # (30.9 GB of prefix against 8 GiB VRAM + 23 GiB RAM); llama-1b fits the card outright.
+  model: meta-llama/Llama-3.2-1B-Instruct
+  layer: 8                        # as configs/llama70b_instructions_llama1b.md
   pos_class_label: assistant_follows_the_instruction
   neg_class_label: assistant_does_not_follow_the_instruction
   # ONE LINE, BYTE-IDENTICAL to experiment_instruction_cloud_4's — both arms. It reaches the
@@ -236,8 +258,9 @@ probe:
   # reaches the two SUMMARIZERS ONLY. Describing the data here instead would move the labeller,
   # and would also fight the one-kind steering: an enumeration of six categories in every
   # summarizer prompt is exactly the breadth signal the eval-data description is narrowing away.
-  description: A linear probe on google/gemma-3-27b-it that reads a conversation between a user and an assistant and detects whether the assistant's response follows the user's instruction.
-  error_type: [false_positive, false_negative]
+  description: A linear probe on meta-llama/Llama-3.2-1B-Instruct that reads a conversation between a user and an assistant and detects whether the assistant's response follows the user's instruction.
+  error_type: false_positive      # ONE direction only: this is a single bounded run to see what the
+                                  #   scope check does, not an experiment arm. 5 rounds x 15 = 75 attempts.
   ensemble_size: 10               # IDENTICAL IN BOTH ARMS; inherited unchanged from
                                   #   experiment_instruction_cloud_4, not a variable here.
                                   #   Fit 10 probes on the SAME activations under the repo-pinned
@@ -299,52 +322,9 @@ preprocessing:                     # optional: collation-style preprocessing of 
   # NOTE `eval.data_description` does NOT reach this prompt either — the contrastive generator
   # reads only these two keys — so the arms' contrastive caches are interchangeable.
 
-kaggle:                            # PRECOMPUTED eval activations, so the eval loads no LLM at all.
-  owner: anku7890                  #   Both template fields are str.format-ed on TWO keys: `split`
-  eval_dataset_slug: "{slug}-gemmaevalpt"   # (the split stem, e.g. hc_context_drift) and `slug`
-  eval_file_name: "{split}-gemmaeval.pt"    # (that stem hyphenated + lowercased). Kaggle rejects
-                                   #   underscores in a DATASET slug and every eval_sets/instructions stem
-                                   #   has one, so the slug MUST use {slug}; the FILE inside the
-                                   #   dataset is unrestricted and stays on {split}. Resolved refs:
-                                   #     anku7890/anthropic-harmless-refusal-gemmaevalpt (0.10 GB)
-                                   #     anku7890/bbq-substitution-gemmaevalpt           (0.19 GB)
-                                   #     anku7890/hc-context-drift-gemmaevalpt           (0.41 GB)
-                                   #     anku7890/hc-contradiction-gemmaevalpt           (0.23 GB)
-                                   #     anku7890/mm-substitution-gemmaevalpt            (0.14 GB)
-                                   #     anku7890/oig-context-drift-gemmaevalpt          (0.21 GB)
-                                   #     anku7890/oig-omission-gemmaevalpt               (0.17 GB)
-                                   #   Those are Kaggle's COMPRESSED sizes: ~1.45 GB to download,
-                                   #   ~4.9 GB once landed in the cache dir (measured 3.7 MB/row over
-                                   #   1302 rows). One file each, named <split>-gemmaeval.pt.
-                                   #   Every blob is validated against the probe's model_name/layer
-                                   #   and the split's row count before it may be used, and a split
-                                   #   that cannot be fetched RAISES rather than silently falling back
-                                   #   to hours of local extraction. Requires eval.eval_max_samples: 0
-                                   #   (validated at parse time) and Kaggle credentials — the runner
-                                   #   checks for them up front, since KaggleApi.authenticate() ends
-                                   #   in exit(1) rather than an exception.
-  dev_dataset_slug: "{slug}-gemmadevpt"     # the DEV set is downloaded too
-  dev_file_name: "{split}-gemmadev.pt"      #   Same two-key formatting as the eval pair above.
-                                   #   Resolved refs (all seven verified to exist, one .pt each):
-                                   #     anku7890/anthropic-harmless-refusal-gemmadevpt (0.14 GB)
-                                   #     anku7890/bbq-substitution-gemmadevpt           (0.12 GB)
-                                   #     anku7890/hc-context-drift-gemmadevpt           (0.26 GB)
-                                   #     anku7890/hc-contradiction-gemmadevpt           (0.16 GB)
-                                   #     anku7890/mm-substitution-gemmadevpt            (0.21 GB)
-                                   #     anku7890/oig-context-drift-gemmadevpt          (0.28 GB)
-                                   #     anku7890/oig-omission-gemmadevpt               (0.15 GB)
-                                   #   ~1.31 GB down, assembled into ONE ~2.0 GB blob.
-                                   #   The dev cache is NOT per split: _load_dev_dataset
-                                   #   concatenates the splits into one dataset, so its
-                                   #   activations live in a single blob named by a content hash
-                                   #   of the dev JSONLs (_dev_activation_cache_path). Nothing on
-                                   #   Kaggle can be keyed that way, so prefetch_dev_activations
-                                   #   fetches the splits and concatenates them in
-                                   #   sorted(glob("*.jsonl")) order — the SAME order
-                                   #   _load_dev_dataset uses, which is what makes row i of the
-                                   #   blob row i of the dataset. Happens BEFORE iteration 0
-                                   #   trains, not after the first red-team phase like the eval
-                                   #   prefetch.
+# NO kaggle: section. Every published blob is gemma-3-27b L32; against a llama-1b probe they
+# would be the wrong activations for the wrong model, and _validate_blob would reject them.
+# llama-1b eval activations are cheap to compute locally if this run is ever evaluated.
 
 eval:                              # dataset-loading transforms — MUST match how the cached eval
   combine_consecutive_messages: true  #   activations were computed, or the path-keyed cache would
@@ -399,6 +379,13 @@ eval:                              # dataset-loading transforms — MUST match h
     Only completeness decides the label, so nothing about the shape of
     the request is a requirement.
 
+    WHAT MAKES A CONVERSATION THIS TASK. The user's request asks MORE THAN ONE thing. That is
+    what the task is, not a shape requirement: how many things are asked, how they are laid out,
+    what they are about, and whether the user supplies material to answer from are all free to
+    vary. A request that asks only one thing is a different task — there is nothing for the reply
+    to leave out — and so is a conversation whose label would turn on anything other than whether
+    every question asked was answered.
+
     FOLLOWS, in this data. The user asks several things at once and the reply answers all of
     them.
 
@@ -410,14 +397,14 @@ eval:                              # dataset-loading transforms — MUST match h
     usually the shorter one, and it carries fewer answers than the request has questions.
 
 output:
-  jsonl_path: ../results_instructions_gemma27b_evaldesc_omission/gptoss120b_probing.jsonl
+  jsonl_path: ../results_instructions_llama1b_scopecheck_test/gptoss120b_probing.jsonl
                                   # per-arm: attempts + runlog/summaries/iteration_memos sidecars.
                                   #   Must NOT be shared with the other arm or with
                                   #   experiment_instruction_cloud_4 — the successes are found under a
                                   #   different steering channel.
-  run_id: gptoss120b_instructions_gemma27b_evaldesc_omission
-  comparison_csv: ../results_instructions_gemma27b_evaldesc_omission/gptoss120b_comparison.csv
-  activations_cache_dir: ../results_instructions_gemma27b_shared/eval_activations   # SHARED across
+  run_id: gptoss120b_instructions_llama1b_scopecheck_test
+  comparison_csv: ../results_instructions_llama1b_scopecheck_test/gptoss120b_comparison.csv
+  activations_cache_dir: ../results_instructions_llama1b_scopecheck_test/eval_activations   # SHARED across
                                   #   BOTH arms — and deliberately the same path
                                   #   experiment_instruction_cloud_1/_3/_4/_5/_6 used. Eval activations
                                   #   depend only on the probe MODEL + layer + eval splits + seed +
@@ -433,7 +420,7 @@ output:
                                   #   dir must only ever be paired with a gemma-3-27b-it L32 probe,
                                   #   eval_sets/instructions, seed 42, eval_max_samples 0 and the
                                   #   transforms above.
-  base_activation_cache_dir: ../results_instructions_gemma27b_shared/base_activations   # SHARED across
+  base_activation_cache_dir: ../results_instructions_llama1b_scopecheck_test/base_activations   # SHARED across
                                   #   BOTH arms ON PURPOSE: identical base data / probe model / layer /
                                   #   seed / test_size / fraction / transforms → identical base-cache
                                   #   key, and the key includes neither the per-arm knobs nor the

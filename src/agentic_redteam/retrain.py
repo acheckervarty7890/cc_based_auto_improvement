@@ -1343,6 +1343,7 @@ def _build_redteam_dataset(
     model_name: str = "",
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
+    eval_data_description: str = "",
 ):
     """Convert red-team successes into a LabelledDataset, optionally preprocessing.
 
@@ -1386,6 +1387,7 @@ def _build_redteam_dataset(
         assistant_centric=preprocessing.assistant_centric,
         concept_description=preprocessing.concept_description,
         label_guidance=preprocessing.label_guidance,
+        eval_data_description=eval_data_description,
         token_budget=TokenBudget(
             model_name=model_name,
             max_tokens=preprocessing.max_sample_tokens,
@@ -1416,6 +1418,7 @@ def retrain_probe(
     base_activation_cache_dir: str | Path | None = None,
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
+    eval_data_description: str = "",
     verbose: bool = True,
 ) -> RetrainResult:
     """Train a fresh probe using `base_training_data_path` ∪ red-team successes from `jsonl_path`.
@@ -1441,6 +1444,12 @@ def retrain_probe(
         preprocessing: When provided, filter_dataset + generate_contrastive_dataset are
             applied to the red-team successes (mirroring tuberlens' collation step on the
             "extra" data) before concatenation with the base training data.
+        eval_data_description: Optional description of the eval data (the config's
+            `eval.data_description`). Passed to the contrastive generator, which is then
+            told to keep every generated pair inside that data's form — the pairs become
+            training data for a probe scored on it. Folded into the contrastive cache
+            key, so editing it regenerates pairs rather than reusing older ones. Inert
+            without `preprocessing`.
         contrastive_cache_path: Disk cache for generated contrastive pairs (per source
             conversation), so accumulating successes aren't re-generated every iteration.
         postprocessed_out_path: If given, write the postprocessed red-team samples (the
@@ -1540,6 +1549,7 @@ def retrain_probe(
         model_name=str(base_probe.model_name),
         combine_consecutive_messages=combine_consecutive_messages,
         convert_tool_to_assistant=convert_tool_to_assistant,
+        eval_data_description=eval_data_description,
     )
     redteam_dataset = _apply_message_transforms(
         redteam_dataset, combine_consecutive_messages, convert_tool_to_assistant

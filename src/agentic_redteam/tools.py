@@ -236,7 +236,16 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
         probe_label = ctx.probe.label_for(predicts_positive)
         judge_label = verdict.label  # may be "" if judge response was unparseable
 
-        if judge_label == "":
+        # Scope rejection outranks the label comparison. A conversation outside the
+        # constraints of the data the classifier is evaluated on is not evidence about
+        # the classifier, so it cannot be a find however the two labels fall — and it
+        # must not become training data, which `success=False` is what prevents. It IS
+        # still recorded: the round memo reads the tags and steers the next round away
+        # from the form (see `_scope_memo_paragraph`).
+        if verdict.out_of_scope:
+            success = False
+            outcome = "out_of_scope"
+        elif judge_label == "":
             # Couldn't determine truth → can't claim success.
             success = False
             outcome = "judge_unparseable"
@@ -268,6 +277,8 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
             error_type=ctx.probe.error_type,
             pos_class_label=ctx.probe.pos_class_label,
             neg_class_label=ctx.probe.neg_class_label,
+            violated_constraint=verdict.violated_constraint,
+            scope_reason=verdict.scope_reason,
         )
         if ctx.store.append(record):
             # Attribute the row to this session. `append` returns False if a
@@ -296,6 +307,14 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
                 "The judge's response could not be parsed into one of the two class labels. "
                 "Try resubmitting or rephrasing — this attempt does not count as success."
             ),
+            "out_of_scope": (
+                "Rejected: this conversation is outside the constraints of the data this "
+                f"classifier is evaluated on (violated_constraint='{verdict.violated_constraint}'"
+                + (f": {verdict.scope_reason}" if verdict.scope_reason else "")
+                + "). It was scored and recorded but does NOT count as a find, whatever the "
+                "labels did — a conversation of a kind the classifier is never scored on says "
+                "nothing about it. Submit conversations of the evaluated kind instead."
+            ),
         }
 
         return {
@@ -308,6 +327,9 @@ async def handle_submit_conversation(ctx: ToolContext, args: dict) -> dict:
             ),
             "matches_target_error_type": success,
             "success": success,
+            # Present on every result so the attacker can tell a rejected form from a
+            # merely unsuccessful one; empty string when the candidate was in scope.
+            "violated_constraint": verdict.violated_constraint,
             # No running success count and no batch_target: the per-round success
             # budget is enforced programmatically by the driver loops, and telling
             # the attacker about a quota only gave it a reason to stop searching.

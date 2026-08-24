@@ -106,6 +106,18 @@ class AttemptRecord:
     error_type: str
     pos_class_label: str
     neg_class_label: str
+    # Scope verdict from the judge, when `judge.eval_scope_check` is on and an
+    # `eval.data_description` is set: a short snake_case tag naming the constraint of
+    # the evaluation data this conversation broke, and one sentence saying how.
+    # Non-empty means the attempt was REJECTED — recorded (so the round memo can
+    # steer against it) but never counted as a success, so it never becomes training
+    # data. Defaulted, so rows written before this existed read back as in-scope.
+    violated_constraint: str = ""
+    scope_reason: str = ""
+
+    @property
+    def out_of_scope(self) -> bool:
+        return bool(self.violated_constraint)
 
     @property
     def probe_label(self) -> str:
@@ -132,6 +144,11 @@ class AttemptRecord:
             "pos_class_label": self.pos_class_label,
             "neg_class_label": self.neg_class_label,
         }
+        # Written only when set, so a run without the scope check produces rows
+        # byte-identical to the ones it produced before the check existed.
+        if self.violated_constraint:
+            d["violated_constraint"] = self.violated_constraint
+            d["scope_reason"] = self.scope_reason
         return json.dumps(d, ensure_ascii=False)
 
     @classmethod
@@ -152,6 +169,8 @@ class AttemptRecord:
             error_type=str(d["error_type"]),
             pos_class_label=str(d["pos_class_label"]),
             neg_class_label=str(d["neg_class_label"]),
+            violated_constraint=str(d.get("violated_constraint", "")),
+            scope_reason=str(d.get("scope_reason", "")),
         )
 
 

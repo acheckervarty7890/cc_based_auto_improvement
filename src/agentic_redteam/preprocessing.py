@@ -231,6 +231,36 @@ def _length_retry_feedback(n_tokens: int, max_sample_tokens: int) -> str:
     )
 
 
+def _eval_data_instruction(eval_data_description: str) -> str:
+    """Block constraining the generated pair to the evaluation data's form.
+
+    The generated pairs become training data for the same probe the eval splits
+    score, so a pair shaped unlike that data trains the probe on a distribution it is
+    never measured on. The description is injected verbatim (as ``concept_description``
+    is) and the instruction binds only what the description *states*: the same task,
+    its class decided on the same terms, with everything the description leaves open
+    (topic, wording, length, layout, number of parts, supplied material or not) free to
+    vary and its examples explicitly not requirements. ``""`` when unset, so the prompt
+    — and therefore the contrastive cache key — is exactly what it was before this
+    existed.
+    """
+    text = (eval_data_description or "").strip()
+    if not text:
+        return ""
+    return (
+        "The data this classifier is evaluated on looks like this:\n"
+        f"{text}\n\n"
+        "Your generated conversation must stay within what that description actually "
+        "constrains: it must be the same task, with its class decided on the same "
+        "terms. Change the class, not the task — do not switch to a different task or "
+        "to a way of belonging to the class that the description does not describe. "
+        "Everything the description leaves open may vary freely: the topic, the "
+        "wording, the length, the layout, how many parts the request has, whether the "
+        "user supplies material to work from. Do not treat details of its examples as "
+        "requirements.\n\n"
+    )
+
+
 def _generation_system_prompt(
     current_label: str,
     target_label: str,
@@ -238,6 +268,7 @@ def _generation_system_prompt(
     assistant_centric: bool = False,
     concept_description: str = "",
     label_guidance: dict[str, str] | None = None,
+    eval_data_description: str = "",
     max_sample_tokens: int = 0,
 ) -> str:
     cur = _short_label(current_label)
@@ -268,6 +299,7 @@ def _generation_system_prompt(
         "Your task is to help generate contrastive training pairs used to build and "
         "evaluate a safety classifier.\n\n"
         f"{concept_block}"
+        f"{_eval_data_instruction(eval_data_description)}"
         f'You are given a conversation/scenario labeled "{cur}". Generate a '
         f'similar-looking conversation/scenario that belongs to the "{tgt}" '
         "class instead.\n\n"
@@ -321,6 +353,7 @@ class _ContrastiveLLM:
         assistant_centric: bool = False,
         concept_description: str = "",
         label_guidance: dict[str, str] | None = None,
+        eval_data_description: str = "",
         max_sample_tokens: int = 0,
     ) -> None:
         self.provider = provider
@@ -329,6 +362,7 @@ class _ContrastiveLLM:
         self.assistant_centric = assistant_centric
         self.concept_description = concept_description
         self.label_guidance = label_guidance or {}
+        self.eval_data_description = eval_data_description
         # Length cap stated in the generation prompt. The measurement/rejection side
         # lives in generate_contrastive_dataset (it needs the probe's tokenizer);
         # 0 means uncapped and drops the instruction entirely.
@@ -371,6 +405,7 @@ class _ContrastiveLLM:
             assistant_centric=self.assistant_centric,
             concept_description=self.concept_description,
             label_guidance=self.label_guidance,
+            eval_data_description=self.eval_data_description,
             max_sample_tokens=self.max_sample_tokens,
         )
         user = (
@@ -448,21 +483,32 @@ class _ContrastiveLLM:
 
 
 def _guidance_fingerprint(
-    concept_description: str, target_label: str, label_guidance: dict[str, str] | None
+    concept_description: str,
+    target_label: str,
+    label_guidance: dict[str, str] | None,
+    eval_data_description: str = "",
 ) -> str:
-    """Short hash of the concept detail that shaped this generation's prompt.
+    """Short hash of the prompt detail that shaped this generation.
 
     Empty for the no-guidance case, so configs that don't use it keep the exact
     cache keys they had before this knob existed. When guidance *is* set, it goes
     into the key: the cache is loaded by key without re-checking the prompt, so
     otherwise an edited description would silently reuse pairs written under the
-    old one.
+    old one. ``eval_data_description`` is folded in for exactly the same reason — it
+    is now part of the generation prompt, so a run that adds or edits it must mint
+    fresh pairs rather than reuse ones written to the older constraint. It is keyed
+    alongside, not instead: a cache written before this argument existed still hits
+    for a run that sets no eval-data description.
     """
     detail = _label_guidance_for(target_label, label_guidance)
     description = (concept_description or "").strip()
-    if not detail and not description:
+    eval_data = (eval_data_description or "").strip()
+    if not detail and not description and not eval_data:
         return ""
-    payload = json.dumps({"description": description, "target": detail}, sort_keys=True)
+    payload_obj = {"description": description, "target": detail}
+    if eval_data:
+        payload_obj["eval_data"] = eval_data
+    payload = json.dumps(payload_obj, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -521,6 +567,7 @@ def generate_contrastive_dataset(
     assistant_centric: bool = False,
     concept_description: str = "",
     label_guidance: dict[str, str] | None = None,
+    eval_data_description: str = "",
     token_budget: TokenBudget | None = None,
 ) -> list[dict]:
     """Return ``records`` plus one opposite-class contrastive example per record.
@@ -530,6 +577,11 @@ def generate_contrastive_dataset(
     Generated pairs are cached to ``cache_path`` keyed by the source conversation,
     so successes that were already processed in an earlier iteration are reused
     instead of re-queried.
+
+    ``eval_data_description`` (what the evaluation data looks like) constrains the
+    generated pair's FORM to that data — see :func:`_eval_data_instruction`. Like the
+    two knobs below it is injected verbatim and folded into the cache key, so editing
+    it mints fresh pairs instead of reusing ones written to the older constraint.
 
     ``concept_description`` (what the concept is) and ``label_guidance`` (what a
     given class specifically means, keyed by class label) are injected verbatim
@@ -584,7 +636,12 @@ def generate_contrastive_dataset(
         return _cache_key(
             messages,
             target_label,
-            _guidance_fingerprint(concept_description, target_label, label_guidance),
+            _guidance_fingerprint(
+                concept_description,
+                target_label,
+                label_guidance,
+                eval_data_description,
+            ),
         )
 
     length_capped = token_budget is not None and token_budget.enabled
@@ -625,6 +682,7 @@ def generate_contrastive_dataset(
             assistant_centric=assistant_centric,
             concept_description=concept_description,
             label_guidance=label_guidance,
+            eval_data_description=eval_data_description,
             max_sample_tokens=token_budget.max_tokens if length_capped else 0,
         )
         llm._ensure_client()  # initialize once before fan-out

@@ -201,6 +201,14 @@ class JudgeConfig:
     # during a false_negative hunt, or vice versa) from the rolling round memo, so
     # the judge does not write up weaknesses that are unactionable this rotation.
     hide_opposite_direction: bool = True
+    # Enforce `eval.data_description` as a CONSTRAINT at classification time: the
+    # judge additionally decides whether each candidate is the kind of conversation
+    # the classifier is evaluated on, and a candidate that is not is recorded with a
+    # `violated_constraint` tag and refused as a success. Only bites when an
+    # `eval.data_description` is set — with none, nothing is described to constrain
+    # against and every judge prompt is unchanged. Set false to keep the labeller
+    # blind to the eval data, which is what it was before this knob existed.
+    eval_scope_check: bool = True
 
 
 @dataclass
@@ -727,6 +735,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             confidence_threshold=int(j.get("confidence_threshold", 7)),
             system_prompt=judge_prompt,
             hide_opposite_direction=bool(j.get("hide_opposite_direction", True)),
+            eval_scope_check=bool(j.get("eval_scope_check", True)),
         ),
         probe=ProbeConfig(
             path=_resolve(pr["path"]) if pr.get("path") else None,

@@ -55,6 +55,7 @@ module works against both.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 
 _TRUNCATE_ENV = "AGENTIC_REDTEAM_TRUNCATE_LAYERS"
@@ -175,6 +176,28 @@ def _truncated_config(model_name: str, layer: int):
     return config
 
 
+_OFFLOAD_FOLDER_ENV = "AGENTIC_REDTEAM_OFFLOAD_FOLDER"
+
+
+def _offload_folder() -> str:
+    """Directory accelerate may spill weights to when the budget cannot hold them.
+
+    Needed on a box where even the truncated prefix does not fit VRAM + RAM: layers
+    0..32 of google/gemma-3-27b-it are 30.9 GB, so an 8 GB card with 23 GB of host RAM
+    is a few GB short and accelerate places the remainder on ``"disk"``. Without a
+    folder to place it in, ``from_pretrained`` dies inside
+    ``get_disk_only_shard_files`` (a bare ``KeyError: ''``) rather than saying so.
+
+    Unset (the default), nothing is passed and the load behaves exactly as before —
+    on a box whose budget fits, disk offload never happens and this is dead weight.
+    """
+    folder = os.environ.get(_OFFLOAD_FOLDER_ENV, "").strip()
+    if not folder:
+        return ""
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    return folder
+
+
 def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False):
     """Load the tuberlens ``LLMModel`` used to extract layer-``layer`` activations.
 
@@ -205,6 +228,13 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
     else:
         placed = "ALL layers (not truncated)"
 
+    offload_folder = _offload_folder()
+    if offload_folder:
+        model_kwargs["offload_folder"] = offload_folder
+        # Stream the state dict to the offload folder as it loads instead of
+        # materializing it in RAM first — the RAM is exactly what is short here.
+        model_kwargs["offload_state_dict"] = True
+
     resolved, source = _resolve_max_memory(model_name)
     if resolved:
         # Passed explicitly even when tuberlens would have resolved the same thing, so
@@ -217,6 +247,7 @@ def load_extraction_model(model_name: str, layer: int, *, verbose: bool = False)
     print(
         f"[model_loading] loading {model_name}, {placed} "
         f"(probe reads layer {layer}); {budget}"
+        + (f"; offload_folder={offload_folder}" if offload_folder else "")
     )
 
     return LLMModel.load(model_name, model_kwargs=model_kwargs)

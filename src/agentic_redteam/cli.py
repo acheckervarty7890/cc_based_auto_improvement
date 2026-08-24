@@ -667,6 +667,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             base_activation_cache_dir=base_activation_cache_dir,
             combine_consecutive_messages=combine_consecutive_messages,
             convert_tool_to_assistant=convert_tool_to_assistant,
+            eval_data_description=config.eval.data_description,
             verbose=True,
         )
         print(

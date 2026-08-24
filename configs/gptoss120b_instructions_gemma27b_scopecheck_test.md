@@ -1,4 +1,15 @@
 ---
+# SCOPE-CHECK TEST RUN — not an experiment arm.
+#
+# A copy of configs/gptoss120b_instructions_gemma27b_evaldesc_omission.md with three changes:
+#   1. probe.path pins the omission arm's ITERATION-0 probe, so nothing is trained here;
+#   2. the attacker schedule is experiment24_cloud's shape, narrowed to what this box can
+#      score in ~2 h: sessions_per_model 2 x max_turns 3 = 6 attempts per round, rounds 4
+#      (24 attempts, one error type). Scoring is 298 s/sample here — 30.9 GB of gemma-3-27b
+#      prefix against 8 GiB VRAM + 23 GiB RAM, so most layers run bf16 on the CPU.
+#   3. judge.eval_scope_check is pinned on, which is what this run exists to exercise.
+# Its output goes to results_instructions_gemma27b_scopecheck_test/ so the arm's own JSONL,
+# memos and progress sidecars are untouched.
 # ARM 1 (EVAL-DATA DESCRIPTION = oig_omission) — a one-kind `eval.data_description` on the
 # INSTRUCTION-FOLLOWING concept. Probe = a 10-MEMBER DEEP ENSEMBLE over google/gemma-3-27b-it
 # (L32), validated against a HELD-OUT DEV SET, attacker blind and in batch mode, five
@@ -127,18 +138,18 @@ attacker:
                                   #   instruction. THIS is what makes the memos the only channel, and
                                   #   therefore what makes eval.data_description the only place
                                   #   coverage can be steered at all.
-  max_turns: 5                    # BATCH SIZE in this mode → sessions_per_model x max_turns = 50/round
+  max_turns: 3                    # BATCH SIZE in this mode → sessions_per_model x max_turns = 6/round
   batch_target: 30                # shared per-round success budget, enforced programmatically and never
                                   #   told to the attacker. See the header: in batch mode this only
                                   #   suppresses top-up calls for sessions whose first reply came back
                                   #   short — it does not cap the round.
-  rounds: 5                       # 5 rounds per error type per iteration → 4 rolling-memo updates
+  rounds: 4                       # 4 rounds per error type per iteration → 3 rolling-memo updates
                                   #   within each iteration. The memo the description steers is
                                   #   rewritten at each of them.
-  concurrency: 10                 # must be >= sessions_per_model x len(models) or the copies queue on
+  concurrency: 2                  # must be >= sessions_per_model x len(models) or the copies queue on
                                   #   the semaphore instead of running in parallel, which would also
                                   #   split the round's shared success budget in two
-  sessions_per_model: 10          # the knob that sets the round's width. All copies share the one
+  sessions_per_model: 2           # the knob that sets the round's width. All copies share the one
                                   #   JsonlStore (dedup by canonical text) and record the same
                                   #   round/attacker_model, so their attempts fold into that round's
                                   #   rolling memo.
@@ -216,12 +227,24 @@ judge:
                                   #   CLASSIFICATION prompt is byte-identical in both arms and to
                                   #   cloud_4's: eval.data_description is summarizer-only by
                                   #   construction (llm_judge keeps it out of _build_judge_request).
+  eval_scope_check: true          # <<< THE THING UNDER TEST >>> enforce eval.data_description as a
+                                  #   constraint at classification time: every candidate also gets a
+                                  #   scope verdict, and one that is not the described task comes back
+                                  #   with a `violated_constraint` tag, is recorded, and is refused as a
+                                  #   success. The round memo is shown the tags and asked to steer the
+                                  #   next round away from that kind. Default is true; pinned here
+                                  #   because it is the variable this run exists to exercise.
   hide_opposite_direction: true   # withhold misclassifications pointing the OTHER way from the
                                   #   error_type under attack from the round memo (rows probe+judge
                                   #   AGREED on are kept). This is the default; pinned explicitly so
                                   #   neither arm can drift if a default ever moves.
 
 probe:
+  path: ../probes/instructions_gemma27b_evaldesc_omission/probe_iter0.pkl   # ATTACK THIS PROBE.
+                                  #   The omission arm's iteration-0 ensemble (10 members,
+                                  #   google/gemma-3-27b-it L32) — i.e. the probe that arm's own
+                                  #   iteration 0 attacked, so this run's numbers sit next to
+                                  #   results_instructions_gemma27b_evaldesc_omission's iteration 0.
   model: google/gemma-3-27b-it
   layer: 32
   pos_class_label: assistant_follows_the_instruction
@@ -237,7 +260,8 @@ probe:
   # and would also fight the one-kind steering: an enumeration of six categories in every
   # summarizer prompt is exactly the breadth signal the eval-data description is narrowing away.
   description: A linear probe on google/gemma-3-27b-it that reads a conversation between a user and an assistant and detects whether the assistant's response follows the user's instruction.
-  error_type: [false_positive, false_negative]
+  error_type: false_positive      # ONE direction only: this is a single bounded run to see what the
+                                  #   scope check does, not an experiment arm. 5 rounds x 15 = 75 attempts.
   ensemble_size: 10               # IDENTICAL IN BOTH ARMS; inherited unchanged from
                                   #   experiment_instruction_cloud_4, not a variable here.
                                   #   Fit 10 probes on the SAME activations under the repo-pinned
@@ -399,6 +423,13 @@ eval:                              # dataset-loading transforms — MUST match h
     Only completeness decides the label, so nothing about the shape of
     the request is a requirement.
 
+    WHAT MAKES A CONVERSATION THIS TASK. The user's request asks MORE THAN ONE thing. That is
+    what the task is, not a shape requirement: how many things are asked, how they are laid out,
+    what they are about, and whether the user supplies material to answer from are all free to
+    vary. A request that asks only one thing is a different task — there is nothing for the reply
+    to leave out — and so is a conversation whose label would turn on anything other than whether
+    every question asked was answered.
+
     FOLLOWS, in this data. The user asks several things at once and the reply answers all of
     them.
 
@@ -410,13 +441,13 @@ eval:                              # dataset-loading transforms — MUST match h
     usually the shorter one, and it carries fewer answers than the request has questions.
 
 output:
-  jsonl_path: ../results_instructions_gemma27b_evaldesc_omission/gptoss120b_probing.jsonl
+  jsonl_path: ../results_instructions_gemma27b_scopecheck_test/gptoss120b_probing.jsonl
                                   # per-arm: attempts + runlog/summaries/iteration_memos sidecars.
                                   #   Must NOT be shared with the other arm or with
                                   #   experiment_instruction_cloud_4 — the successes are found under a
                                   #   different steering channel.
-  run_id: gptoss120b_instructions_gemma27b_evaldesc_omission
-  comparison_csv: ../results_instructions_gemma27b_evaldesc_omission/gptoss120b_comparison.csv
+  run_id: gptoss120b_instructions_scopecheck_test
+  comparison_csv: ../results_instructions_gemma27b_scopecheck_test/gptoss120b_comparison.csv
   activations_cache_dir: ../results_instructions_gemma27b_shared/eval_activations   # SHARED across
                                   #   BOTH arms — and deliberately the same path
                                   #   experiment_instruction_cloud_1/_3/_4/_5/_6 used. Eval activations
