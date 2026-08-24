@@ -1,6 +1,6 @@
 # Reports on this branch
 
-Five experiments, all on `google/gemma-3-27b-it` layer 32 with `linear_then_softmax`
+Six reports, all on `google/gemma-3-27b-it` layer 32 with `linear_then_softmax`
 heads, seed 42, scored on the eval splits under `eval_sets/<concept>/` off precomputed
 activations. Heavy artefacts (activations, fit caches, probe pickles) are gitignored; what
 is published here is the numbers and the code that produced them.
@@ -10,6 +10,7 @@ is published here is the numbers and the code that produced them.
 | [`cross_concept_ceiling/`](cross_concept_ceiling/REPORT.md) | What is the *ceiling* — the best a probe of this family can do when trained on eval-distribution data — for each concept alone, and for all three pooled into one probe? | Per-concept ceilings 0.946–0.977. One shared direction reaches 0.913–0.961, so pooling costs only 0.011–0.050 AUROC — **but TPR@1%FPR falls to 0.000 on every concept.** `instructions/oig_omission` has a ceiling of 0.630 and is not linearly readable at this layer. |
 | [`concept_probes_summary.md`](concept_probes_summary.md) | Four generating models each wrote ~50 balanced rows per concept. Does it matter which one? | Yes, and the ranking **inverts by concept**: across all four, hu_ha orders exactly opposite to highstakes and instructions (Spearman −1.00), which order identically to each other. dsv4pro best on hu_ha (0.887) / worst on instructions (0.575); llama70b the reverse (0.897 / 0.797). |
 | [`llama8b_concept_probes/`](llama8b_concept_probes/REPORT.md) · [`llama70b_concept_probes/`](llama70b_concept_probes/REPORT.md) · [`dsv4pro_concept_probes/`](dsv4pro_concept_probes/REPORT.md) · [`nemotron550b_concept_probes/`](nemotron550b_concept_probes/REPORT.md) | Per-generator detail: `{single, seq_ens10} × {dev, split}` validation, 12 probes each. | Ensemble and validation source are the smallest terms everywhere — most cells span <0.03 across their four arms, against 0.22 between generators. |
+| [`ensemble_vs_single.md`](ensemble_vs_single.md) | Across all 24 paired cells, what does the 10-member sequential ensemble buy over a single probe — on score, and on fit time? | **+0.010 AUROC mean for 7.4x the fit time**, sign unreliable (ensemble wins 16/24, range -0.055 to +0.051). It does not reduce sensitivity to the validation source either. |
 | [`generalization_tests/`](generalization_tests/REPORT.md) | Probes trained on a general/not-general dataset under borrowed concept labels — a distinction the eval sets do not measure. | Generality transfers to high-stakes (0.686 one way, 0.367 inverted) and not to harm or instruction-following. Random-label controls sit at 0.52–0.60, so **~0.55 is the noise floor here, not 0.50**. |
 
 ## The one bug that touches every number above
