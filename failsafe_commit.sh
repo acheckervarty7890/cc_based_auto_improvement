@@ -67,8 +67,8 @@
 #
 #   # 0) check out this experiment's branch (the failsafe pushes onto whatever is
 #   #    checked out — it does NOT create or switch branches for you). For this
-#   #    experiment that branch is experiment25_cloud.
-#   git fetch origin && git checkout experiment25_cloud
+#   #    experiment that branch is experiment_instruction_cloud_7.
+#   git fetch origin && git checkout experiment_instruction_cloud_7
 #
 #   # 1) launch BOTH arms (the runner runs them sequentially)
 #   nohup bash run_gemma27b_instructions_evaldesc_arms.sh > logs/run_evaldesc_arms.out 2>&1 &
@@ -87,7 +87,7 @@
 #       --config configs/b.md --probe-out-dir probes/b --log-file logs/b.log
 #
 # To RESUME on a fresh container (check out the same branch you pushed to):
-#   git fetch origin && git checkout experiment25_cloud
+#   git fetch origin && git checkout experiment_instruction_cloud_7
 #   # then re-run the SAME runner/iterative_retrain.py command with --resume
 #   # (default); it picks up from the latest probe_iterN.pkl and skips red-team
 #   # phases whose markers were committed. Restarting this failsafe on that branch
