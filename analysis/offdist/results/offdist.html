@@ -9,7 +9,7 @@
   --rule:#D5DEDB; --rule-strong:#B9C6C3;
   --eval:#0F6F68; --eval-soft:#DCEBE8;
   --drift:#AC432C; --drift-soft:#F4E2DC;
-  --near:#A8761B;
+  --near:#A8761B; --gen:#6B5BA6;
   --ev1:#0F6F68; --ev2:#2F6DA8; --ev3:#6B5BA6; --ev4:#3F8A55;
   --band:#DFE6E4;
   --measure:66ch; --wide:1000px;
@@ -21,7 +21,7 @@
     --rule:#253134; --rule-strong:#374548;
     --eval:#4FB3A6; --eval-soft:#12302D;
     --drift:#D97A5E; --drift-soft:#331B14;
-    --near:#D9A441;
+    --near:#D9A441; --gen:#A294E0;
     --ev1:#4FB3A6; --ev2:#6FA8DE; --ev3:#A294E0; --ev4:#6FC183;
     --band:#1E292B;
   }
@@ -32,7 +32,7 @@
   --rule:#253134; --rule-strong:#374548;
   --eval:#4FB3A6; --eval-soft:#12302D;
   --drift:#D97A5E; --drift-soft:#331B14;
-  --near:#D9A441;
+  --near:#D9A441; --gen:#A294E0;
   --ev1:#4FB3A6; --ev2:#6FA8DE; --ev3:#A294E0; --ev4:#6FC183;
   --band:#1E292B;
 }
@@ -47,7 +47,8 @@ body {
 .col { max-width:var(--measure); }
 h1,h2,h3,.display { font-family:Archivo,"Helvetica Neue",Arial,sans-serif; color:var(--ink);
   text-wrap:balance; margin:0; }
-.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.otick,.olab,.oaxlab,.okey,.okeyhead,.ref,.chip {
+.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.preflab,.otick,.olab,.oaxlab,.okey,.okeyhead,
+.ptitle,.ref,.chip {
   font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; }
 .eyebrow { font-size:11px; letter-spacing:.18em; text-transform:uppercase;
   color:var(--muted); font-weight:500; }
@@ -110,6 +111,22 @@ caption,.cap { font-size:13px; color:var(--muted); max-width:var(--measure);
 .cbar.pos { fill:var(--eval); }
 .cbar.neg { fill:var(--drift); }
 .cbar.flat { fill:var(--faint); }
+.hwbase { fill:var(--faint); }
+.hwok { fill:var(--eval); }
+.hwlink { stroke:var(--rule-strong); stroke-width:1; }
+.hwhdr { font-size:9.5px; fill:var(--muted); letter-spacing:.04em; }
+.hwhdr.harm { fill:var(--drift); }
+.hwband { fill:var(--faint); font-size:9px; }
+.pdot { fill:var(--ink); }
+.pdot.low { fill:var(--drift); }
+td .sub { font-size:10px; color:var(--faint); font-variant-numeric:tabular-nums; }
+.hlneg { color:var(--drift); font-weight:600; }
+.pref { stroke-width:1.4; stroke-dasharray:4 4; }
+.pref.full { stroke:var(--eval); }
+.pref.base { stroke:var(--faint); }
+.preflab { font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; }
+.preflab.full { fill:var(--eval); }
+.preflab.base { fill:var(--faint); }
 .crow { font-size:11.5px; fill:var(--body); }
 .cval { font-size:11px; fill:var(--muted); font-variant-numeric:tabular-nums; }
 .ctick { font-size:10px; fill:var(--faint); }
@@ -120,6 +137,12 @@ caption,.cap { font-size:13px; color:var(--muted); max-width:var(--measure);
 .odot.off { fill:var(--drift); fill-opacity:.85; }
 .odot.like { fill:var(--near); fill-opacity:.85; }
 .ering { fill:none; stroke-width:1.05; stroke-opacity:.62; }
+.sdot.ev { fill:var(--faint); fill-opacity:.20; }
+.sdot.src.pos { fill:var(--drift); fill-opacity:.85; }
+.sdot.gen.pos { fill:var(--gen); fill-opacity:.85; }
+.sdot.src.neg { fill:none; stroke:var(--drift); stroke-width:1.15; stroke-opacity:.9; }
+.sdot.gen.neg { fill:none; stroke:var(--gen); stroke-width:1.15; stroke-opacity:.9; }
+.ptitle { font-size:11px; fill:var(--ink); letter-spacing:.02em; }
 .ering.s1 { stroke:var(--ev1); }
 .ering.s2 { stroke:var(--ev2); }
 .ering.s3 { stroke:var(--ev3); }
@@ -153,13 +176,14 @@ a { color:var(--eval); }
   <h1>Orthogonal<span class="thin">by construction</span></h1>
   <p class="standfirst">The red-team conversations a probe is retrained on are not drawn from
   the distribution it is scored on. This asks how far off they sit, whether any are labelled
-  backwards, whether dropping the worst of them helps &#8212; and where, in the model&#8217;s
-  own representation, the difference actually lives.</p>
+  backwards, whether dropping the worst of them helps, where in the model&#8217;s own
+  representation the difference actually lives &#8212; and which half of each generated pair
+  the retrain is really learning from.</p>
   <div class="meta">
     <span class="chip">2 attacker arms</span>
     <span class="chip">588 + 920 red-team rows</span>
     <span class="chip">866 eval rows</span>
-    <span class="chip">104 probe fits</span>
+    <span class="chip">132 probe fits</span>
     <span class="chip">no LLM loaded</span>
   </div>
 </header>
@@ -2270,12 +2294,2753 @@ a { color:var(--eval); }
   </div>
 </section>
 
+<section>
+  <div class="qhead">
+    <div class="qnum">Q5</div>
+    <div>
+      <h2>What are the generated halves worth?</h2>
+      <p class="verdict">Drop them and the retrain goes <em>backwards</em>.</p>
+      <div class="qbody">
+        <p>Every conversation the attacker landed was given an opposite-label partner by
+        <code>generate_contrastive_dataset</code>, so arm 1&#8217;s 588 rows
+        are 294 pairs and arm 2&#8217;s 920 are
+        459. Dropping one side of every pair asks what each side contributes
+        &#8212; and dropping the generated side is precisely the retrain a run with no
+        <code>preprocessing:</code> section would have done.</p>
+        <p>The control has to change with the question. Q3&#8217;s bars are matched against removal
+        of whole pairs, which holds the class balance fixed by construction; these conditions break
+        the pairing deliberately, so they are matched against <em>keeping a randomly chosen
+        side</em> of every pair &#8212; same row count, pairing broken just as hard, only the
+        source-versus-generated choice left to chance.</p>
+        <div class="armhead">arm 1 <span>&middot; gpt-oss-120b</span></div>
+        <div class="panel"><svg viewBox="0 0 720 285" class="chart" role="img" aria-label="eval AUROC when one side of every contrastive pair is dropped, or replaced by a rewrite of it">
+<line class="cgrid" x1="314.5" y1="14" x2="314.5" y2="265"/>
+<text class="ctick" x="314.5" y="279" text-anchor="middle">0.70</text>
+<line class="cgrid" x1="374.8" y1="14" x2="374.8" y2="265"/>
+<text class="ctick" x="374.8" y="279" text-anchor="middle">0.75</text>
+<line class="cgrid" x1="435.0" y1="14" x2="435.0" y2="265"/>
+<text class="ctick" x="435.0" y="279" text-anchor="middle">0.80</text>
+<line class="cgrid" x1="495.3" y1="14" x2="495.3" y2="265"/>
+<text class="ctick" x="495.3" y="279" text-anchor="middle">0.85</text>
+<line class="cgrid" x1="555.6" y1="14" x2="555.6" y2="265"/>
+<text class="ctick" x="555.6" y="279" text-anchor="middle">0.90</text>
+<line class="pref full" x1="575.4" y1="14" x2="575.4" y2="265"/>
+<text class="preflab full" x="575.4" y="10" text-anchor="middle">all data</text>
+<line class="pref base" x1="498.1" y1="14" x2="498.1" y2="265"/>
+<text class="preflab base" x="498.1" y="10" text-anchor="middle">no red-team</text>
+<circle class="pdot" cx="575.4" cy="33.0" r="4.6"/>
+<text class="crow" x="252" y="37" text-anchor="end">everything</text>
+<text class="cval" x="608" y="37">0.9164</text>
+<rect class="cband" x="530.6" y="61.0" width="45.3" height="14" rx="2"/>
+<circle class="pdot" cx="553.3" cy="68.0" r="4.6"/>
+<text class="crow" x="252" y="72" text-anchor="end">a random half of every pair</text>
+<text class="cval" x="608" y="72">0.8981 &#177; 0.0188</text>
+<circle class="pdot low" cx="385.4" cy="103.0" r="4.6"/>
+<text class="crow" x="252" y="107" text-anchor="end">the attacker&#8217;s own successes only</text>
+<text class="cval" x="608" y="107">0.7589</text>
+<circle class="pdot low" cx="392.5" cy="138.0" r="4.6"/>
+<text class="crow" x="252" y="142" text-anchor="end">the same, rewritten by the generator</text>
+<text class="cval" x="608" y="142">0.7647</text>
+<circle class="pdot" cx="501.2" cy="173.0" r="4.6"/>
+<text class="crow" x="252" y="177" text-anchor="end">the generated partners only</text>
+<text class="cval" x="608" y="177">0.8549</text>
+<circle class="pdot" cx="550.1" cy="208.0" r="4.6"/>
+<text class="crow" x="252" y="212" text-anchor="end">the rewrites, paired with the partners</text>
+<text class="cval" x="608" y="212">0.8955</text>
+<circle class="pdot" cx="498.1" cy="243.0" r="4.6"/>
+<text class="crow" x="252" y="247" text-anchor="end">no red-team data</text>
+<text class="cval" x="608" y="247">0.8523</text>
+</svg></div>
+        <div class="armhead">arm 2 <span>&middot; deepseek-v4-pro</span></div>
+        <div class="panel"><svg viewBox="0 0 720 215" class="chart" role="img" aria-label="eval AUROC when one side of every contrastive pair is dropped, or replaced by a rewrite of it">
+<line class="cgrid" x1="314.5" y1="14" x2="314.5" y2="195"/>
+<text class="ctick" x="314.5" y="209" text-anchor="middle">0.70</text>
+<line class="cgrid" x1="374.8" y1="14" x2="374.8" y2="195"/>
+<text class="ctick" x="374.8" y="209" text-anchor="middle">0.75</text>
+<line class="cgrid" x1="435.0" y1="14" x2="435.0" y2="195"/>
+<text class="ctick" x="435.0" y="209" text-anchor="middle">0.80</text>
+<line class="cgrid" x1="495.3" y1="14" x2="495.3" y2="195"/>
+<text class="ctick" x="495.3" y="209" text-anchor="middle">0.85</text>
+<line class="cgrid" x1="555.6" y1="14" x2="555.6" y2="195"/>
+<text class="ctick" x="555.6" y="209" text-anchor="middle">0.90</text>
+<line class="pref full" x1="472.9" y1="14" x2="472.9" y2="195"/>
+<text class="preflab full" x="472.9" y="10" text-anchor="middle">all data</text>
+<line class="pref base" x1="498.1" y1="14" x2="498.1" y2="195"/>
+<text class="preflab base" x="498.1" y="10" text-anchor="middle">no red-team</text>
+<circle class="pdot low" cx="472.9" cy="33.0" r="4.6"/>
+<text class="crow" x="252" y="37" text-anchor="end">everything</text>
+<text class="cval" x="608" y="37">0.8314</text>
+<rect class="cband" x="394.4" y="61.0" width="66.8" height="14" rx="2"/>
+<circle class="pdot low" cx="427.8" cy="68.0" r="4.6"/>
+<text class="crow" x="252" y="72" text-anchor="end">a random half of every pair</text>
+<text class="cval" x="608" y="72">0.7940 &#177; 0.0277</text>
+<circle class="pdot low" cx="292.1" cy="103.0" r="4.6"/>
+<text class="crow" x="252" y="107" text-anchor="end">the attacker&#8217;s own successes only</text>
+<text class="cval" x="608" y="107">0.6814</text>
+<circle class="pdot low" cx="388.3" cy="138.0" r="4.6"/>
+<text class="crow" x="252" y="142" text-anchor="end">the generated partners only</text>
+<text class="cval" x="608" y="142">0.7612</text>
+<circle class="pdot" cx="498.1" cy="173.0" r="4.6"/>
+<text class="crow" x="252" y="177" text-anchor="end">no red-team data</text>
+<text class="cval" x="608" y="177">0.8523</text>
+</svg></div>
+        <p class="cap">Mean eval AUROC over the four <code>eval_sets/hu_ha</code> splits. The
+        random-half row is 3 seeds, mean &#177; sd. Dashed lines mark what all the data scores and
+        what no red-team data scores; a dot left of the second is a training set worse than not
+        red-teaming at all.</p>
+        <p>Keeping only the conversations the attacker actually landed scores
+        <strong>0.7589</strong> and
+        <strong>0.6814</strong> &#8212; both below the
+        0.8523 a probe reaches on the 50 base rows with no
+        red-team data at all, and
+        -0.1392 /
+        -0.1126 against a random
+        half of the same size. Keeping only the generated partners is milder but still negative
+        (-0.0431 /
+        -0.0328).</p>
+        <p>So the cost is not the row count &#8212; a random half of the same size gives up only
+        -0.0184 and
+        -0.0374 &#8212; and it is not the
+        generated text as such, since dropping <em>that</em> side is the worse of the two.
+        <strong>It is the pairing.</strong> With both halves present the label can only be read off
+        the behavioural difference between two near-identical conversations. Take one side away
+        systematically and the class becomes predictable from who wrote the conversation, which is
+        a feature that does not exist in the eval set.</p>
+        <div class="armhead">arm 1 <span>&middot; the two halves in activation
+        space, Q4&#8217;s coordinates</span></div>
+        <div class="panel"><svg viewBox="0 0 720 348" class="chart" role="img" aria-label="the attacker&#8217;s own red-team submissions and the contrastive partners generated for them, in the same activation-space coordinates as the earlier figure">
+<text class="ptitle" x="205" y="30" text-anchor="middle">the attacker&#8217;s own submissions</text>
+<line class="ogrid" x1="58" y1="268.0" x2="352" y2="268.0"/>
+<text class="otick" x="50" y="272.0" text-anchor="end">0</text>
+<line class="ogrid" x1="58" y1="224.7" x2="352" y2="224.7"/>
+<text class="otick" x="50" y="228.7" text-anchor="end">9</text>
+<line class="ogrid" x1="58" y1="181.4" x2="352" y2="181.4"/>
+<text class="otick" x="50" y="185.4" text-anchor="end">18</text>
+<line class="ogrid" x1="58" y1="138.1" x2="352" y2="138.1"/>
+<text class="otick" x="50" y="142.1" text-anchor="end">27</text>
+<line class="ogrid" x1="58" y1="94.8" x2="352" y2="94.8"/>
+<text class="otick" x="50" y="98.8" text-anchor="end">36</text>
+<line class="ogrid" x1="58" y1="51.5" x2="352" y2="51.5"/>
+<text class="otick" x="50" y="55.5" text-anchor="end">45</text>
+<line class="oaxis" x1="58" y1="268" x2="352" y2="268"/>
+<line class="oaxis dash" x1="205.0" y1="46" x2="205.0" y2="268"/>
+<circle class="sdot ev" cx="210.6" cy="173.7" r="1.8"/>
+<circle class="sdot ev" cx="205.2" cy="173.6" r="1.8"/>
+<circle class="sdot ev" cx="184.5" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="187.4" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="196.1" cy="182.9" r="1.8"/>
+<circle class="sdot ev" cx="189.0" cy="182.2" r="1.8"/>
+<circle class="sdot ev" cx="182.8" cy="164.3" r="1.8"/>
+<circle class="sdot ev" cx="178.8" cy="164.0" r="1.8"/>
+<circle class="sdot ev" cx="211.6" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="215.4" cy="166.8" r="1.8"/>
+<circle class="sdot ev" cx="186.1" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="193.6" cy="158.9" r="1.8"/>
+<circle class="sdot ev" cx="190.8" cy="176.8" r="1.8"/>
+<circle class="sdot ev" cx="186.7" cy="177.1" r="1.8"/>
+<circle class="sdot ev" cx="201.1" cy="167.6" r="1.8"/>
+<circle class="sdot ev" cx="194.6" cy="167.3" r="1.8"/>
+<circle class="sdot ev" cx="210.9" cy="173.9" r="1.8"/>
+<circle class="sdot ev" cx="204.6" cy="174.4" r="1.8"/>
+<circle class="sdot ev" cx="198.0" cy="164.2" r="1.8"/>
+<circle class="sdot ev" cx="190.2" cy="163.8" r="1.8"/>
+<circle class="sdot ev" cx="198.5" cy="164.9" r="1.8"/>
+<circle class="sdot ev" cx="202.3" cy="165.5" r="1.8"/>
+<circle class="sdot ev" cx="181.9" cy="176.2" r="1.8"/>
+<circle class="sdot ev" cx="184.1" cy="176.0" r="1.8"/>
+<circle class="sdot ev" cx="196.9" cy="174.8" r="1.8"/>
+<circle class="sdot ev" cx="192.9" cy="174.6" r="1.8"/>
+<circle class="sdot ev" cx="218.1" cy="170.1" r="1.8"/>
+<circle class="sdot ev" cx="211.7" cy="170.1" r="1.8"/>
+<circle class="sdot ev" cx="207.8" cy="168.5" r="1.8"/>
+<circle class="sdot ev" cx="204.3" cy="168.8" r="1.8"/>
+<circle class="sdot ev" cx="181.6" cy="171.9" r="1.8"/>
+<circle class="sdot ev" cx="179.0" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="214.8" cy="169.2" r="1.8"/>
+<circle class="sdot ev" cx="209.1" cy="168.6" r="1.8"/>
+<circle class="sdot ev" cx="219.5" cy="170.5" r="1.8"/>
+<circle class="sdot ev" cx="213.3" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="199.0" cy="163.3" r="1.8"/>
+<circle class="sdot ev" cx="191.9" cy="163.3" r="1.8"/>
+<circle class="sdot ev" cx="206.3" cy="168.8" r="1.8"/>
+<circle class="sdot ev" cx="202.3" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="210.0" cy="173.6" r="1.8"/>
+<circle class="sdot ev" cx="202.1" cy="172.4" r="1.8"/>
+<circle class="sdot ev" cx="183.4" cy="163.1" r="1.8"/>
+<circle class="sdot ev" cx="182.3" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="216.8" cy="167.6" r="1.8"/>
+<circle class="sdot ev" cx="211.3" cy="167.1" r="1.8"/>
+<circle class="sdot ev" cx="209.1" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="196.7" cy="158.6" r="1.8"/>
+<circle class="sdot ev" cx="201.9" cy="167.7" r="1.8"/>
+<circle class="sdot ev" cx="192.1" cy="167.6" r="1.8"/>
+<circle class="sdot ev" cx="200.8" cy="177.5" r="1.8"/>
+<circle class="sdot ev" cx="192.2" cy="177.2" r="1.8"/>
+<circle class="sdot ev" cx="197.6" cy="171.5" r="1.8"/>
+<circle class="sdot ev" cx="190.1" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="206.3" cy="157.8" r="1.8"/>
+<circle class="sdot ev" cx="201.5" cy="157.9" r="1.8"/>
+<circle class="sdot ev" cx="206.2" cy="160.1" r="1.8"/>
+<circle class="sdot ev" cx="202.1" cy="159.7" r="1.8"/>
+<circle class="sdot ev" cx="184.3" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="189.1" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="217.1" cy="166.9" r="1.8"/>
+<circle class="sdot ev" cx="211.9" cy="166.3" r="1.8"/>
+<circle class="sdot ev" cx="192.7" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="199.9" cy="161.7" r="1.8"/>
+<circle class="sdot ev" cx="182.3" cy="175.5" r="1.8"/>
+<circle class="sdot ev" cx="180.0" cy="174.6" r="1.8"/>
+<circle class="sdot ev" cx="193.6" cy="157.6" r="1.8"/>
+<circle class="sdot ev" cx="191.5" cy="158.6" r="1.8"/>
+<circle class="sdot ev" cx="208.0" cy="166.0" r="1.8"/>
+<circle class="sdot ev" cx="200.8" cy="165.7" r="1.8"/>
+<circle class="sdot ev" cx="201.7" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="194.8" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="236.3" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="230.5" cy="164.4" r="1.8"/>
+<circle class="sdot ev" cx="215.8" cy="155.5" r="1.8"/>
+<circle class="sdot ev" cx="211.4" cy="155.3" r="1.8"/>
+<circle class="sdot ev" cx="206.5" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="197.4" cy="170.2" r="1.8"/>
+<circle class="sdot ev" cx="185.7" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="182.4" cy="163.9" r="1.8"/>
+<circle class="sdot ev" cx="197.5" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="192.2" cy="166.4" r="1.8"/>
+<circle class="sdot ev" cx="205.6" cy="179.8" r="1.8"/>
+<circle class="sdot ev" cx="199.8" cy="180.0" r="1.8"/>
+<circle class="sdot ev" cx="223.0" cy="172.7" r="1.8"/>
+<circle class="sdot ev" cx="214.8" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="229.7" cy="157.8" r="1.8"/>
+<circle class="sdot ev" cx="226.4" cy="158.5" r="1.8"/>
+<circle class="sdot ev" cx="217.8" cy="163.5" r="1.8"/>
+<circle class="sdot ev" cx="216.2" cy="164.4" r="1.8"/>
+<circle class="sdot ev" cx="215.1" cy="164.5" r="1.8"/>
+<circle class="sdot ev" cx="211.2" cy="164.3" r="1.8"/>
+<circle class="sdot ev" cx="227.5" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="221.3" cy="168.7" r="1.8"/>
+<circle class="sdot ev" cx="212.0" cy="160.7" r="1.8"/>
+<circle class="sdot ev" cx="206.5" cy="160.5" r="1.8"/>
+<circle class="sdot ev" cx="198.7" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="195.6" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="186.7" cy="173.2" r="1.8"/>
+<circle class="sdot ev" cx="186.0" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="204.0" cy="176.2" r="1.8"/>
+<circle class="sdot ev" cx="200.1" cy="176.6" r="1.8"/>
+<circle class="sdot ev" cx="199.4" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="196.8" cy="172.6" r="1.8"/>
+<circle class="sdot ev" cx="207.4" cy="175.9" r="1.8"/>
+<circle class="sdot ev" cx="203.4" cy="175.8" r="1.8"/>
+<circle class="sdot ev" cx="200.1" cy="167.0" r="1.8"/>
+<circle class="sdot ev" cx="192.9" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="203.7" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="198.1" cy="173.9" r="1.8"/>
+<circle class="sdot ev" cx="232.1" cy="160.9" r="1.8"/>
+<circle class="sdot ev" cx="228.6" cy="161.5" r="1.8"/>
+<circle class="sdot ev" cx="211.1" cy="156.5" r="1.8"/>
+<circle class="sdot ev" cx="207.1" cy="157.0" r="1.8"/>
+<circle class="sdot ev" cx="197.4" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="195.8" cy="158.2" r="1.8"/>
+<circle class="sdot ev" cx="209.7" cy="168.0" r="1.8"/>
+<circle class="sdot ev" cx="214.5" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="191.0" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="185.5" cy="172.4" r="1.8"/>
+<circle class="sdot ev" cx="199.0" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="204.3" cy="167.4" r="1.8"/>
+<circle class="sdot ev" cx="196.6" cy="176.7" r="1.8"/>
+<circle class="sdot ev" cx="189.3" cy="176.4" r="1.8"/>
+<circle class="sdot ev" cx="208.7" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="207.5" cy="166.3" r="1.8"/>
+<circle class="sdot ev" cx="210.8" cy="154.2" r="1.8"/>
+<circle class="sdot ev" cx="208.2" cy="154.6" r="1.8"/>
+<circle class="sdot ev" cx="203.0" cy="173.7" r="1.8"/>
+<circle class="sdot ev" cx="198.0" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="204.0" cy="160.7" r="1.8"/>
+<circle class="sdot ev" cx="200.2" cy="160.5" r="1.8"/>
+<circle class="sdot ev" cx="207.3" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="196.3" cy="170.9" r="1.8"/>
+<circle class="sdot ev" cx="227.8" cy="169.3" r="1.8"/>
+<circle class="sdot ev" cx="221.5" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="201.7" cy="128.1" r="1.8"/>
+<circle class="sdot ev" cx="271.1" cy="161.6" r="1.8"/>
+<circle class="sdot ev" cx="256.0" cy="152.6" r="1.8"/>
+<circle class="sdot ev" cx="218.9" cy="151.8" r="1.8"/>
+<circle class="sdot ev" cx="200.5" cy="155.5" r="1.8"/>
+<circle class="sdot ev" cx="202.5" cy="160.0" r="1.8"/>
+<circle class="sdot ev" cx="271.4" cy="129.0" r="1.8"/>
+<circle class="sdot ev" cx="264.3" cy="97.5" r="1.8"/>
+<circle class="sdot ev" cx="250.6" cy="170.6" r="1.8"/>
+<circle class="sdot ev" cx="246.9" cy="156.7" r="1.8"/>
+<circle class="sdot ev" cx="278.1" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="263.4" cy="147.9" r="1.8"/>
+<circle class="sdot ev" cx="267.5" cy="98.4" r="1.8"/>
+<circle class="sdot ev" cx="239.1" cy="133.8" r="1.8"/>
+<circle class="sdot ev" cx="204.1" cy="146.1" r="1.8"/>
+<circle class="sdot ev" cx="298.4" cy="135.0" r="1.8"/>
+<circle class="sdot ev" cx="255.3" cy="122.8" r="1.8"/>
+<circle class="sdot ev" cx="253.8" cy="138.3" r="1.8"/>
+<circle class="sdot ev" cx="262.5" cy="148.4" r="1.8"/>
+<circle class="sdot ev" cx="222.9" cy="136.8" r="1.8"/>
+<circle class="sdot ev" cx="297.2" cy="116.9" r="1.8"/>
+<circle class="sdot ev" cx="215.1" cy="133.1" r="1.8"/>
+<circle class="sdot ev" cx="262.1" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="270.8" cy="135.1" r="1.8"/>
+<circle class="sdot ev" cx="241.1" cy="120.6" r="1.8"/>
+<circle class="sdot ev" cx="221.7" cy="137.9" r="1.8"/>
+<circle class="sdot ev" cx="143.2" cy="163.6" r="1.8"/>
+<circle class="sdot ev" cx="306.7" cy="154.2" r="1.8"/>
+<circle class="sdot ev" cx="231.9" cy="145.0" r="1.8"/>
+<circle class="sdot ev" cx="207.8" cy="162.4" r="1.8"/>
+<circle class="sdot ev" cx="251.4" cy="160.4" r="1.8"/>
+<circle class="sdot ev" cx="269.7" cy="101.5" r="1.8"/>
+<circle class="sdot ev" cx="224.7" cy="149.7" r="1.8"/>
+<circle class="sdot ev" cx="174.3" cy="152.2" r="1.8"/>
+<circle class="sdot ev" cx="297.8" cy="147.2" r="1.8"/>
+<circle class="sdot ev" cx="192.5" cy="111.8" r="1.8"/>
+<circle class="sdot ev" cx="301.6" cy="152.4" r="1.8"/>
+<circle class="sdot ev" cx="267.7" cy="116.9" r="1.8"/>
+<circle class="sdot ev" cx="269.2" cy="152.7" r="1.8"/>
+<circle class="sdot ev" cx="163.1" cy="141.8" r="1.8"/>
+<circle class="sdot ev" cx="280.8" cy="155.2" r="1.8"/>
+<circle class="sdot ev" cx="180.1" cy="89.4" r="1.8"/>
+<circle class="sdot ev" cx="161.8" cy="129.8" r="1.8"/>
+<circle class="sdot ev" cx="281.8" cy="136.6" r="1.8"/>
+<circle class="sdot ev" cx="217.7" cy="173.1" r="1.8"/>
+<circle class="sdot ev" cx="226.2" cy="128.6" r="1.8"/>
+<circle class="sdot ev" cx="241.4" cy="144.0" r="1.8"/>
+<circle class="sdot ev" cx="249.5" cy="168.2" r="1.8"/>
+<circle class="sdot ev" cx="218.7" cy="162.8" r="1.8"/>
+<circle class="sdot ev" cx="227.3" cy="158.7" r="1.8"/>
+<circle class="sdot ev" cx="277.9" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="226.8" cy="127.8" r="1.8"/>
+<circle class="sdot ev" cx="254.3" cy="121.0" r="1.8"/>
+<circle class="sdot ev" cx="250.2" cy="144.3" r="1.8"/>
+<circle class="sdot ev" cx="210.5" cy="157.9" r="1.8"/>
+<circle class="sdot ev" cx="291.8" cy="142.1" r="1.8"/>
+<circle class="sdot ev" cx="226.7" cy="151.9" r="1.8"/>
+<circle class="sdot ev" cx="200.3" cy="159.2" r="1.8"/>
+<circle class="sdot ev" cx="254.5" cy="129.3" r="1.8"/>
+<circle class="sdot ev" cx="173.3" cy="169.6" r="1.8"/>
+<circle class="sdot ev" cx="285.7" cy="58.6" r="1.8"/>
+<circle class="sdot ev" cx="167.8" cy="126.9" r="1.8"/>
+<circle class="sdot ev" cx="176.6" cy="161.1" r="1.8"/>
+<circle class="sdot ev" cx="201.5" cy="119.2" r="1.8"/>
+<circle class="sdot ev" cx="246.3" cy="125.7" r="1.8"/>
+<circle class="sdot ev" cx="306.4" cy="123.4" r="1.8"/>
+<circle class="sdot ev" cx="206.1" cy="144.1" r="1.8"/>
+<circle class="sdot ev" cx="212.8" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="252.5" cy="155.6" r="1.8"/>
+<circle class="sdot ev" cx="315.7" cy="127.7" r="1.8"/>
+<circle class="sdot ev" cx="200.4" cy="156.4" r="1.8"/>
+<circle class="sdot ev" cx="190.5" cy="128.9" r="1.8"/>
+<circle class="sdot ev" cx="233.5" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="215.0" cy="155.8" r="1.8"/>
+<circle class="sdot ev" cx="222.4" cy="150.4" r="1.8"/>
+<circle class="sdot ev" cx="260.2" cy="124.0" r="1.8"/>
+<circle class="sdot ev" cx="206.4" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="202.5" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="228.7" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="219.7" cy="153.9" r="1.8"/>
+<circle class="sdot ev" cx="288.6" cy="142.4" r="1.8"/>
+<circle class="sdot ev" cx="208.3" cy="145.5" r="1.8"/>
+<circle class="sdot ev" cx="262.2" cy="152.1" r="1.8"/>
+<circle class="sdot ev" cx="250.4" cy="135.8" r="1.8"/>
+<circle class="sdot ev" cx="181.6" cy="163.5" r="1.8"/>
+<circle class="sdot ev" cx="174.8" cy="145.1" r="1.8"/>
+<circle class="sdot ev" cx="270.5" cy="126.4" r="1.8"/>
+<circle class="sdot ev" cx="243.2" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="162.0" cy="161.8" r="1.8"/>
+<circle class="sdot ev" cx="182.5" cy="143.1" r="1.8"/>
+<circle class="sdot ev" cx="225.4" cy="129.6" r="1.8"/>
+<circle class="sdot ev" cx="202.1" cy="137.8" r="1.8"/>
+<circle class="sdot ev" cx="250.8" cy="163.4" r="1.8"/>
+<circle class="sdot ev" cx="234.5" cy="114.4" r="1.8"/>
+<circle class="sdot ev" cx="200.6" cy="147.2" r="1.8"/>
+<circle class="sdot ev" cx="230.6" cy="164.0" r="1.8"/>
+<circle class="sdot ev" cx="270.2" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="116.9" cy="104.5" r="1.8"/>
+<circle class="sdot ev" cx="191.3" cy="151.9" r="1.8"/>
+<circle class="sdot ev" cx="219.7" cy="177.1" r="1.8"/>
+<circle class="sdot ev" cx="249.0" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="208.1" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="213.1" cy="156.7" r="1.8"/>
+<circle class="sdot ev" cx="225.2" cy="153.1" r="1.8"/>
+<circle class="sdot ev" cx="219.3" cy="96.6" r="1.8"/>
+<circle class="sdot ev" cx="237.5" cy="97.2" r="1.8"/>
+<circle class="sdot ev" cx="262.7" cy="150.1" r="1.8"/>
+<circle class="sdot ev" cx="206.5" cy="142.0" r="1.8"/>
+<circle class="sdot ev" cx="297.4" cy="143.6" r="1.8"/>
+<circle class="sdot ev" cx="224.2" cy="120.9" r="1.8"/>
+<circle class="sdot ev" cx="338.6" cy="136.4" r="1.8"/>
+<circle class="sdot ev" cx="221.6" cy="138.1" r="1.8"/>
+<circle class="sdot ev" cx="166.2" cy="131.5" r="1.8"/>
+<circle class="sdot ev" cx="250.1" cy="124.7" r="1.8"/>
+<circle class="sdot ev" cx="276.8" cy="157.2" r="1.8"/>
+<circle class="sdot ev" cx="250.6" cy="147.8" r="1.8"/>
+<circle class="sdot ev" cx="267.3" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="234.8" cy="156.2" r="1.8"/>
+<circle class="sdot ev" cx="187.0" cy="84.0" r="1.8"/>
+<circle class="sdot ev" cx="241.9" cy="151.7" r="1.8"/>
+<circle class="sdot ev" cx="276.4" cy="112.2" r="1.8"/>
+<circle class="sdot ev" cx="175.6" cy="119.4" r="1.8"/>
+<circle class="sdot ev" cx="250.6" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="231.7" cy="164.3" r="1.8"/>
+<circle class="sdot ev" cx="233.8" cy="148.4" r="1.8"/>
+<circle class="sdot ev" cx="285.8" cy="136.9" r="1.8"/>
+<circle class="sdot ev" cx="221.7" cy="160.0" r="1.8"/>
+<circle class="sdot ev" cx="200.4" cy="126.2" r="1.8"/>
+<circle class="sdot ev" cx="233.5" cy="157.3" r="1.8"/>
+<circle class="sdot ev" cx="260.3" cy="144.1" r="1.8"/>
+<circle class="sdot ev" cx="191.1" cy="172.6" r="1.8"/>
+<circle class="sdot ev" cx="145.4" cy="134.1" r="1.8"/>
+<circle class="sdot ev" cx="217.2" cy="134.4" r="1.8"/>
+<circle class="sdot ev" cx="280.8" cy="162.5" r="1.8"/>
+<circle class="sdot ev" cx="259.1" cy="125.5" r="1.8"/>
+<circle class="sdot ev" cx="157.7" cy="147.5" r="1.8"/>
+<circle class="sdot ev" cx="215.1" cy="112.0" r="1.8"/>
+<circle class="sdot ev" cx="164.3" cy="140.5" r="1.8"/>
+<circle class="sdot ev" cx="235.6" cy="152.2" r="1.8"/>
+<circle class="sdot ev" cx="176.6" cy="153.7" r="1.8"/>
+<circle class="sdot ev" cx="203.0" cy="166.2" r="1.8"/>
+<circle class="sdot ev" cx="200.8" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="203.5" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="201.6" cy="176.0" r="1.8"/>
+<circle class="sdot ev" cx="220.1" cy="171.3" r="1.8"/>
+<circle class="sdot ev" cx="220.4" cy="182.1" r="1.8"/>
+<circle class="sdot ev" cx="221.6" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="219.6" cy="180.4" r="1.8"/>
+<circle class="sdot ev" cx="226.4" cy="176.4" r="1.8"/>
+<circle class="sdot ev" cx="170.0" cy="173.7" r="1.8"/>
+<circle class="sdot ev" cx="188.4" cy="164.4" r="1.8"/>
+<circle class="sdot ev" cx="184.9" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="187.6" cy="162.8" r="1.8"/>
+<circle class="sdot ev" cx="185.7" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="164.9" cy="130.2" r="1.8"/>
+<circle class="sdot ev" cx="156.9" cy="139.7" r="1.8"/>
+<circle class="sdot ev" cx="294.2" cy="153.3" r="1.8"/>
+<circle class="sdot ev" cx="183.6" cy="138.8" r="1.8"/>
+<circle class="sdot ev" cx="217.0" cy="135.9" r="1.8"/>
+<circle class="sdot ev" cx="174.7" cy="142.6" r="1.8"/>
+<circle class="sdot ev" cx="225.0" cy="149.2" r="1.8"/>
+<circle class="sdot ev" cx="180.4" cy="166.4" r="1.8"/>
+<circle class="sdot ev" cx="223.5" cy="140.0" r="1.8"/>
+<circle class="sdot ev" cx="161.0" cy="152.6" r="1.8"/>
+<circle class="sdot ev" cx="242.9" cy="152.7" r="1.8"/>
+<circle class="sdot ev" cx="156.0" cy="150.2" r="1.8"/>
+<circle class="sdot ev" cx="296.1" cy="160.9" r="1.8"/>
+<circle class="sdot ev" cx="191.1" cy="178.5" r="1.8"/>
+<circle class="sdot ev" cx="255.9" cy="67.8" r="1.8"/>
+<circle class="sdot ev" cx="203.1" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="182.1" cy="171.1" r="1.8"/>
+<circle class="sdot ev" cx="171.1" cy="176.6" r="1.8"/>
+<circle class="sdot ev" cx="191.7" cy="170.1" r="1.8"/>
+<circle class="sdot ev" cx="173.7" cy="174.2" r="1.8"/>
+<circle class="sdot ev" cx="289.4" cy="147.7" r="1.8"/>
+<circle class="sdot ev" cx="164.9" cy="159.4" r="1.8"/>
+<circle class="sdot ev" cx="250.6" cy="170.6" r="1.8"/>
+<circle class="sdot ev" cx="183.3" cy="168.1" r="1.8"/>
+<circle class="sdot ev" cx="291.8" cy="142.1" r="1.8"/>
+<circle class="sdot ev" cx="168.0" cy="161.8" r="1.8"/>
+<circle class="sdot ev" cx="282.7" cy="126.9" r="1.8"/>
+<circle class="sdot ev" cx="170.4" cy="158.6" r="1.8"/>
+<circle class="sdot ev" cx="237.2" cy="150.4" r="1.8"/>
+<circle class="sdot ev" cx="162.7" cy="162.0" r="1.8"/>
+<circle class="sdot ev" cx="204.9" cy="118.1" r="1.8"/>
+<circle class="sdot ev" cx="154.5" cy="141.0" r="1.8"/>
+<circle class="sdot ev" cx="205.5" cy="170.5" r="1.8"/>
+<circle class="sdot ev" cx="205.3" cy="175.3" r="1.8"/>
+<circle class="sdot ev" cx="207.6" cy="170.6" r="1.8"/>
+<circle class="sdot ev" cx="204.5" cy="178.0" r="1.8"/>
+<circle class="sdot ev" cx="298.1" cy="127.2" r="1.8"/>
+<circle class="sdot ev" cx="172.5" cy="151.6" r="1.8"/>
+<circle class="sdot ev" cx="241.9" cy="151.7" r="1.8"/>
+<circle class="sdot ev" cx="158.3" cy="148.4" r="1.8"/>
+<circle class="sdot ev" cx="297.2" cy="116.9" r="1.8"/>
+<circle class="sdot ev" cx="177.8" cy="176.6" r="1.8"/>
+<circle class="sdot ev" cx="225.2" cy="153.1" r="1.8"/>
+<circle class="sdot ev" cx="150.5" cy="136.5" r="1.8"/>
+<circle class="sdot ev" cx="191.8" cy="158.2" r="1.8"/>
+<circle class="sdot ev" cx="188.1" cy="165.3" r="1.8"/>
+<circle class="sdot ev" cx="203.9" cy="163.3" r="1.8"/>
+<circle class="sdot ev" cx="186.6" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="266.2" cy="164.4" r="1.8"/>
+<circle class="sdot ev" cx="185.8" cy="140.3" r="1.8"/>
+<circle class="sdot ev" cx="262.1" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="160.7" cy="150.9" r="1.8"/>
+<circle class="sdot ev" cx="241.1" cy="120.6" r="1.8"/>
+<circle class="sdot ev" cx="152.0" cy="132.1" r="1.8"/>
+<circle class="sdot ev" cx="279.3" cy="164.8" r="1.8"/>
+<circle class="sdot ev" cx="184.5" cy="160.5" r="1.8"/>
+<circle class="sdot ev" cx="275.2" cy="144.6" r="1.8"/>
+<circle class="sdot ev" cx="187.1" cy="168.7" r="1.8"/>
+<circle class="sdot ev" cx="313.9" cy="132.3" r="1.8"/>
+<circle class="sdot ev" cx="185.7" cy="133.9" r="1.8"/>
+<circle class="sdot ev" cx="264.4" cy="112.7" r="1.8"/>
+<circle class="sdot ev" cx="172.9" cy="142.0" r="1.8"/>
+<circle class="sdot ev" cx="217.2" cy="145.7" r="1.8"/>
+<circle class="sdot ev" cx="154.7" cy="147.3" r="1.8"/>
+<circle class="sdot ev" cx="283.2" cy="147.0" r="1.8"/>
+<circle class="sdot ev" cx="163.0" cy="153.5" r="1.8"/>
+<circle class="sdot ev" cx="185.5" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="164.2" cy="165.4" r="1.8"/>
+<circle class="sdot ev" cx="202.3" cy="158.7" r="1.8"/>
+<circle class="sdot ev" cx="199.7" cy="168.5" r="1.8"/>
+<circle class="sdot ev" cx="201.1" cy="159.1" r="1.8"/>
+<circle class="sdot ev" cx="199.7" cy="168.5" r="1.8"/>
+<circle class="sdot ev" cx="307.3" cy="127.1" r="1.8"/>
+<circle class="sdot ev" cx="161.7" cy="127.2" r="1.8"/>
+<circle class="sdot ev" cx="184.3" cy="169.4" r="1.8"/>
+<circle class="sdot ev" cx="182.4" cy="175.5" r="1.8"/>
+<circle class="sdot ev" cx="184.8" cy="168.8" r="1.8"/>
+<circle class="sdot ev" cx="184.6" cy="176.4" r="1.8"/>
+<circle class="sdot ev" cx="251.4" cy="160.4" r="1.8"/>
+<circle class="sdot ev" cx="162.4" cy="144.0" r="1.8"/>
+<circle class="sdot ev" cx="303.7" cy="139.6" r="1.8"/>
+<circle class="sdot ev" cx="175.2" cy="155.5" r="1.8"/>
+<circle class="sdot ev" cx="297.8" cy="147.2" r="1.8"/>
+<circle class="sdot ev" cx="183.2" cy="172.5" r="1.8"/>
+<circle class="sdot ev" cx="301.6" cy="152.4" r="1.8"/>
+<circle class="sdot ev" cx="170.4" cy="149.5" r="1.8"/>
+<circle class="sdot ev" cx="308.0" cy="149.9" r="1.8"/>
+<circle class="sdot ev" cx="178.1" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="259.5" cy="126.9" r="1.8"/>
+<circle class="sdot ev" cx="179.6" cy="136.0" r="1.8"/>
+<circle class="sdot ev" cx="255.3" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="166.8" cy="144.1" r="1.8"/>
+<circle class="sdot ev" cx="269.2" cy="152.7" r="1.8"/>
+<circle class="sdot ev" cx="184.8" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="219.7" cy="177.1" r="1.8"/>
+<circle class="sdot ev" cx="161.6" cy="188.8" r="1.8"/>
+<circle class="sdot ev" cx="272.7" cy="159.2" r="1.8"/>
+<circle class="sdot ev" cx="182.6" cy="149.4" r="1.8"/>
+<circle class="sdot ev" cx="237.8" cy="139.6" r="1.8"/>
+<circle class="sdot ev" cx="176.0" cy="163.0" r="1.8"/>
+<circle class="sdot ev" cx="280.8" cy="155.2" r="1.8"/>
+<circle class="sdot ev" cx="208.1" cy="169.5" r="1.8"/>
+<circle class="sdot ev" cx="276.8" cy="159.0" r="1.8"/>
+<circle class="sdot ev" cx="200.3" cy="155.0" r="1.8"/>
+<circle class="sdot ev" cx="297.2" cy="123.0" r="1.8"/>
+<circle class="sdot ev" cx="172.4" cy="137.1" r="1.8"/>
+<circle class="sdot ev" cx="246.6" cy="166.2" r="1.8"/>
+<circle class="sdot ev" cx="169.3" cy="145.5" r="1.8"/>
+<circle class="sdot ev" cx="286.0" cy="99.5" r="1.8"/>
+<circle class="sdot ev" cx="163.7" cy="138.7" r="1.8"/>
+<circle class="sdot ev" cx="185.4" cy="161.3" r="1.8"/>
+<circle class="sdot ev" cx="180.8" cy="165.7" r="1.8"/>
+<circle class="sdot ev" cx="183.3" cy="160.1" r="1.8"/>
+<circle class="sdot ev" cx="182.6" cy="167.1" r="1.8"/>
+<circle class="sdot ev" cx="247.4" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="172.7" cy="181.9" r="1.8"/>
+<circle class="sdot ev" cx="217.7" cy="173.1" r="1.8"/>
+<circle class="sdot ev" cx="174.0" cy="161.8" r="1.8"/>
+<circle class="sdot ev" cx="186.9" cy="167.5" r="1.8"/>
+<circle class="sdot ev" cx="186.7" cy="170.9" r="1.8"/>
+<circle class="sdot ev" cx="187.9" cy="168.0" r="1.8"/>
+<circle class="sdot ev" cx="185.4" cy="172.3" r="1.8"/>
+<circle class="sdot ev" cx="212.7" cy="119.1" r="1.8"/>
+<circle class="sdot ev" cx="160.0" cy="142.2" r="1.8"/>
+<circle class="sdot ev" cx="226.1" cy="171.5" r="1.8"/>
+<circle class="sdot ev" cx="186.3" cy="164.6" r="1.8"/>
+<circle class="sdot ev" cx="263.5" cy="174.6" r="1.8"/>
+<circle class="sdot ev" cx="204.7" cy="181.5" r="1.8"/>
+<circle class="sdot ev" cx="225.0" cy="169.4" r="1.8"/>
+<circle class="sdot ev" cx="174.0" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="203.0" cy="90.9" r="1.8"/>
+<circle class="sdot ev" cx="156.1" cy="128.5" r="1.8"/>
+<circle class="sdot ev" cx="217.1" cy="174.2" r="1.8"/>
+<circle class="sdot ev" cx="185.6" cy="173.4" r="1.8"/>
+<circle class="sdot ev" cx="297.6" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="161.6" cy="124.7" r="1.8"/>
+<circle class="sdot ev" cx="236.2" cy="124.1" r="1.8"/>
+<circle class="sdot ev" cx="155.4" cy="124.7" r="1.8"/>
+<circle class="sdot ev" cx="284.2" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="164.9" cy="149.8" r="1.8"/>
+<circle class="sdot ev" cx="192.3" cy="155.2" r="1.8"/>
+<circle class="sdot ev" cx="181.1" cy="167.1" r="1.8"/>
+<circle class="sdot ev" cx="198.9" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="184.3" cy="164.7" r="1.8"/>
+<circle class="sdot ev" cx="234.7" cy="163.6" r="1.8"/>
+<circle class="sdot ev" cx="193.2" cy="173.5" r="1.8"/>
+<circle class="sdot ev" cx="277.9" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="202.1" cy="167.0" r="1.8"/>
+<circle class="sdot ev" cx="254.3" cy="121.0" r="1.8"/>
+<circle class="sdot ev" cx="162.2" cy="140.5" r="1.8"/>
+<circle class="sdot ev" cx="226.7" cy="151.9" r="1.8"/>
+<circle class="sdot ev" cx="161.9" cy="144.0" r="1.8"/>
+<circle class="sdot ev" cx="240.8" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="162.5" cy="145.5" r="1.8"/>
+<circle class="sdot ev" cx="266.1" cy="151.5" r="1.8"/>
+<circle class="sdot ev" cx="161.9" cy="154.7" r="1.8"/>
+<circle class="sdot ev" cx="299.2" cy="138.7" r="1.8"/>
+<circle class="sdot ev" cx="158.9" cy="149.4" r="1.8"/>
+<circle class="sdot ev" cx="236.2" cy="139.0" r="1.8"/>
+<circle class="sdot ev" cx="161.6" cy="134.8" r="1.8"/>
+<circle class="sdot ev" cx="258.5" cy="168.1" r="1.8"/>
+<circle class="sdot ev" cx="184.4" cy="181.2" r="1.8"/>
+<circle class="sdot ev" cx="254.5" cy="129.3" r="1.8"/>
+<circle class="sdot ev" cx="158.4" cy="139.9" r="1.8"/>
+<circle class="sdot ev" cx="275.5" cy="147.8" r="1.8"/>
+<circle class="sdot ev" cx="151.5" cy="126.0" r="1.8"/>
+<circle class="sdot ev" cx="292.4" cy="128.3" r="1.8"/>
+<circle class="sdot ev" cx="154.5" cy="149.0" r="1.8"/>
+<circle class="sdot ev" cx="249.6" cy="170.5" r="1.8"/>
+<circle class="sdot ev" cx="167.4" cy="183.0" r="1.8"/>
+<circle class="sdot ev" cx="176.6" cy="161.1" r="1.8"/>
+<circle class="sdot ev" cx="172.5" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="235.9" cy="167.2" r="1.8"/>
+<circle class="sdot ev" cx="168.2" cy="156.2" r="1.8"/>
+<circle class="sdot ev" cx="265.9" cy="176.1" r="1.8"/>
+<circle class="sdot ev" cx="177.9" cy="177.2" r="1.8"/>
+<circle class="sdot ev" cx="263.0" cy="158.6" r="1.8"/>
+<circle class="sdot ev" cx="169.0" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="246.2" cy="142.8" r="1.8"/>
+<circle class="sdot ev" cx="162.8" cy="147.8" r="1.8"/>
+<circle class="sdot ev" cx="303.9" cy="146.5" r="1.8"/>
+<circle class="sdot ev" cx="192.8" cy="159.6" r="1.8"/>
+<circle class="sdot ev" cx="243.2" cy="158.8" r="1.8"/>
+<circle class="sdot ev" cx="191.8" cy="164.0" r="1.8"/>
+<circle class="sdot ev" cx="252.5" cy="155.6" r="1.8"/>
+<circle class="sdot ev" cx="162.4" cy="148.4" r="1.8"/>
+<circle class="sdot ev" cx="241.2" cy="115.8" r="1.8"/>
+<circle class="sdot ev" cx="160.3" cy="143.3" r="1.8"/>
+<circle class="sdot ev" cx="198.4" cy="149.2" r="1.8"/>
+<circle class="sdot ev" cx="196.0" cy="159.7" r="1.8"/>
+<circle class="sdot ev" cx="197.6" cy="148.6" r="1.8"/>
+<circle class="sdot ev" cx="194.4" cy="159.6" r="1.8"/>
+<circle class="sdot ev" cx="238.3" cy="161.4" r="1.8"/>
+<circle class="sdot ev" cx="176.8" cy="142.1" r="1.8"/>
+<circle class="sdot ev" cx="200.4" cy="156.4" r="1.8"/>
+<circle class="sdot ev" cx="157.7" cy="146.4" r="1.8"/>
+<circle class="sdot ev" cx="314.2" cy="143.3" r="1.8"/>
+<circle class="sdot ev" cx="190.3" cy="155.3" r="1.8"/>
+<circle class="sdot ev" cx="203.6" cy="167.1" r="1.8"/>
+<circle class="sdot ev" cx="163.3" cy="165.7" r="1.8"/>
+<circle class="sdot ev" cx="247.1" cy="139.4" r="1.8"/>
+<circle class="sdot ev" cx="185.8" cy="151.9" r="1.8"/>
+<circle class="sdot ev" cx="250.8" cy="166.9" r="1.8"/>
+<circle class="sdot ev" cx="177.5" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="238.6" cy="118.5" r="1.8"/>
+<circle class="sdot ev" cx="174.8" cy="136.6" r="1.8"/>
+<circle class="sdot ev" cx="279.8" cy="158.5" r="1.8"/>
+<circle class="sdot ev" cx="210.8" cy="160.9" r="1.8"/>
+<circle class="sdot ev" cx="233.5" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="181.7" cy="152.7" r="1.8"/>
+<circle class="sdot ev" cx="263.7" cy="156.1" r="1.8"/>
+<circle class="sdot ev" cx="181.7" cy="185.4" r="1.8"/>
+<circle class="sdot ev" cx="291.5" cy="135.4" r="1.8"/>
+<circle class="sdot ev" cx="180.9" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="269.6" cy="171.3" r="1.8"/>
+<circle class="sdot ev" cx="180.9" cy="178.1" r="1.8"/>
+<circle class="sdot ev" cx="263.7" cy="140.6" r="1.8"/>
+<circle class="sdot ev" cx="151.6" cy="143.7" r="1.8"/>
+<circle class="sdot ev" cx="212.2" cy="108.0" r="1.8"/>
+<circle class="sdot ev" cx="176.2" cy="136.4" r="1.8"/>
+<circle class="sdot ev" cx="206.4" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="181.2" cy="153.6" r="1.8"/>
+<circle class="sdot ev" cx="228.7" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="176.5" cy="170.0" r="1.8"/>
+<circle class="sdot ev" cx="288.6" cy="142.4" r="1.8"/>
+<circle class="sdot ev" cx="167.8" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="205.8" cy="147.6" r="1.8"/>
+<circle class="sdot ev" cx="178.6" cy="152.4" r="1.8"/>
+<circle class="sdot ev" cx="262.2" cy="152.1" r="1.8"/>
+<circle class="sdot ev" cx="163.1" cy="149.9" r="1.8"/>
+<circle class="sdot ev" cx="214.8" cy="122.3" r="1.8"/>
+<circle class="sdot ev" cx="171.6" cy="146.7" r="1.8"/>
+<circle class="sdot ev" cx="192.8" cy="111.4" r="1.8"/>
+<circle class="sdot ev" cx="157.3" cy="136.8" r="1.8"/>
+<circle class="sdot ev" cx="249.2" cy="158.5" r="1.8"/>
+<circle class="sdot ev" cx="190.2" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="260.5" cy="154.8" r="1.8"/>
+<circle class="sdot ev" cx="166.3" cy="168.6" r="1.8"/>
+<circle class="sdot ev" cx="271.2" cy="167.0" r="1.8"/>
+<circle class="sdot ev" cx="180.8" cy="163.5" r="1.8"/>
+<circle class="sdot ev" cx="288.2" cy="125.3" r="1.8"/>
+<circle class="sdot ev" cx="193.2" cy="181.7" r="1.8"/>
+<circle class="sdot ev" cx="268.4" cy="134.5" r="1.8"/>
+<circle class="sdot ev" cx="175.4" cy="141.8" r="1.8"/>
+<circle class="sdot ev" cx="270.5" cy="126.4" r="1.8"/>
+<circle class="sdot ev" cx="159.3" cy="150.2" r="1.8"/>
+<circle class="sdot ev" cx="269.7" cy="149.1" r="1.8"/>
+<circle class="sdot ev" cx="151.7" cy="144.9" r="1.8"/>
+<circle class="sdot ev" cx="234.2" cy="164.3" r="1.8"/>
+<circle class="sdot ev" cx="205.5" cy="174.4" r="1.8"/>
+<circle class="sdot ev" cx="212.8" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="170.2" cy="163.6" r="1.8"/>
+<circle class="sdot ev" cx="207.0" cy="127.1" r="1.8"/>
+<circle class="sdot ev" cx="177.0" cy="139.5" r="1.8"/>
+<circle class="sdot ev" cx="280.3" cy="115.5" r="1.8"/>
+<circle class="sdot ev" cx="163.3" cy="154.4" r="1.8"/>
+<circle class="sdot ev" cx="253.8" cy="158.4" r="1.8"/>
+<circle class="sdot ev" cx="193.9" cy="160.6" r="1.8"/>
+<circle class="sdot ev" cx="162.0" cy="161.8" r="1.8"/>
+<circle class="sdot ev" cx="159.0" cy="161.6" r="1.8"/>
+<circle class="sdot ev" cx="178.7" cy="166.5" r="1.8"/>
+<circle class="sdot ev" cx="177.0" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="179.6" cy="166.1" r="1.8"/>
+<circle class="sdot ev" cx="176.6" cy="171.9" r="1.8"/>
+<circle class="sdot ev" cx="281.7" cy="151.1" r="1.8"/>
+<circle class="sdot ev" cx="167.4" cy="161.4" r="1.8"/>
+<circle class="sdot ev" cx="221.9" cy="153.5" r="1.8"/>
+<circle class="sdot ev" cx="174.9" cy="141.7" r="1.8"/>
+<circle class="sdot ev" cx="225.4" cy="129.6" r="1.8"/>
+<circle class="sdot ev" cx="174.8" cy="136.2" r="1.8"/>
+<circle class="sdot ev" cx="208.3" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="205.7" cy="169.1" r="1.8"/>
+<circle class="sdot ev" cx="204.8" cy="163.3" r="1.8"/>
+<circle class="sdot ev" cx="206.7" cy="170.2" r="1.8"/>
+<circle class="sdot ev" cx="178.2" cy="167.8" r="1.8"/>
+<circle class="sdot ev" cx="178.8" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="176.9" cy="166.8" r="1.8"/>
+<circle class="sdot ev" cx="179.8" cy="178.8" r="1.8"/>
+<circle class="sdot ev" cx="247.2" cy="168.4" r="1.8"/>
+<circle class="sdot ev" cx="206.5" cy="182.0" r="1.8"/>
+<circle class="sdot ev" cx="194.7" cy="170.0" r="1.8"/>
+<circle class="sdot ev" cx="187.6" cy="177.9" r="1.8"/>
+<circle class="sdot ev" cx="190.0" cy="170.4" r="1.8"/>
+<circle class="sdot ev" cx="186.7" cy="177.2" r="1.8"/>
+<circle class="sdot ev" cx="270.2" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="166.8" cy="150.6" r="1.8"/>
+<circle class="sdot ev" cx="286.2" cy="129.8" r="1.8"/>
+<circle class="sdot ev" cx="177.3" cy="133.7" r="1.8"/>
+<circle class="sdot ev" cx="249.0" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="183.1" cy="180.0" r="1.8"/>
+<circle class="sdot ev" cx="185.0" cy="139.3" r="1.8"/>
+<circle class="sdot ev" cx="166.2" cy="137.9" r="1.8"/>
+<circle class="sdot ev" cx="219.3" cy="96.6" r="1.8"/>
+<circle class="sdot ev" cx="161.0" cy="139.6" r="1.8"/>
+<circle class="sdot ev" cx="234.2" cy="152.3" r="1.8"/>
+<circle class="sdot ev" cx="165.8" cy="141.7" r="1.8"/>
+<circle class="sdot ev" cx="197.5" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="185.3" cy="162.6" r="1.8"/>
+<circle class="sdot ev" cx="190.9" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="189.8" cy="165.3" r="1.8"/>
+<circle class="sdot ev" cx="262.7" cy="150.1" r="1.8"/>
+<circle class="sdot ev" cx="169.0" cy="155.6" r="1.8"/>
+<circle class="sdot ev" cx="247.8" cy="151.1" r="1.8"/>
+<circle class="sdot ev" cx="152.3" cy="137.2" r="1.8"/>
+<circle class="sdot ev" cx="262.3" cy="132.1" r="1.8"/>
+<circle class="sdot ev" cx="174.9" cy="151.5" r="1.8"/>
+<circle class="sdot ev" cx="217.7" cy="162.7" r="1.8"/>
+<circle class="sdot ev" cx="158.7" cy="148.9" r="1.8"/>
+<circle class="sdot ev" cx="279.9" cy="130.8" r="1.8"/>
+<circle class="sdot ev" cx="152.8" cy="157.6" r="1.8"/>
+<circle class="sdot ev" cx="233.1" cy="159.2" r="1.8"/>
+<circle class="sdot ev" cx="163.5" cy="147.5" r="1.8"/>
+<circle class="sdot ev" cx="201.6" cy="171.4" r="1.8"/>
+<circle class="sdot ev" cx="151.5" cy="168.0" r="1.8"/>
+<circle class="sdot ev" cx="297.4" cy="143.6" r="1.8"/>
+<circle class="sdot ev" cx="165.4" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="268.7" cy="139.5" r="1.8"/>
+<circle class="sdot ev" cx="173.5" cy="150.9" r="1.8"/>
+<circle class="sdot ev" cx="264.7" cy="132.4" r="1.8"/>
+<circle class="sdot ev" cx="158.7" cy="143.0" r="1.8"/>
+<circle class="sdot ev" cx="166.2" cy="131.5" r="1.8"/>
+<circle class="sdot ev" cx="173.3" cy="147.5" r="1.8"/>
+<circle class="sdot ev" cx="268.1" cy="160.2" r="1.8"/>
+<circle class="sdot ev" cx="179.8" cy="166.9" r="1.8"/>
+<circle class="sdot ev" cx="310.3" cy="150.5" r="1.8"/>
+<circle class="sdot ev" cx="172.2" cy="159.2" r="1.8"/>
+<circle class="sdot ev" cx="264.9" cy="156.2" r="1.8"/>
+<circle class="sdot ev" cx="169.9" cy="156.5" r="1.8"/>
+<circle class="sdot ev" cx="283.4" cy="148.1" r="1.8"/>
+<circle class="sdot ev" cx="167.1" cy="150.9" r="1.8"/>
+<circle class="sdot ev" cx="267.3" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="165.2" cy="161.2" r="1.8"/>
+<circle class="sdot ev" cx="215.9" cy="138.3" r="1.8"/>
+<circle class="sdot ev" cx="154.3" cy="138.4" r="1.8"/>
+<circle class="sdot ev" cx="240.3" cy="159.7" r="1.8"/>
+<circle class="sdot ev" cx="159.2" cy="147.4" r="1.8"/>
+<circle class="sdot ev" cx="309.8" cy="117.9" r="1.8"/>
+<circle class="sdot ev" cx="184.9" cy="172.3" r="1.8"/>
+<circle class="sdot ev" cx="310.8" cy="129.0" r="1.8"/>
+<circle class="sdot ev" cx="176.8" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="181.1" cy="151.1" r="1.8"/>
+<circle class="sdot ev" cx="161.0" cy="158.7" r="1.8"/>
+<circle class="sdot ev" cx="262.3" cy="118.5" r="1.8"/>
+<circle class="sdot ev" cx="176.3" cy="141.9" r="1.8"/>
+<circle class="sdot ev" cx="265.6" cy="122.6" r="1.8"/>
+<circle class="sdot ev" cx="161.6" cy="128.3" r="1.8"/>
+<circle class="sdot ev" cx="276.4" cy="112.2" r="1.8"/>
+<circle class="sdot ev" cx="150.9" cy="108.6" r="1.8"/>
+<circle class="sdot ev" cx="250.6" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="162.6" cy="151.6" r="1.8"/>
+<circle class="sdot ev" cx="188.7" cy="174.9" r="1.8"/>
+<circle class="sdot ev" cx="180.7" cy="183.1" r="1.8"/>
+<circle class="sdot ev" cx="190.4" cy="175.3" r="1.8"/>
+<circle class="sdot ev" cx="184.7" cy="186.1" r="1.8"/>
+<circle class="sdot ev" cx="264.7" cy="151.8" r="1.8"/>
+<circle class="sdot ev" cx="162.3" cy="148.8" r="1.8"/>
+<circle class="sdot ev" cx="290.0" cy="123.0" r="1.8"/>
+<circle class="sdot ev" cx="157.7" cy="154.1" r="1.8"/>
+<circle class="sdot ev" cx="212.7" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="208.4" cy="179.4" r="1.8"/>
+<circle class="sdot ev" cx="208.9" cy="172.0" r="1.8"/>
+<circle class="sdot ev" cx="209.5" cy="178.0" r="1.8"/>
+<circle class="sdot ev" cx="191.1" cy="172.6" r="1.8"/>
+<circle class="sdot ev" cx="161.2" cy="173.0" r="1.8"/>
+<circle class="sdot ev" cx="236.0" cy="100.2" r="1.8"/>
+<circle class="sdot ev" cx="149.5" cy="155.9" r="1.8"/>
+<circle class="sdot ev" cx="258.7" cy="125.5" r="1.8"/>
+<circle class="sdot ev" cx="167.7" cy="141.9" r="1.8"/>
+<circle class="sdot ev" cx="219.8" cy="123.5" r="1.8"/>
+<circle class="sdot ev" cx="182.3" cy="136.3" r="1.8"/>
+<circle class="sdot ev" cx="209.8" cy="93.5" r="1.8"/>
+<circle class="sdot ev" cx="163.9" cy="127.0" r="1.8"/>
+<circle class="sdot ev" cx="311.8" cy="126.3" r="1.8"/>
+<circle class="sdot ev" cx="164.0" cy="149.3" r="1.8"/>
+<circle class="sdot ev" cx="217.1" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="212.4" cy="183.8" r="1.8"/>
+<circle class="sdot ev" cx="216.9" cy="175.4" r="1.8"/>
+<circle class="sdot ev" cx="213.1" cy="180.7" r="1.8"/>
+<circle class="sdot ev" cx="252.8" cy="156.3" r="1.8"/>
+<circle class="sdot ev" cx="158.4" cy="141.4" r="1.8"/>
+<circle class="sdot ev" cx="156.5" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="165.6" cy="175.8" r="1.8"/>
+<circle class="sdot ev" cx="170.9" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="185.8" cy="173.0" r="1.8"/>
+<circle class="sdot ev" cx="175.2" cy="174.6" r="1.8"/>
+<circle class="sdot ev" cx="165.0" cy="174.9" r="1.8"/>
+<circle class="sdot ev" cx="196.6" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="191.3" cy="161.0" r="1.8"/>
+<circle class="sdot ev" cx="144.9" cy="167.2" r="1.8"/>
+<circle class="sdot ev" cx="153.8" cy="168.5" r="1.8"/>
+<circle class="sdot ev" cx="195.6" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="190.8" cy="162.3" r="1.8"/>
+<circle class="sdot ev" cx="154.5" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="149.7" cy="169.1" r="1.8"/>
+<circle class="sdot ev" cx="170.4" cy="180.4" r="1.8"/>
+<circle class="sdot ev" cx="173.4" cy="177.5" r="1.8"/>
+<circle class="sdot ev" cx="185.4" cy="171.0" r="1.8"/>
+<circle class="sdot ev" cx="184.5" cy="170.9" r="1.8"/>
+<circle class="sdot ev" cx="175.9" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="173.6" cy="177.9" r="1.8"/>
+<circle class="sdot ev" cx="171.6" cy="164.5" r="1.8"/>
+<circle class="sdot ev" cx="178.2" cy="172.3" r="1.8"/>
+<circle class="sdot ev" cx="193.2" cy="164.9" r="1.8"/>
+<circle class="sdot ev" cx="199.3" cy="163.8" r="1.8"/>
+<circle class="sdot ev" cx="214.4" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="216.3" cy="166.0" r="1.8"/>
+<circle class="sdot ev" cx="195.0" cy="179.3" r="1.8"/>
+<circle class="sdot ev" cx="185.5" cy="175.4" r="1.8"/>
+<circle class="sdot ev" cx="189.0" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="197.4" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="182.8" cy="182.6" r="1.8"/>
+<circle class="sdot ev" cx="185.2" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="176.8" cy="159.0" r="1.8"/>
+<circle class="sdot ev" cx="171.3" cy="156.8" r="1.8"/>
+<circle class="sdot ev" cx="195.4" cy="179.6" r="1.8"/>
+<circle class="sdot ev" cx="191.0" cy="174.5" r="1.8"/>
+<circle class="sdot ev" cx="195.9" cy="165.4" r="1.8"/>
+<circle class="sdot ev" cx="199.1" cy="160.9" r="1.8"/>
+<circle class="sdot ev" cx="189.3" cy="182.5" r="1.8"/>
+<circle class="sdot ev" cx="175.4" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="174.4" cy="186.9" r="1.8"/>
+<circle class="sdot ev" cx="190.6" cy="186.1" r="1.8"/>
+<circle class="sdot ev" cx="205.7" cy="179.6" r="1.8"/>
+<circle class="sdot ev" cx="202.1" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="193.4" cy="174.2" r="1.8"/>
+<circle class="sdot ev" cx="182.5" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="169.5" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="182.7" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="182.5" cy="179.6" r="1.8"/>
+<circle class="sdot ev" cx="186.9" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="189.2" cy="171.7" r="1.8"/>
+<circle class="sdot ev" cx="185.5" cy="171.7" r="1.8"/>
+<circle class="sdot ev" cx="164.0" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="170.3" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="186.5" cy="162.2" r="1.8"/>
+<circle class="sdot ev" cx="182.5" cy="159.1" r="1.8"/>
+<circle class="sdot ev" cx="186.8" cy="179.5" r="1.8"/>
+<circle class="sdot ev" cx="184.2" cy="175.2" r="1.8"/>
+<circle class="sdot ev" cx="184.8" cy="175.7" r="1.8"/>
+<circle class="sdot ev" cx="191.2" cy="168.4" r="1.8"/>
+<circle class="sdot ev" cx="182.8" cy="169.8" r="1.8"/>
+<circle class="sdot ev" cx="180.5" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="189.6" cy="168.1" r="1.8"/>
+<circle class="sdot ev" cx="177.5" cy="166.1" r="1.8"/>
+<circle class="sdot ev" cx="191.9" cy="167.4" r="1.8"/>
+<circle class="sdot ev" cx="191.1" cy="165.9" r="1.8"/>
+<circle class="sdot ev" cx="178.8" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="173.5" cy="161.4" r="1.8"/>
+<circle class="sdot ev" cx="167.0" cy="170.3" r="1.8"/>
+<circle class="sdot ev" cx="169.8" cy="171.7" r="1.8"/>
+<circle class="sdot ev" cx="164.6" cy="174.7" r="1.8"/>
+<circle class="sdot ev" cx="167.7" cy="174.7" r="1.8"/>
+<circle class="sdot ev" cx="195.6" cy="162.4" r="1.8"/>
+<circle class="sdot ev" cx="189.7" cy="160.1" r="1.8"/>
+<circle class="sdot ev" cx="191.2" cy="161.3" r="1.8"/>
+<circle class="sdot ev" cx="190.7" cy="157.2" r="1.8"/>
+<circle class="sdot ev" cx="161.3" cy="182.7" r="1.8"/>
+<circle class="sdot ev" cx="158.6" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="176.0" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="176.1" cy="155.9" r="1.8"/>
+<circle class="sdot ev" cx="196.3" cy="157.9" r="1.8"/>
+<circle class="sdot ev" cx="201.0" cy="154.4" r="1.8"/>
+<circle class="sdot ev" cx="158.8" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="146.6" cy="164.2" r="1.8"/>
+<circle class="sdot ev" cx="164.4" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="180.7" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="163.7" cy="169.3" r="1.8"/>
+<circle class="sdot ev" cx="178.1" cy="173.9" r="1.8"/>
+<circle class="sdot ev" cx="190.1" cy="171.2" r="1.8"/>
+<circle class="sdot ev" cx="182.5" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="195.2" cy="178.8" r="1.8"/>
+<circle class="sdot ev" cx="187.0" cy="178.1" r="1.8"/>
+<circle class="sdot ev" cx="180.3" cy="171.2" r="1.8"/>
+<circle class="sdot ev" cx="170.6" cy="167.9" r="1.8"/>
+<circle class="sdot ev" cx="160.7" cy="183.8" r="1.8"/>
+<circle class="sdot ev" cx="166.9" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="154.6" cy="179.0" r="1.8"/>
+<circle class="sdot ev" cx="190.3" cy="183.8" r="1.8"/>
+<circle class="sdot ev" cx="178.3" cy="171.1" r="1.8"/>
+<circle class="sdot ev" cx="182.5" cy="169.6" r="1.8"/>
+<circle class="sdot ev" cx="195.1" cy="165.7" r="1.8"/>
+<circle class="sdot ev" cx="191.9" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="215.6" cy="159.5" r="1.8"/>
+<circle class="sdot ev" cx="214.1" cy="154.6" r="1.8"/>
+<circle class="sdot ev" cx="164.8" cy="169.1" r="1.8"/>
+<circle class="sdot ev" cx="162.0" cy="163.4" r="1.8"/>
+<circle class="sdot ev" cx="165.5" cy="181.5" r="1.8"/>
+<circle class="sdot ev" cx="167.7" cy="181.6" r="1.8"/>
+<circle class="sdot ev" cx="207.6" cy="161.3" r="1.8"/>
+<circle class="sdot ev" cx="203.8" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="189.9" cy="176.5" r="1.8"/>
+<circle class="sdot ev" cx="181.8" cy="176.6" r="1.8"/>
+<circle class="sdot ev" cx="182.3" cy="159.9" r="1.8"/>
+<circle class="sdot ev" cx="184.5" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="167.9" cy="165.6" r="1.8"/>
+<circle class="sdot ev" cx="158.9" cy="162.6" r="1.8"/>
+<circle class="sdot ev" cx="158.3" cy="170.6" r="1.8"/>
+<circle class="sdot ev" cx="177.1" cy="174.5" r="1.8"/>
+<circle class="sdot ev" cx="186.8" cy="185.0" r="1.8"/>
+<circle class="sdot ev" cx="187.4" cy="183.7" r="1.8"/>
+<circle class="sdot ev" cx="184.7" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="191.5" cy="173.4" r="1.8"/>
+<circle class="sdot ev" cx="200.5" cy="175.2" r="1.8"/>
+<circle class="sdot ev" cx="187.8" cy="172.4" r="1.8"/>
+<circle class="sdot ev" cx="194.0" cy="170.2" r="1.8"/>
+<circle class="sdot ev" cx="185.5" cy="167.2" r="1.8"/>
+<circle class="sdot ev" cx="182.8" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="189.9" cy="167.8" r="1.8"/>
+<circle class="sdot ev" cx="164.9" cy="166.2" r="1.8"/>
+<circle class="sdot ev" cx="157.7" cy="161.7" r="1.8"/>
+<circle class="sdot ev" cx="196.7" cy="160.2" r="1.8"/>
+<circle class="sdot ev" cx="185.6" cy="160.8" r="1.8"/>
+<circle class="sdot ev" cx="137.7" cy="169.1" r="1.8"/>
+<circle class="sdot ev" cx="134.9" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="184.1" cy="177.6" r="1.8"/>
+<circle class="sdot ev" cx="178.8" cy="176.0" r="1.8"/>
+<circle class="sdot ev" cx="192.1" cy="177.3" r="1.8"/>
+<circle class="sdot ev" cx="191.2" cy="181.5" r="1.8"/>
+<circle class="sdot ev" cx="172.7" cy="180.6" r="1.8"/>
+<circle class="sdot ev" cx="176.6" cy="181.1" r="1.8"/>
+<circle class="sdot ev" cx="205.1" cy="185.1" r="1.8"/>
+<circle class="sdot ev" cx="191.9" cy="179.2" r="1.8"/>
+<circle class="sdot ev" cx="190.3" cy="151.7" r="1.8"/>
+<circle class="sdot ev" cx="187.9" cy="146.0" r="1.8"/>
+<circle class="sdot ev" cx="203.1" cy="169.5" r="1.8"/>
+<circle class="sdot ev" cx="203.5" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="177.0" cy="174.8" r="1.8"/>
+<circle class="sdot ev" cx="177.2" cy="171.4" r="1.8"/>
+<circle class="sdot ev" cx="180.0" cy="154.1" r="1.8"/>
+<circle class="sdot ev" cx="175.4" cy="149.7" r="1.8"/>
+<circle class="sdot ev" cx="177.1" cy="168.1" r="1.8"/>
+<circle class="sdot ev" cx="177.6" cy="161.3" r="1.8"/>
+<circle class="sdot ev" cx="147.6" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="155.7" cy="175.6" r="1.8"/>
+<circle class="sdot ev" cx="188.0" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="180.1" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="172.9" cy="168.6" r="1.8"/>
+<circle class="sdot ev" cx="171.3" cy="166.1" r="1.8"/>
+<circle class="sdot ev" cx="217.8" cy="151.8" r="1.8"/>
+<circle class="sdot ev" cx="203.6" cy="152.6" r="1.8"/>
+<circle class="sdot ev" cx="198.9" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="186.6" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="165.5" cy="172.0" r="1.8"/>
+<circle class="sdot ev" cx="166.4" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="167.2" cy="172.2" r="1.8"/>
+<circle class="sdot ev" cx="172.7" cy="167.4" r="1.8"/>
+<circle class="sdot ev" cx="172.7" cy="176.7" r="1.8"/>
+<circle class="sdot ev" cx="177.0" cy="173.3" r="1.8"/>
+<circle class="sdot ev" cx="186.3" cy="180.4" r="1.8"/>
+<circle class="sdot ev" cx="188.7" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="177.7" cy="172.1" r="1.8"/>
+<circle class="sdot ev" cx="168.6" cy="168.2" r="1.8"/>
+<circle class="sdot ev" cx="182.2" cy="166.1" r="1.8"/>
+<circle class="sdot ev" cx="182.1" cy="167.4" r="1.8"/>
+<circle class="sdot ev" cx="162.1" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="174.8" cy="172.4" r="1.8"/>
+<circle class="sdot ev" cx="189.7" cy="177.2" r="1.8"/>
+<circle class="sdot ev" cx="186.8" cy="175.4" r="1.8"/>
+<circle class="sdot ev" cx="198.1" cy="165.5" r="1.8"/>
+<circle class="sdot ev" cx="190.9" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="205.1" cy="180.1" r="1.8"/>
+<circle class="sdot ev" cx="193.4" cy="175.2" r="1.8"/>
+<circle class="sdot ev" cx="181.8" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="194.8" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="173.5" cy="164.6" r="1.8"/>
+<circle class="sdot ev" cx="175.8" cy="157.8" r="1.8"/>
+<circle class="sdot ev" cx="198.8" cy="177.7" r="1.8"/>
+<circle class="sdot ev" cx="194.4" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="192.7" cy="151.6" r="1.8"/>
+<circle class="sdot ev" cx="187.9" cy="151.3" r="1.8"/>
+<circle class="sdot ev" cx="173.0" cy="176.8" r="1.8"/>
+<circle class="sdot ev" cx="168.7" cy="170.5" r="1.8"/>
+<circle class="sdot ev" cx="147.3" cy="179.6" r="1.8"/>
+<circle class="sdot ev" cx="150.6" cy="181.7" r="1.8"/>
+<circle class="sdot ev" cx="167.7" cy="174.2" r="1.8"/>
+<circle class="sdot ev" cx="170.8" cy="170.6" r="1.8"/>
+<circle class="sdot src neg" cx="157.2" cy="130.1" r="2.6"/>
+<circle class="sdot src neg" cx="173.9" cy="180.8" r="2.6"/>
+<circle class="sdot src neg" cx="172.6" cy="134.0" r="2.6"/>
+<circle class="sdot src neg" cx="198.5" cy="166.1" r="2.6"/>
+<circle class="sdot src neg" cx="170.4" cy="156.5" r="2.6"/>
+<circle class="sdot src neg" cx="170.7" cy="182.3" r="2.6"/>
+<circle class="sdot src neg" cx="148.7" cy="142.5" r="2.6"/>
+<circle class="sdot src neg" cx="158.7" cy="174.7" r="2.6"/>
+<circle class="sdot src neg" cx="166.3" cy="176.8" r="2.6"/>
+<circle class="sdot src neg" cx="156.7" cy="155.9" r="2.6"/>
+<circle class="sdot src neg" cx="153.2" cy="153.3" r="2.6"/>
+<circle class="sdot src neg" cx="171.6" cy="167.3" r="2.6"/>
+<circle class="sdot src neg" cx="188.4" cy="147.4" r="2.6"/>
+<circle class="sdot src neg" cx="195.3" cy="158.5" r="2.6"/>
+<circle class="sdot src neg" cx="172.3" cy="158.3" r="2.6"/>
+<circle class="sdot src neg" cx="179.6" cy="159.5" r="2.6"/>
+<circle class="sdot src neg" cx="146.1" cy="155.6" r="2.6"/>
+<circle class="sdot src neg" cx="187.4" cy="158.8" r="2.6"/>
+<circle class="sdot src neg" cx="212.7" cy="147.5" r="2.6"/>
+<circle class="sdot src neg" cx="184.7" cy="150.4" r="2.6"/>
+<circle class="sdot src neg" cx="212.2" cy="147.2" r="2.6"/>
+<circle class="sdot src neg" cx="220.1" cy="135.7" r="2.6"/>
+<circle class="sdot src neg" cx="194.3" cy="143.3" r="2.6"/>
+<circle class="sdot src neg" cx="207.6" cy="146.8" r="2.6"/>
+<circle class="sdot src neg" cx="207.7" cy="147.9" r="2.6"/>
+<circle class="sdot src neg" cx="200.6" cy="145.7" r="2.6"/>
+<circle class="sdot src neg" cx="217.5" cy="149.1" r="2.6"/>
+<circle class="sdot src neg" cx="227.8" cy="127.9" r="2.6"/>
+<circle class="sdot src neg" cx="201.8" cy="146.7" r="2.6"/>
+<circle class="sdot src neg" cx="209.2" cy="137.9" r="2.6"/>
+<circle class="sdot src neg" cx="174.1" cy="168.8" r="2.6"/>
+<circle class="sdot src neg" cx="176.6" cy="160.2" r="2.6"/>
+<circle class="sdot src neg" cx="205.7" cy="145.2" r="2.6"/>
+<circle class="sdot src neg" cx="186.2" cy="135.6" r="2.6"/>
+<circle class="sdot src neg" cx="179.6" cy="157.2" r="2.6"/>
+<circle class="sdot src neg" cx="205.8" cy="144.5" r="2.6"/>
+<circle class="sdot src neg" cx="187.6" cy="147.0" r="2.6"/>
+<circle class="sdot src neg" cx="195.5" cy="149.4" r="2.6"/>
+<circle class="sdot src neg" cx="176.6" cy="156.8" r="2.6"/>
+<circle class="sdot src neg" cx="176.1" cy="133.5" r="2.6"/>
+<circle class="sdot src neg" cx="205.6" cy="136.1" r="2.6"/>
+<circle class="sdot src neg" cx="204.0" cy="161.3" r="2.6"/>
+<circle class="sdot src neg" cx="216.5" cy="126.7" r="2.6"/>
+<circle class="sdot src neg" cx="193.0" cy="143.8" r="2.6"/>
+<circle class="sdot src neg" cx="197.2" cy="154.2" r="2.6"/>
+<circle class="sdot src neg" cx="203.6" cy="129.2" r="2.6"/>
+<circle class="sdot src neg" cx="206.0" cy="153.7" r="2.6"/>
+<circle class="sdot src neg" cx="201.5" cy="140.8" r="2.6"/>
+<circle class="sdot src neg" cx="227.7" cy="144.2" r="2.6"/>
+<circle class="sdot src neg" cx="198.6" cy="133.6" r="2.6"/>
+<circle class="sdot src neg" cx="220.9" cy="145.8" r="2.6"/>
+<circle class="sdot src neg" cx="168.8" cy="148.0" r="2.6"/>
+<circle class="sdot src neg" cx="168.4" cy="140.5" r="2.6"/>
+<circle class="sdot src neg" cx="171.3" cy="143.6" r="2.6"/>
+<circle class="sdot src neg" cx="172.1" cy="169.6" r="2.6"/>
+<circle class="sdot src neg" cx="144.8" cy="160.2" r="2.6"/>
+<circle class="sdot src neg" cx="169.6" cy="161.6" r="2.6"/>
+<circle class="sdot src neg" cx="188.6" cy="133.9" r="2.6"/>
+<circle class="sdot src neg" cx="200.5" cy="151.8" r="2.6"/>
+<circle class="sdot src neg" cx="202.5" cy="143.2" r="2.6"/>
+<circle class="sdot src neg" cx="209.5" cy="126.7" r="2.6"/>
+<circle class="sdot src neg" cx="199.0" cy="147.5" r="2.6"/>
+<circle class="sdot src neg" cx="177.2" cy="156.4" r="2.6"/>
+<circle class="sdot src neg" cx="175.8" cy="166.1" r="2.6"/>
+<circle class="sdot src neg" cx="206.7" cy="137.8" r="2.6"/>
+<circle class="sdot src neg" cx="191.3" cy="174.7" r="2.6"/>
+<circle class="sdot src neg" cx="188.9" cy="154.2" r="2.6"/>
+<circle class="sdot src neg" cx="212.1" cy="151.8" r="2.6"/>
+<circle class="sdot src neg" cx="191.9" cy="147.0" r="2.6"/>
+<circle class="sdot src neg" cx="153.6" cy="156.8" r="2.6"/>
+<circle class="sdot src neg" cx="163.2" cy="163.2" r="2.6"/>
+<circle class="sdot src neg" cx="173.3" cy="134.1" r="2.6"/>
+<circle class="sdot src neg" cx="183.2" cy="160.8" r="2.6"/>
+<circle class="sdot src neg" cx="203.5" cy="156.4" r="2.6"/>
+<circle class="sdot src neg" cx="208.5" cy="141.1" r="2.6"/>
+<circle class="sdot src neg" cx="188.5" cy="146.0" r="2.6"/>
+<circle class="sdot src neg" cx="166.2" cy="158.1" r="2.6"/>
+<circle class="sdot src neg" cx="178.6" cy="139.0" r="2.6"/>
+<circle class="sdot src neg" cx="156.7" cy="157.6" r="2.6"/>
+<circle class="sdot src neg" cx="242.0" cy="140.8" r="2.6"/>
+<circle class="sdot src neg" cx="234.5" cy="144.6" r="2.6"/>
+<circle class="sdot src neg" cx="189.4" cy="145.5" r="2.6"/>
+<circle class="sdot src neg" cx="184.4" cy="140.0" r="2.6"/>
+<circle class="sdot src neg" cx="201.5" cy="143.1" r="2.6"/>
+<circle class="sdot src neg" cx="201.1" cy="147.8" r="2.6"/>
+<circle class="sdot src neg" cx="194.6" cy="157.6" r="2.6"/>
+<circle class="sdot src neg" cx="211.8" cy="144.6" r="2.6"/>
+<circle class="sdot src neg" cx="206.8" cy="149.6" r="2.6"/>
+<circle class="sdot src neg" cx="221.0" cy="144.0" r="2.6"/>
+<circle class="sdot src neg" cx="212.8" cy="147.3" r="2.6"/>
+<circle class="sdot src neg" cx="181.3" cy="154.1" r="2.6"/>
+<circle class="sdot src neg" cx="199.5" cy="148.6" r="2.6"/>
+<circle class="sdot src neg" cx="200.0" cy="146.1" r="2.6"/>
+<circle class="sdot src neg" cx="209.0" cy="150.6" r="2.6"/>
+<circle class="sdot src neg" cx="200.9" cy="142.2" r="2.6"/>
+<circle class="sdot src neg" cx="204.5" cy="146.7" r="2.6"/>
+<circle class="sdot src neg" cx="189.0" cy="162.1" r="2.6"/>
+<circle class="sdot src neg" cx="204.1" cy="150.2" r="2.6"/>
+<circle class="sdot src neg" cx="201.0" cy="143.6" r="2.6"/>
+<circle class="sdot src neg" cx="211.8" cy="141.4" r="2.6"/>
+<circle class="sdot src neg" cx="214.5" cy="149.0" r="2.6"/>
+<circle class="sdot src neg" cx="213.4" cy="159.2" r="2.6"/>
+<circle class="sdot src neg" cx="181.6" cy="139.4" r="2.6"/>
+<circle class="sdot src neg" cx="229.0" cy="145.6" r="2.6"/>
+<circle class="sdot src neg" cx="172.3" cy="157.8" r="2.6"/>
+<circle class="sdot src neg" cx="185.4" cy="151.8" r="2.6"/>
+<circle class="sdot src neg" cx="165.9" cy="162.1" r="2.6"/>
+<circle class="sdot src neg" cx="168.2" cy="158.2" r="2.6"/>
+<circle class="sdot src neg" cx="189.8" cy="166.0" r="2.6"/>
+<circle class="sdot src neg" cx="166.8" cy="165.9" r="2.6"/>
+<circle class="sdot src neg" cx="174.8" cy="162.5" r="2.6"/>
+<circle class="sdot src neg" cx="199.6" cy="131.8" r="2.6"/>
+<circle class="sdot src neg" cx="202.2" cy="133.0" r="2.6"/>
+<circle class="sdot src neg" cx="200.1" cy="133.8" r="2.6"/>
+<circle class="sdot src neg" cx="211.0" cy="120.9" r="2.6"/>
+<circle class="sdot src neg" cx="199.1" cy="154.1" r="2.6"/>
+<circle class="sdot src neg" cx="197.2" cy="146.4" r="2.6"/>
+<circle class="sdot src neg" cx="222.6" cy="120.4" r="2.6"/>
+<circle class="sdot src neg" cx="205.6" cy="148.5" r="2.6"/>
+<circle class="sdot src neg" cx="205.7" cy="136.7" r="2.6"/>
+<circle class="sdot src pos" cx="211.3" cy="143.6" r="2.6"/>
+<circle class="sdot src pos" cx="264.4" cy="127.6" r="2.6"/>
+<circle class="sdot src pos" cx="223.4" cy="157.7" r="2.6"/>
+<circle class="sdot src pos" cx="193.1" cy="147.9" r="2.6"/>
+<circle class="sdot src pos" cx="207.1" cy="147.4" r="2.6"/>
+<circle class="sdot src pos" cx="223.8" cy="160.0" r="2.6"/>
+<circle class="sdot src pos" cx="201.0" cy="147.8" r="2.6"/>
+<circle class="sdot src pos" cx="253.3" cy="154.0" r="2.6"/>
+<circle class="sdot src pos" cx="247.8" cy="160.5" r="2.6"/>
+<circle class="sdot src pos" cx="263.1" cy="129.6" r="2.6"/>
+<circle class="sdot src pos" cx="255.8" cy="162.1" r="2.6"/>
+<circle class="sdot src pos" cx="238.4" cy="146.5" r="2.6"/>
+<circle class="sdot src pos" cx="212.2" cy="152.6" r="2.6"/>
+<circle class="sdot src pos" cx="262.0" cy="145.3" r="2.6"/>
+<circle class="sdot src pos" cx="289.8" cy="131.3" r="2.6"/>
+<circle class="sdot src pos" cx="219.5" cy="149.9" r="2.6"/>
+<circle class="sdot src pos" cx="202.0" cy="165.5" r="2.6"/>
+<circle class="sdot src pos" cx="204.0" cy="144.1" r="2.6"/>
+<circle class="sdot src pos" cx="212.3" cy="151.3" r="2.6"/>
+<circle class="sdot src pos" cx="216.3" cy="161.0" r="2.6"/>
+<circle class="sdot src pos" cx="201.9" cy="162.9" r="2.6"/>
+<circle class="sdot src pos" cx="209.2" cy="155.5" r="2.6"/>
+<circle class="sdot src pos" cx="203.7" cy="158.8" r="2.6"/>
+<circle class="sdot src pos" cx="198.2" cy="161.0" r="2.6"/>
+<circle class="sdot src pos" cx="224.1" cy="162.0" r="2.6"/>
+<circle class="sdot src pos" cx="213.1" cy="167.9" r="2.6"/>
+<circle class="sdot src pos" cx="268.7" cy="139.4" r="2.6"/>
+<circle class="sdot src pos" cx="243.0" cy="159.3" r="2.6"/>
+<circle class="sdot src pos" cx="264.3" cy="140.2" r="2.6"/>
+<circle class="sdot src pos" cx="228.7" cy="163.8" r="2.6"/>
+<circle class="sdot src pos" cx="195.7" cy="167.8" r="2.6"/>
+<circle class="sdot src pos" cx="230.6" cy="150.0" r="2.6"/>
+<circle class="sdot src pos" cx="230.8" cy="158.7" r="2.6"/>
+<circle class="sdot src pos" cx="248.5" cy="157.7" r="2.6"/>
+<circle class="sdot src pos" cx="261.7" cy="150.0" r="2.6"/>
+<circle class="sdot src pos" cx="219.9" cy="156.8" r="2.6"/>
+<circle class="sdot src pos" cx="244.9" cy="166.9" r="2.6"/>
+<circle class="sdot src pos" cx="243.0" cy="149.9" r="2.6"/>
+<circle class="sdot src pos" cx="278.9" cy="152.5" r="2.6"/>
+<circle class="sdot src pos" cx="268.1" cy="141.5" r="2.6"/>
+<circle class="sdot src pos" cx="237.0" cy="147.2" r="2.6"/>
+<circle class="sdot src pos" cx="223.8" cy="155.0" r="2.6"/>
+<circle class="sdot src pos" cx="246.9" cy="154.8" r="2.6"/>
+<circle class="sdot src pos" cx="258.1" cy="155.9" r="2.6"/>
+<circle class="sdot src pos" cx="275.7" cy="149.2" r="2.6"/>
+<circle class="sdot src pos" cx="254.8" cy="145.7" r="2.6"/>
+<circle class="sdot src pos" cx="287.8" cy="147.3" r="2.6"/>
+<circle class="sdot src pos" cx="283.8" cy="141.7" r="2.6"/>
+<circle class="sdot src pos" cx="258.5" cy="142.4" r="2.6"/>
+<circle class="sdot src pos" cx="253.5" cy="144.8" r="2.6"/>
+<circle class="sdot src pos" cx="277.8" cy="139.4" r="2.6"/>
+<circle class="sdot src pos" cx="218.8" cy="144.9" r="2.6"/>
+<circle class="sdot src pos" cx="216.7" cy="152.5" r="2.6"/>
+<circle class="sdot src pos" cx="236.9" cy="145.7" r="2.6"/>
+<circle class="sdot src pos" cx="284.4" cy="146.1" r="2.6"/>
+<circle class="sdot src pos" cx="235.9" cy="142.9" r="2.6"/>
+<circle class="sdot src pos" cx="244.6" cy="137.0" r="2.6"/>
+<circle class="sdot src pos" cx="246.1" cy="154.2" r="2.6"/>
+<circle class="sdot src pos" cx="267.4" cy="141.9" r="2.6"/>
+<circle class="sdot src pos" cx="302.0" cy="156.1" r="2.6"/>
+<circle class="sdot src pos" cx="286.4" cy="150.2" r="2.6"/>
+<circle class="sdot src pos" cx="281.3" cy="143.0" r="2.6"/>
+<circle class="sdot src pos" cx="291.5" cy="137.8" r="2.6"/>
+<circle class="sdot src pos" cx="255.7" cy="143.4" r="2.6"/>
+<circle class="sdot src pos" cx="291.5" cy="131.2" r="2.6"/>
+<circle class="sdot src pos" cx="254.7" cy="143.7" r="2.6"/>
+<circle class="sdot src pos" cx="278.4" cy="145.4" r="2.6"/>
+<circle class="sdot src pos" cx="265.3" cy="147.4" r="2.6"/>
+<circle class="sdot src pos" cx="251.1" cy="135.7" r="2.6"/>
+<circle class="sdot src pos" cx="280.8" cy="148.7" r="2.6"/>
+<circle class="sdot src pos" cx="202.7" cy="156.1" r="2.6"/>
+<circle class="sdot src pos" cx="200.6" cy="170.8" r="2.6"/>
+<circle class="sdot src pos" cx="249.8" cy="147.4" r="2.6"/>
+<circle class="sdot src pos" cx="277.8" cy="122.3" r="2.6"/>
+<circle class="sdot src pos" cx="283.0" cy="141.6" r="2.6"/>
+<circle class="sdot src pos" cx="218.5" cy="153.1" r="2.6"/>
+<circle class="sdot src pos" cx="221.0" cy="149.5" r="2.6"/>
+<circle class="sdot src pos" cx="239.1" cy="159.8" r="2.6"/>
+<circle class="sdot src pos" cx="248.1" cy="134.9" r="2.6"/>
+<circle class="sdot src pos" cx="265.1" cy="152.3" r="2.6"/>
+<circle class="sdot src pos" cx="257.3" cy="134.5" r="2.6"/>
+<circle class="sdot src pos" cx="243.1" cy="152.5" r="2.6"/>
+<circle class="sdot src pos" cx="267.6" cy="134.4" r="2.6"/>
+<circle class="sdot src pos" cx="288.9" cy="147.9" r="2.6"/>
+<circle class="sdot src pos" cx="246.7" cy="150.8" r="2.6"/>
+<circle class="sdot src pos" cx="263.1" cy="151.4" r="2.6"/>
+<circle class="sdot src pos" cx="251.4" cy="143.5" r="2.6"/>
+<circle class="sdot src pos" cx="301.9" cy="137.3" r="2.6"/>
+<circle class="sdot src pos" cx="251.8" cy="150.3" r="2.6"/>
+<circle class="sdot src pos" cx="276.3" cy="134.7" r="2.6"/>
+<circle class="sdot src pos" cx="270.7" cy="149.1" r="2.6"/>
+<circle class="sdot src pos" cx="258.3" cy="144.6" r="2.6"/>
+<circle class="sdot src pos" cx="248.8" cy="138.7" r="2.6"/>
+<circle class="sdot src pos" cx="198.9" cy="161.3" r="2.6"/>
+<circle class="sdot src pos" cx="263.0" cy="143.0" r="2.6"/>
+<circle class="sdot src pos" cx="185.1" cy="165.2" r="2.6"/>
+<circle class="sdot src pos" cx="267.8" cy="135.2" r="2.6"/>
+<circle class="sdot src pos" cx="279.8" cy="138.9" r="2.6"/>
+<circle class="sdot src pos" cx="271.9" cy="132.0" r="2.6"/>
+<circle class="sdot src pos" cx="270.1" cy="149.3" r="2.6"/>
+<circle class="sdot src pos" cx="251.8" cy="128.1" r="2.6"/>
+<circle class="sdot src pos" cx="258.2" cy="139.4" r="2.6"/>
+<circle class="sdot src pos" cx="271.3" cy="131.8" r="2.6"/>
+<circle class="sdot src pos" cx="272.4" cy="145.1" r="2.6"/>
+<circle class="sdot src pos" cx="274.5" cy="152.6" r="2.6"/>
+<circle class="sdot src pos" cx="252.8" cy="155.8" r="2.6"/>
+<circle class="sdot src pos" cx="257.1" cy="152.3" r="2.6"/>
+<circle class="sdot src pos" cx="265.6" cy="143.5" r="2.6"/>
+<circle class="sdot src pos" cx="249.1" cy="149.4" r="2.6"/>
+<circle class="sdot src pos" cx="261.3" cy="150.7" r="2.6"/>
+<circle class="sdot src pos" cx="244.6" cy="133.4" r="2.6"/>
+<circle class="sdot src pos" cx="254.4" cy="150.6" r="2.6"/>
+<circle class="sdot src pos" cx="250.3" cy="140.6" r="2.6"/>
+<circle class="sdot src pos" cx="263.3" cy="136.1" r="2.6"/>
+<circle class="sdot src pos" cx="253.0" cy="142.0" r="2.6"/>
+<circle class="sdot src pos" cx="240.7" cy="164.4" r="2.6"/>
+<circle class="sdot src pos" cx="256.3" cy="143.4" r="2.6"/>
+<circle class="sdot src pos" cx="229.3" cy="152.1" r="2.6"/>
+<circle class="sdot src pos" cx="265.3" cy="152.4" r="2.6"/>
+<circle class="sdot src pos" cx="238.9" cy="135.5" r="2.6"/>
+<circle class="sdot src pos" cx="231.6" cy="157.7" r="2.6"/>
+<circle class="sdot src pos" cx="251.9" cy="141.2" r="2.6"/>
+<circle class="sdot src pos" cx="158.4" cy="153.0" r="2.6"/>
+<circle class="sdot src pos" cx="225.9" cy="153.5" r="2.6"/>
+<circle class="sdot src pos" cx="224.0" cy="157.9" r="2.6"/>
+<circle class="sdot src pos" cx="260.7" cy="133.7" r="2.6"/>
+<circle class="sdot src pos" cx="264.3" cy="143.3" r="2.6"/>
+<circle class="sdot src pos" cx="246.5" cy="146.1" r="2.6"/>
+<circle class="sdot src pos" cx="267.6" cy="140.2" r="2.6"/>
+<circle class="sdot src pos" cx="254.8" cy="144.4" r="2.6"/>
+<circle class="sdot src pos" cx="263.8" cy="129.4" r="2.6"/>
+<circle class="sdot src pos" cx="236.9" cy="137.1" r="2.6"/>
+<circle class="sdot src pos" cx="238.6" cy="123.7" r="2.6"/>
+<circle class="sdot src pos" cx="248.2" cy="147.0" r="2.6"/>
+<circle class="sdot src pos" cx="244.5" cy="120.1" r="2.6"/>
+<circle class="sdot src pos" cx="243.3" cy="149.1" r="2.6"/>
+<circle class="sdot src pos" cx="222.7" cy="142.7" r="2.6"/>
+<circle class="sdot src pos" cx="252.0" cy="137.2" r="2.6"/>
+<circle class="sdot src pos" cx="216.3" cy="171.5" r="2.6"/>
+<circle class="sdot src pos" cx="199.5" cy="149.8" r="2.6"/>
+<circle class="sdot src pos" cx="285.1" cy="111.9" r="2.6"/>
+<circle class="sdot src pos" cx="247.6" cy="143.7" r="2.6"/>
+<circle class="sdot src pos" cx="273.0" cy="124.1" r="2.6"/>
+<circle class="sdot src pos" cx="266.4" cy="134.4" r="2.6"/>
+<circle class="sdot src pos" cx="242.4" cy="142.5" r="2.6"/>
+<circle class="sdot src pos" cx="220.7" cy="155.4" r="2.6"/>
+<circle class="sdot src pos" cx="262.3" cy="121.5" r="2.6"/>
+<circle class="sdot src pos" cx="254.6" cy="150.7" r="2.6"/>
+<circle class="sdot src pos" cx="242.0" cy="145.8" r="2.6"/>
+<circle class="sdot src pos" cx="261.3" cy="138.0" r="2.6"/>
+<circle class="sdot src pos" cx="230.9" cy="169.4" r="2.6"/>
+<circle class="sdot src pos" cx="217.7" cy="155.4" r="2.6"/>
+<circle class="sdot src pos" cx="220.8" cy="150.1" r="2.6"/>
+<circle class="sdot src pos" cx="224.5" cy="152.8" r="2.6"/>
+<circle class="sdot src pos" cx="246.6" cy="153.8" r="2.6"/>
+<circle class="sdot src pos" cx="237.3" cy="157.5" r="2.6"/>
+<circle class="sdot src pos" cx="248.7" cy="154.2" r="2.6"/>
+<circle class="sdot src pos" cx="231.9" cy="155.7" r="2.6"/>
+<circle class="sdot src pos" cx="233.8" cy="161.0" r="2.6"/>
+<circle class="sdot src pos" cx="241.3" cy="148.1" r="2.6"/>
+<circle class="sdot src pos" cx="219.1" cy="153.9" r="2.6"/>
+<circle class="sdot src pos" cx="228.9" cy="160.5" r="2.6"/>
+<circle class="sdot src pos" cx="259.7" cy="157.5" r="2.6"/>
+<circle class="sdot src pos" cx="220.4" cy="157.7" r="2.6"/>
+<circle class="sdot src pos" cx="215.3" cy="162.5" r="2.6"/>
+<circle class="sdot src pos" cx="255.8" cy="153.2" r="2.6"/>
+<circle class="sdot src pos" cx="216.6" cy="156.8" r="2.6"/>
+<circle class="sdot src pos" cx="234.5" cy="166.0" r="2.6"/>
+<circle class="sdot src pos" cx="250.2" cy="152.9" r="2.6"/>
+<circle class="sdot src pos" cx="231.5" cy="160.6" r="2.6"/>
+<circle class="sdot src pos" cx="221.8" cy="160.0" r="2.6"/>
+<circle class="sdot src pos" cx="212.0" cy="162.1" r="2.6"/>
+<circle class="sdot src pos" cx="231.9" cy="164.1" r="2.6"/>
+<circle class="sdot src pos" cx="230.1" cy="163.7" r="2.6"/>
+<text class="oaxlab" x="205" y="287" text-anchor="middle">projection on w &#8594;</text>
+<text class="ptitle" x="543" y="30" text-anchor="middle">the partners written for them</text>
+<line class="ogrid" x1="396" y1="268.0" x2="690" y2="268.0"/>
+<line class="ogrid" x1="396" y1="224.7" x2="690" y2="224.7"/>
+<line class="ogrid" x1="396" y1="181.4" x2="690" y2="181.4"/>
+<line class="ogrid" x1="396" y1="138.1" x2="690" y2="138.1"/>
+<line class="ogrid" x1="396" y1="94.8" x2="690" y2="94.8"/>
+<line class="ogrid" x1="396" y1="51.5" x2="690" y2="51.5"/>
+<line class="oaxis" x1="396" y1="268" x2="690" y2="268"/>
+<line class="oaxis dash" x1="543.0" y1="46" x2="543.0" y2="268"/>
+<circle class="sdot ev" cx="548.6" cy="173.7" r="1.8"/>
+<circle class="sdot ev" cx="543.2" cy="173.6" r="1.8"/>
+<circle class="sdot ev" cx="522.5" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="525.4" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="534.1" cy="182.9" r="1.8"/>
+<circle class="sdot ev" cx="527.0" cy="182.2" r="1.8"/>
+<circle class="sdot ev" cx="520.8" cy="164.3" r="1.8"/>
+<circle class="sdot ev" cx="516.8" cy="164.0" r="1.8"/>
+<circle class="sdot ev" cx="549.6" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="553.4" cy="166.8" r="1.8"/>
+<circle class="sdot ev" cx="524.1" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="531.6" cy="158.9" r="1.8"/>
+<circle class="sdot ev" cx="528.8" cy="176.8" r="1.8"/>
+<circle class="sdot ev" cx="524.7" cy="177.1" r="1.8"/>
+<circle class="sdot ev" cx="539.1" cy="167.6" r="1.8"/>
+<circle class="sdot ev" cx="532.6" cy="167.3" r="1.8"/>
+<circle class="sdot ev" cx="548.9" cy="173.9" r="1.8"/>
+<circle class="sdot ev" cx="542.6" cy="174.4" r="1.8"/>
+<circle class="sdot ev" cx="536.0" cy="164.2" r="1.8"/>
+<circle class="sdot ev" cx="528.2" cy="163.8" r="1.8"/>
+<circle class="sdot ev" cx="536.5" cy="164.9" r="1.8"/>
+<circle class="sdot ev" cx="540.3" cy="165.5" r="1.8"/>
+<circle class="sdot ev" cx="519.9" cy="176.2" r="1.8"/>
+<circle class="sdot ev" cx="522.1" cy="176.0" r="1.8"/>
+<circle class="sdot ev" cx="534.9" cy="174.8" r="1.8"/>
+<circle class="sdot ev" cx="530.9" cy="174.6" r="1.8"/>
+<circle class="sdot ev" cx="556.1" cy="170.1" r="1.8"/>
+<circle class="sdot ev" cx="549.7" cy="170.1" r="1.8"/>
+<circle class="sdot ev" cx="545.8" cy="168.5" r="1.8"/>
+<circle class="sdot ev" cx="542.3" cy="168.8" r="1.8"/>
+<circle class="sdot ev" cx="519.6" cy="171.9" r="1.8"/>
+<circle class="sdot ev" cx="517.0" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="552.8" cy="169.2" r="1.8"/>
+<circle class="sdot ev" cx="547.1" cy="168.6" r="1.8"/>
+<circle class="sdot ev" cx="557.5" cy="170.5" r="1.8"/>
+<circle class="sdot ev" cx="551.3" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="537.0" cy="163.3" r="1.8"/>
+<circle class="sdot ev" cx="529.9" cy="163.3" r="1.8"/>
+<circle class="sdot ev" cx="544.3" cy="168.8" r="1.8"/>
+<circle class="sdot ev" cx="540.3" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="548.0" cy="173.6" r="1.8"/>
+<circle class="sdot ev" cx="540.1" cy="172.4" r="1.8"/>
+<circle class="sdot ev" cx="521.4" cy="163.1" r="1.8"/>
+<circle class="sdot ev" cx="520.3" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="554.8" cy="167.6" r="1.8"/>
+<circle class="sdot ev" cx="549.3" cy="167.1" r="1.8"/>
+<circle class="sdot ev" cx="547.1" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="534.7" cy="158.6" r="1.8"/>
+<circle class="sdot ev" cx="539.9" cy="167.7" r="1.8"/>
+<circle class="sdot ev" cx="530.1" cy="167.6" r="1.8"/>
+<circle class="sdot ev" cx="538.8" cy="177.5" r="1.8"/>
+<circle class="sdot ev" cx="530.2" cy="177.2" r="1.8"/>
+<circle class="sdot ev" cx="535.6" cy="171.5" r="1.8"/>
+<circle class="sdot ev" cx="528.1" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="544.3" cy="157.8" r="1.8"/>
+<circle class="sdot ev" cx="539.5" cy="157.9" r="1.8"/>
+<circle class="sdot ev" cx="544.2" cy="160.1" r="1.8"/>
+<circle class="sdot ev" cx="540.1" cy="159.7" r="1.8"/>
+<circle class="sdot ev" cx="522.3" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="527.1" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="555.1" cy="166.9" r="1.8"/>
+<circle class="sdot ev" cx="549.9" cy="166.3" r="1.8"/>
+<circle class="sdot ev" cx="530.7" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="537.9" cy="161.7" r="1.8"/>
+<circle class="sdot ev" cx="520.3" cy="175.5" r="1.8"/>
+<circle class="sdot ev" cx="518.0" cy="174.6" r="1.8"/>
+<circle class="sdot ev" cx="531.6" cy="157.6" r="1.8"/>
+<circle class="sdot ev" cx="529.5" cy="158.6" r="1.8"/>
+<circle class="sdot ev" cx="546.0" cy="166.0" r="1.8"/>
+<circle class="sdot ev" cx="538.8" cy="165.7" r="1.8"/>
+<circle class="sdot ev" cx="539.7" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="532.8" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="574.3" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="568.5" cy="164.4" r="1.8"/>
+<circle class="sdot ev" cx="553.8" cy="155.5" r="1.8"/>
+<circle class="sdot ev" cx="549.4" cy="155.3" r="1.8"/>
+<circle class="sdot ev" cx="544.5" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="535.4" cy="170.2" r="1.8"/>
+<circle class="sdot ev" cx="523.7" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="520.4" cy="163.9" r="1.8"/>
+<circle class="sdot ev" cx="535.5" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="530.2" cy="166.4" r="1.8"/>
+<circle class="sdot ev" cx="543.6" cy="179.8" r="1.8"/>
+<circle class="sdot ev" cx="537.8" cy="180.0" r="1.8"/>
+<circle class="sdot ev" cx="561.0" cy="172.7" r="1.8"/>
+<circle class="sdot ev" cx="552.8" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="567.7" cy="157.8" r="1.8"/>
+<circle class="sdot ev" cx="564.4" cy="158.5" r="1.8"/>
+<circle class="sdot ev" cx="555.8" cy="163.5" r="1.8"/>
+<circle class="sdot ev" cx="554.2" cy="164.4" r="1.8"/>
+<circle class="sdot ev" cx="553.1" cy="164.5" r="1.8"/>
+<circle class="sdot ev" cx="549.2" cy="164.3" r="1.8"/>
+<circle class="sdot ev" cx="565.5" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="559.3" cy="168.7" r="1.8"/>
+<circle class="sdot ev" cx="550.0" cy="160.7" r="1.8"/>
+<circle class="sdot ev" cx="544.5" cy="160.5" r="1.8"/>
+<circle class="sdot ev" cx="536.7" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="533.6" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="524.7" cy="173.2" r="1.8"/>
+<circle class="sdot ev" cx="524.0" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="542.0" cy="176.2" r="1.8"/>
+<circle class="sdot ev" cx="538.1" cy="176.6" r="1.8"/>
+<circle class="sdot ev" cx="537.4" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="534.8" cy="172.6" r="1.8"/>
+<circle class="sdot ev" cx="545.4" cy="175.9" r="1.8"/>
+<circle class="sdot ev" cx="541.4" cy="175.8" r="1.8"/>
+<circle class="sdot ev" cx="538.1" cy="167.0" r="1.8"/>
+<circle class="sdot ev" cx="530.9" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="541.7" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="536.1" cy="173.9" r="1.8"/>
+<circle class="sdot ev" cx="570.1" cy="160.9" r="1.8"/>
+<circle class="sdot ev" cx="566.6" cy="161.5" r="1.8"/>
+<circle class="sdot ev" cx="549.1" cy="156.5" r="1.8"/>
+<circle class="sdot ev" cx="545.1" cy="157.0" r="1.8"/>
+<circle class="sdot ev" cx="535.4" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="533.8" cy="158.2" r="1.8"/>
+<circle class="sdot ev" cx="547.7" cy="168.0" r="1.8"/>
+<circle class="sdot ev" cx="552.5" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="529.0" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="523.5" cy="172.4" r="1.8"/>
+<circle class="sdot ev" cx="537.0" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="542.3" cy="167.4" r="1.8"/>
+<circle class="sdot ev" cx="534.6" cy="176.7" r="1.8"/>
+<circle class="sdot ev" cx="527.3" cy="176.4" r="1.8"/>
+<circle class="sdot ev" cx="546.7" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="545.5" cy="166.3" r="1.8"/>
+<circle class="sdot ev" cx="548.8" cy="154.2" r="1.8"/>
+<circle class="sdot ev" cx="546.2" cy="154.6" r="1.8"/>
+<circle class="sdot ev" cx="541.0" cy="173.7" r="1.8"/>
+<circle class="sdot ev" cx="536.0" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="542.0" cy="160.7" r="1.8"/>
+<circle class="sdot ev" cx="538.2" cy="160.5" r="1.8"/>
+<circle class="sdot ev" cx="545.3" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="534.3" cy="170.9" r="1.8"/>
+<circle class="sdot ev" cx="565.8" cy="169.3" r="1.8"/>
+<circle class="sdot ev" cx="559.5" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="539.7" cy="128.1" r="1.8"/>
+<circle class="sdot ev" cx="609.1" cy="161.6" r="1.8"/>
+<circle class="sdot ev" cx="594.0" cy="152.6" r="1.8"/>
+<circle class="sdot ev" cx="556.9" cy="151.8" r="1.8"/>
+<circle class="sdot ev" cx="538.5" cy="155.5" r="1.8"/>
+<circle class="sdot ev" cx="540.5" cy="160.0" r="1.8"/>
+<circle class="sdot ev" cx="609.4" cy="129.0" r="1.8"/>
+<circle class="sdot ev" cx="602.3" cy="97.5" r="1.8"/>
+<circle class="sdot ev" cx="588.6" cy="170.6" r="1.8"/>
+<circle class="sdot ev" cx="584.9" cy="156.7" r="1.8"/>
+<circle class="sdot ev" cx="616.1" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="601.4" cy="147.9" r="1.8"/>
+<circle class="sdot ev" cx="605.5" cy="98.4" r="1.8"/>
+<circle class="sdot ev" cx="577.1" cy="133.8" r="1.8"/>
+<circle class="sdot ev" cx="542.1" cy="146.1" r="1.8"/>
+<circle class="sdot ev" cx="636.4" cy="135.0" r="1.8"/>
+<circle class="sdot ev" cx="593.3" cy="122.8" r="1.8"/>
+<circle class="sdot ev" cx="591.8" cy="138.3" r="1.8"/>
+<circle class="sdot ev" cx="600.5" cy="148.4" r="1.8"/>
+<circle class="sdot ev" cx="560.9" cy="136.8" r="1.8"/>
+<circle class="sdot ev" cx="635.2" cy="116.9" r="1.8"/>
+<circle class="sdot ev" cx="553.1" cy="133.1" r="1.8"/>
+<circle class="sdot ev" cx="600.1" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="608.8" cy="135.1" r="1.8"/>
+<circle class="sdot ev" cx="579.1" cy="120.6" r="1.8"/>
+<circle class="sdot ev" cx="559.7" cy="137.9" r="1.8"/>
+<circle class="sdot ev" cx="481.2" cy="163.6" r="1.8"/>
+<circle class="sdot ev" cx="644.7" cy="154.2" r="1.8"/>
+<circle class="sdot ev" cx="569.9" cy="145.0" r="1.8"/>
+<circle class="sdot ev" cx="545.8" cy="162.4" r="1.8"/>
+<circle class="sdot ev" cx="589.4" cy="160.4" r="1.8"/>
+<circle class="sdot ev" cx="607.7" cy="101.5" r="1.8"/>
+<circle class="sdot ev" cx="562.7" cy="149.7" r="1.8"/>
+<circle class="sdot ev" cx="512.3" cy="152.2" r="1.8"/>
+<circle class="sdot ev" cx="635.8" cy="147.2" r="1.8"/>
+<circle class="sdot ev" cx="530.5" cy="111.8" r="1.8"/>
+<circle class="sdot ev" cx="639.6" cy="152.4" r="1.8"/>
+<circle class="sdot ev" cx="605.7" cy="116.9" r="1.8"/>
+<circle class="sdot ev" cx="607.2" cy="152.7" r="1.8"/>
+<circle class="sdot ev" cx="501.1" cy="141.8" r="1.8"/>
+<circle class="sdot ev" cx="618.8" cy="155.2" r="1.8"/>
+<circle class="sdot ev" cx="518.1" cy="89.4" r="1.8"/>
+<circle class="sdot ev" cx="499.8" cy="129.8" r="1.8"/>
+<circle class="sdot ev" cx="619.8" cy="136.6" r="1.8"/>
+<circle class="sdot ev" cx="555.7" cy="173.1" r="1.8"/>
+<circle class="sdot ev" cx="564.2" cy="128.6" r="1.8"/>
+<circle class="sdot ev" cx="579.4" cy="144.0" r="1.8"/>
+<circle class="sdot ev" cx="587.5" cy="168.2" r="1.8"/>
+<circle class="sdot ev" cx="556.7" cy="162.8" r="1.8"/>
+<circle class="sdot ev" cx="565.3" cy="158.7" r="1.8"/>
+<circle class="sdot ev" cx="615.9" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="564.8" cy="127.8" r="1.8"/>
+<circle class="sdot ev" cx="592.3" cy="121.0" r="1.8"/>
+<circle class="sdot ev" cx="588.2" cy="144.3" r="1.8"/>
+<circle class="sdot ev" cx="548.5" cy="157.9" r="1.8"/>
+<circle class="sdot ev" cx="629.8" cy="142.1" r="1.8"/>
+<circle class="sdot ev" cx="564.7" cy="151.9" r="1.8"/>
+<circle class="sdot ev" cx="538.3" cy="159.2" r="1.8"/>
+<circle class="sdot ev" cx="592.5" cy="129.3" r="1.8"/>
+<circle class="sdot ev" cx="511.3" cy="169.6" r="1.8"/>
+<circle class="sdot ev" cx="623.7" cy="58.6" r="1.8"/>
+<circle class="sdot ev" cx="505.8" cy="126.9" r="1.8"/>
+<circle class="sdot ev" cx="514.6" cy="161.1" r="1.8"/>
+<circle class="sdot ev" cx="539.5" cy="119.2" r="1.8"/>
+<circle class="sdot ev" cx="584.3" cy="125.7" r="1.8"/>
+<circle class="sdot ev" cx="644.4" cy="123.4" r="1.8"/>
+<circle class="sdot ev" cx="544.1" cy="144.1" r="1.8"/>
+<circle class="sdot ev" cx="550.8" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="590.5" cy="155.6" r="1.8"/>
+<circle class="sdot ev" cx="653.7" cy="127.7" r="1.8"/>
+<circle class="sdot ev" cx="538.4" cy="156.4" r="1.8"/>
+<circle class="sdot ev" cx="528.5" cy="128.9" r="1.8"/>
+<circle class="sdot ev" cx="571.5" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="553.0" cy="155.8" r="1.8"/>
+<circle class="sdot ev" cx="560.4" cy="150.4" r="1.8"/>
+<circle class="sdot ev" cx="598.2" cy="124.0" r="1.8"/>
+<circle class="sdot ev" cx="544.4" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="540.5" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="566.7" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="557.7" cy="153.9" r="1.8"/>
+<circle class="sdot ev" cx="626.6" cy="142.4" r="1.8"/>
+<circle class="sdot ev" cx="546.3" cy="145.5" r="1.8"/>
+<circle class="sdot ev" cx="600.2" cy="152.1" r="1.8"/>
+<circle class="sdot ev" cx="588.4" cy="135.8" r="1.8"/>
+<circle class="sdot ev" cx="519.6" cy="163.5" r="1.8"/>
+<circle class="sdot ev" cx="512.8" cy="145.1" r="1.8"/>
+<circle class="sdot ev" cx="608.5" cy="126.4" r="1.8"/>
+<circle class="sdot ev" cx="581.2" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="500.0" cy="161.8" r="1.8"/>
+<circle class="sdot ev" cx="520.5" cy="143.1" r="1.8"/>
+<circle class="sdot ev" cx="563.4" cy="129.6" r="1.8"/>
+<circle class="sdot ev" cx="540.1" cy="137.8" r="1.8"/>
+<circle class="sdot ev" cx="588.8" cy="163.4" r="1.8"/>
+<circle class="sdot ev" cx="572.5" cy="114.4" r="1.8"/>
+<circle class="sdot ev" cx="538.6" cy="147.2" r="1.8"/>
+<circle class="sdot ev" cx="568.6" cy="164.0" r="1.8"/>
+<circle class="sdot ev" cx="608.2" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="454.9" cy="104.5" r="1.8"/>
+<circle class="sdot ev" cx="529.3" cy="151.9" r="1.8"/>
+<circle class="sdot ev" cx="557.7" cy="177.1" r="1.8"/>
+<circle class="sdot ev" cx="587.0" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="546.1" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="551.1" cy="156.7" r="1.8"/>
+<circle class="sdot ev" cx="563.2" cy="153.1" r="1.8"/>
+<circle class="sdot ev" cx="557.3" cy="96.6" r="1.8"/>
+<circle class="sdot ev" cx="575.5" cy="97.2" r="1.8"/>
+<circle class="sdot ev" cx="600.7" cy="150.1" r="1.8"/>
+<circle class="sdot ev" cx="544.5" cy="142.0" r="1.8"/>
+<circle class="sdot ev" cx="635.4" cy="143.6" r="1.8"/>
+<circle class="sdot ev" cx="562.2" cy="120.9" r="1.8"/>
+<circle class="sdot ev" cx="676.6" cy="136.4" r="1.8"/>
+<circle class="sdot ev" cx="559.6" cy="138.1" r="1.8"/>
+<circle class="sdot ev" cx="504.2" cy="131.5" r="1.8"/>
+<circle class="sdot ev" cx="588.1" cy="124.7" r="1.8"/>
+<circle class="sdot ev" cx="614.8" cy="157.2" r="1.8"/>
+<circle class="sdot ev" cx="588.6" cy="147.8" r="1.8"/>
+<circle class="sdot ev" cx="605.3" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="572.8" cy="156.2" r="1.8"/>
+<circle class="sdot ev" cx="525.0" cy="84.0" r="1.8"/>
+<circle class="sdot ev" cx="579.9" cy="151.7" r="1.8"/>
+<circle class="sdot ev" cx="614.4" cy="112.2" r="1.8"/>
+<circle class="sdot ev" cx="513.6" cy="119.4" r="1.8"/>
+<circle class="sdot ev" cx="588.6" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="569.7" cy="164.3" r="1.8"/>
+<circle class="sdot ev" cx="571.8" cy="148.4" r="1.8"/>
+<circle class="sdot ev" cx="623.8" cy="136.9" r="1.8"/>
+<circle class="sdot ev" cx="559.7" cy="160.0" r="1.8"/>
+<circle class="sdot ev" cx="538.4" cy="126.2" r="1.8"/>
+<circle class="sdot ev" cx="571.5" cy="157.3" r="1.8"/>
+<circle class="sdot ev" cx="598.3" cy="144.1" r="1.8"/>
+<circle class="sdot ev" cx="529.1" cy="172.6" r="1.8"/>
+<circle class="sdot ev" cx="483.4" cy="134.1" r="1.8"/>
+<circle class="sdot ev" cx="555.2" cy="134.4" r="1.8"/>
+<circle class="sdot ev" cx="618.8" cy="162.5" r="1.8"/>
+<circle class="sdot ev" cx="597.1" cy="125.5" r="1.8"/>
+<circle class="sdot ev" cx="495.7" cy="147.5" r="1.8"/>
+<circle class="sdot ev" cx="553.1" cy="112.0" r="1.8"/>
+<circle class="sdot ev" cx="502.3" cy="140.5" r="1.8"/>
+<circle class="sdot ev" cx="573.6" cy="152.2" r="1.8"/>
+<circle class="sdot ev" cx="514.6" cy="153.7" r="1.8"/>
+<circle class="sdot ev" cx="541.0" cy="166.2" r="1.8"/>
+<circle class="sdot ev" cx="538.8" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="541.5" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="539.6" cy="176.0" r="1.8"/>
+<circle class="sdot ev" cx="558.1" cy="171.3" r="1.8"/>
+<circle class="sdot ev" cx="558.4" cy="182.1" r="1.8"/>
+<circle class="sdot ev" cx="559.6" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="557.6" cy="180.4" r="1.8"/>
+<circle class="sdot ev" cx="564.4" cy="176.4" r="1.8"/>
+<circle class="sdot ev" cx="508.0" cy="173.7" r="1.8"/>
+<circle class="sdot ev" cx="526.4" cy="164.4" r="1.8"/>
+<circle class="sdot ev" cx="522.9" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="525.6" cy="162.8" r="1.8"/>
+<circle class="sdot ev" cx="523.7" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="502.9" cy="130.2" r="1.8"/>
+<circle class="sdot ev" cx="494.9" cy="139.7" r="1.8"/>
+<circle class="sdot ev" cx="632.2" cy="153.3" r="1.8"/>
+<circle class="sdot ev" cx="521.6" cy="138.8" r="1.8"/>
+<circle class="sdot ev" cx="555.0" cy="135.9" r="1.8"/>
+<circle class="sdot ev" cx="512.7" cy="142.6" r="1.8"/>
+<circle class="sdot ev" cx="563.0" cy="149.2" r="1.8"/>
+<circle class="sdot ev" cx="518.4" cy="166.4" r="1.8"/>
+<circle class="sdot ev" cx="561.5" cy="140.0" r="1.8"/>
+<circle class="sdot ev" cx="499.0" cy="152.6" r="1.8"/>
+<circle class="sdot ev" cx="580.9" cy="152.7" r="1.8"/>
+<circle class="sdot ev" cx="494.0" cy="150.2" r="1.8"/>
+<circle class="sdot ev" cx="634.1" cy="160.9" r="1.8"/>
+<circle class="sdot ev" cx="529.1" cy="178.5" r="1.8"/>
+<circle class="sdot ev" cx="593.9" cy="67.8" r="1.8"/>
+<circle class="sdot ev" cx="541.1" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="520.1" cy="171.1" r="1.8"/>
+<circle class="sdot ev" cx="509.1" cy="176.6" r="1.8"/>
+<circle class="sdot ev" cx="529.7" cy="170.1" r="1.8"/>
+<circle class="sdot ev" cx="511.7" cy="174.2" r="1.8"/>
+<circle class="sdot ev" cx="627.4" cy="147.7" r="1.8"/>
+<circle class="sdot ev" cx="502.9" cy="159.4" r="1.8"/>
+<circle class="sdot ev" cx="588.6" cy="170.6" r="1.8"/>
+<circle class="sdot ev" cx="521.3" cy="168.1" r="1.8"/>
+<circle class="sdot ev" cx="629.8" cy="142.1" r="1.8"/>
+<circle class="sdot ev" cx="506.0" cy="161.8" r="1.8"/>
+<circle class="sdot ev" cx="620.7" cy="126.9" r="1.8"/>
+<circle class="sdot ev" cx="508.4" cy="158.6" r="1.8"/>
+<circle class="sdot ev" cx="575.2" cy="150.4" r="1.8"/>
+<circle class="sdot ev" cx="500.7" cy="162.0" r="1.8"/>
+<circle class="sdot ev" cx="542.9" cy="118.1" r="1.8"/>
+<circle class="sdot ev" cx="492.5" cy="141.0" r="1.8"/>
+<circle class="sdot ev" cx="543.5" cy="170.5" r="1.8"/>
+<circle class="sdot ev" cx="543.3" cy="175.3" r="1.8"/>
+<circle class="sdot ev" cx="545.6" cy="170.6" r="1.8"/>
+<circle class="sdot ev" cx="542.5" cy="178.0" r="1.8"/>
+<circle class="sdot ev" cx="636.1" cy="127.2" r="1.8"/>
+<circle class="sdot ev" cx="510.5" cy="151.6" r="1.8"/>
+<circle class="sdot ev" cx="579.9" cy="151.7" r="1.8"/>
+<circle class="sdot ev" cx="496.3" cy="148.4" r="1.8"/>
+<circle class="sdot ev" cx="635.2" cy="116.9" r="1.8"/>
+<circle class="sdot ev" cx="515.8" cy="176.6" r="1.8"/>
+<circle class="sdot ev" cx="563.2" cy="153.1" r="1.8"/>
+<circle class="sdot ev" cx="488.5" cy="136.5" r="1.8"/>
+<circle class="sdot ev" cx="529.8" cy="158.2" r="1.8"/>
+<circle class="sdot ev" cx="526.1" cy="165.3" r="1.8"/>
+<circle class="sdot ev" cx="541.9" cy="163.3" r="1.8"/>
+<circle class="sdot ev" cx="524.6" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="604.2" cy="164.4" r="1.8"/>
+<circle class="sdot ev" cx="523.8" cy="140.3" r="1.8"/>
+<circle class="sdot ev" cx="600.1" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="498.7" cy="150.9" r="1.8"/>
+<circle class="sdot ev" cx="579.1" cy="120.6" r="1.8"/>
+<circle class="sdot ev" cx="490.0" cy="132.1" r="1.8"/>
+<circle class="sdot ev" cx="617.3" cy="164.8" r="1.8"/>
+<circle class="sdot ev" cx="522.5" cy="160.5" r="1.8"/>
+<circle class="sdot ev" cx="613.2" cy="144.6" r="1.8"/>
+<circle class="sdot ev" cx="525.1" cy="168.7" r="1.8"/>
+<circle class="sdot ev" cx="651.9" cy="132.3" r="1.8"/>
+<circle class="sdot ev" cx="523.7" cy="133.9" r="1.8"/>
+<circle class="sdot ev" cx="602.4" cy="112.7" r="1.8"/>
+<circle class="sdot ev" cx="510.9" cy="142.0" r="1.8"/>
+<circle class="sdot ev" cx="555.2" cy="145.7" r="1.8"/>
+<circle class="sdot ev" cx="492.7" cy="147.3" r="1.8"/>
+<circle class="sdot ev" cx="621.2" cy="147.0" r="1.8"/>
+<circle class="sdot ev" cx="501.0" cy="153.5" r="1.8"/>
+<circle class="sdot ev" cx="523.5" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="502.2" cy="165.4" r="1.8"/>
+<circle class="sdot ev" cx="540.3" cy="158.7" r="1.8"/>
+<circle class="sdot ev" cx="537.7" cy="168.5" r="1.8"/>
+<circle class="sdot ev" cx="539.1" cy="159.1" r="1.8"/>
+<circle class="sdot ev" cx="537.7" cy="168.5" r="1.8"/>
+<circle class="sdot ev" cx="645.3" cy="127.1" r="1.8"/>
+<circle class="sdot ev" cx="499.7" cy="127.2" r="1.8"/>
+<circle class="sdot ev" cx="522.3" cy="169.4" r="1.8"/>
+<circle class="sdot ev" cx="520.4" cy="175.5" r="1.8"/>
+<circle class="sdot ev" cx="522.8" cy="168.8" r="1.8"/>
+<circle class="sdot ev" cx="522.6" cy="176.4" r="1.8"/>
+<circle class="sdot ev" cx="589.4" cy="160.4" r="1.8"/>
+<circle class="sdot ev" cx="500.4" cy="144.0" r="1.8"/>
+<circle class="sdot ev" cx="641.7" cy="139.6" r="1.8"/>
+<circle class="sdot ev" cx="513.2" cy="155.5" r="1.8"/>
+<circle class="sdot ev" cx="635.8" cy="147.2" r="1.8"/>
+<circle class="sdot ev" cx="521.2" cy="172.5" r="1.8"/>
+<circle class="sdot ev" cx="639.6" cy="152.4" r="1.8"/>
+<circle class="sdot ev" cx="508.4" cy="149.5" r="1.8"/>
+<circle class="sdot ev" cx="646.0" cy="149.9" r="1.8"/>
+<circle class="sdot ev" cx="516.1" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="597.5" cy="126.9" r="1.8"/>
+<circle class="sdot ev" cx="517.6" cy="136.0" r="1.8"/>
+<circle class="sdot ev" cx="593.3" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="504.8" cy="144.1" r="1.8"/>
+<circle class="sdot ev" cx="607.2" cy="152.7" r="1.8"/>
+<circle class="sdot ev" cx="522.8" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="557.7" cy="177.1" r="1.8"/>
+<circle class="sdot ev" cx="499.6" cy="188.8" r="1.8"/>
+<circle class="sdot ev" cx="610.7" cy="159.2" r="1.8"/>
+<circle class="sdot ev" cx="520.6" cy="149.4" r="1.8"/>
+<circle class="sdot ev" cx="575.8" cy="139.6" r="1.8"/>
+<circle class="sdot ev" cx="514.0" cy="163.0" r="1.8"/>
+<circle class="sdot ev" cx="618.8" cy="155.2" r="1.8"/>
+<circle class="sdot ev" cx="546.1" cy="169.5" r="1.8"/>
+<circle class="sdot ev" cx="614.8" cy="159.0" r="1.8"/>
+<circle class="sdot ev" cx="538.3" cy="155.0" r="1.8"/>
+<circle class="sdot ev" cx="635.2" cy="123.0" r="1.8"/>
+<circle class="sdot ev" cx="510.4" cy="137.1" r="1.8"/>
+<circle class="sdot ev" cx="584.6" cy="166.2" r="1.8"/>
+<circle class="sdot ev" cx="507.3" cy="145.5" r="1.8"/>
+<circle class="sdot ev" cx="624.0" cy="99.5" r="1.8"/>
+<circle class="sdot ev" cx="501.7" cy="138.7" r="1.8"/>
+<circle class="sdot ev" cx="523.4" cy="161.3" r="1.8"/>
+<circle class="sdot ev" cx="518.8" cy="165.7" r="1.8"/>
+<circle class="sdot ev" cx="521.3" cy="160.1" r="1.8"/>
+<circle class="sdot ev" cx="520.6" cy="167.1" r="1.8"/>
+<circle class="sdot ev" cx="585.4" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="510.7" cy="181.9" r="1.8"/>
+<circle class="sdot ev" cx="555.7" cy="173.1" r="1.8"/>
+<circle class="sdot ev" cx="512.0" cy="161.8" r="1.8"/>
+<circle class="sdot ev" cx="524.9" cy="167.5" r="1.8"/>
+<circle class="sdot ev" cx="524.7" cy="170.9" r="1.8"/>
+<circle class="sdot ev" cx="525.9" cy="168.0" r="1.8"/>
+<circle class="sdot ev" cx="523.4" cy="172.3" r="1.8"/>
+<circle class="sdot ev" cx="550.7" cy="119.1" r="1.8"/>
+<circle class="sdot ev" cx="498.0" cy="142.2" r="1.8"/>
+<circle class="sdot ev" cx="564.1" cy="171.5" r="1.8"/>
+<circle class="sdot ev" cx="524.3" cy="164.6" r="1.8"/>
+<circle class="sdot ev" cx="601.5" cy="174.6" r="1.8"/>
+<circle class="sdot ev" cx="542.7" cy="181.5" r="1.8"/>
+<circle class="sdot ev" cx="563.0" cy="169.4" r="1.8"/>
+<circle class="sdot ev" cx="512.0" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="541.0" cy="90.9" r="1.8"/>
+<circle class="sdot ev" cx="494.1" cy="128.5" r="1.8"/>
+<circle class="sdot ev" cx="555.1" cy="174.2" r="1.8"/>
+<circle class="sdot ev" cx="523.6" cy="173.4" r="1.8"/>
+<circle class="sdot ev" cx="635.6" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="499.6" cy="124.7" r="1.8"/>
+<circle class="sdot ev" cx="574.2" cy="124.1" r="1.8"/>
+<circle class="sdot ev" cx="493.4" cy="124.7" r="1.8"/>
+<circle class="sdot ev" cx="622.2" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="502.9" cy="149.8" r="1.8"/>
+<circle class="sdot ev" cx="530.3" cy="155.2" r="1.8"/>
+<circle class="sdot ev" cx="519.1" cy="167.1" r="1.8"/>
+<circle class="sdot ev" cx="536.9" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="522.3" cy="164.7" r="1.8"/>
+<circle class="sdot ev" cx="572.7" cy="163.6" r="1.8"/>
+<circle class="sdot ev" cx="531.2" cy="173.5" r="1.8"/>
+<circle class="sdot ev" cx="615.9" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="540.1" cy="167.0" r="1.8"/>
+<circle class="sdot ev" cx="592.3" cy="121.0" r="1.8"/>
+<circle class="sdot ev" cx="500.2" cy="140.5" r="1.8"/>
+<circle class="sdot ev" cx="564.7" cy="151.9" r="1.8"/>
+<circle class="sdot ev" cx="499.9" cy="144.0" r="1.8"/>
+<circle class="sdot ev" cx="578.8" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="500.5" cy="145.5" r="1.8"/>
+<circle class="sdot ev" cx="604.1" cy="151.5" r="1.8"/>
+<circle class="sdot ev" cx="499.9" cy="154.7" r="1.8"/>
+<circle class="sdot ev" cx="637.2" cy="138.7" r="1.8"/>
+<circle class="sdot ev" cx="496.9" cy="149.4" r="1.8"/>
+<circle class="sdot ev" cx="574.2" cy="139.0" r="1.8"/>
+<circle class="sdot ev" cx="499.6" cy="134.8" r="1.8"/>
+<circle class="sdot ev" cx="596.5" cy="168.1" r="1.8"/>
+<circle class="sdot ev" cx="522.4" cy="181.2" r="1.8"/>
+<circle class="sdot ev" cx="592.5" cy="129.3" r="1.8"/>
+<circle class="sdot ev" cx="496.4" cy="139.9" r="1.8"/>
+<circle class="sdot ev" cx="613.5" cy="147.8" r="1.8"/>
+<circle class="sdot ev" cx="489.5" cy="126.0" r="1.8"/>
+<circle class="sdot ev" cx="630.4" cy="128.3" r="1.8"/>
+<circle class="sdot ev" cx="492.5" cy="149.0" r="1.8"/>
+<circle class="sdot ev" cx="587.6" cy="170.5" r="1.8"/>
+<circle class="sdot ev" cx="505.4" cy="183.0" r="1.8"/>
+<circle class="sdot ev" cx="514.6" cy="161.1" r="1.8"/>
+<circle class="sdot ev" cx="510.5" cy="166.6" r="1.8"/>
+<circle class="sdot ev" cx="573.9" cy="167.2" r="1.8"/>
+<circle class="sdot ev" cx="506.2" cy="156.2" r="1.8"/>
+<circle class="sdot ev" cx="603.9" cy="176.1" r="1.8"/>
+<circle class="sdot ev" cx="515.9" cy="177.2" r="1.8"/>
+<circle class="sdot ev" cx="601.0" cy="158.6" r="1.8"/>
+<circle class="sdot ev" cx="507.0" cy="165.8" r="1.8"/>
+<circle class="sdot ev" cx="584.2" cy="142.8" r="1.8"/>
+<circle class="sdot ev" cx="500.8" cy="147.8" r="1.8"/>
+<circle class="sdot ev" cx="641.9" cy="146.5" r="1.8"/>
+<circle class="sdot ev" cx="530.8" cy="159.6" r="1.8"/>
+<circle class="sdot ev" cx="581.2" cy="158.8" r="1.8"/>
+<circle class="sdot ev" cx="529.8" cy="164.0" r="1.8"/>
+<circle class="sdot ev" cx="590.5" cy="155.6" r="1.8"/>
+<circle class="sdot ev" cx="500.4" cy="148.4" r="1.8"/>
+<circle class="sdot ev" cx="579.2" cy="115.8" r="1.8"/>
+<circle class="sdot ev" cx="498.3" cy="143.3" r="1.8"/>
+<circle class="sdot ev" cx="536.4" cy="149.2" r="1.8"/>
+<circle class="sdot ev" cx="534.0" cy="159.7" r="1.8"/>
+<circle class="sdot ev" cx="535.6" cy="148.6" r="1.8"/>
+<circle class="sdot ev" cx="532.4" cy="159.6" r="1.8"/>
+<circle class="sdot ev" cx="576.3" cy="161.4" r="1.8"/>
+<circle class="sdot ev" cx="514.8" cy="142.1" r="1.8"/>
+<circle class="sdot ev" cx="538.4" cy="156.4" r="1.8"/>
+<circle class="sdot ev" cx="495.7" cy="146.4" r="1.8"/>
+<circle class="sdot ev" cx="652.2" cy="143.3" r="1.8"/>
+<circle class="sdot ev" cx="528.3" cy="155.3" r="1.8"/>
+<circle class="sdot ev" cx="541.6" cy="167.1" r="1.8"/>
+<circle class="sdot ev" cx="501.3" cy="165.7" r="1.8"/>
+<circle class="sdot ev" cx="585.1" cy="139.4" r="1.8"/>
+<circle class="sdot ev" cx="523.8" cy="151.9" r="1.8"/>
+<circle class="sdot ev" cx="588.8" cy="166.9" r="1.8"/>
+<circle class="sdot ev" cx="515.5" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="576.6" cy="118.5" r="1.8"/>
+<circle class="sdot ev" cx="512.8" cy="136.6" r="1.8"/>
+<circle class="sdot ev" cx="617.8" cy="158.5" r="1.8"/>
+<circle class="sdot ev" cx="548.8" cy="160.9" r="1.8"/>
+<circle class="sdot ev" cx="571.5" cy="163.7" r="1.8"/>
+<circle class="sdot ev" cx="519.7" cy="152.7" r="1.8"/>
+<circle class="sdot ev" cx="601.7" cy="156.1" r="1.8"/>
+<circle class="sdot ev" cx="519.7" cy="185.4" r="1.8"/>
+<circle class="sdot ev" cx="629.5" cy="135.4" r="1.8"/>
+<circle class="sdot ev" cx="518.9" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="607.6" cy="171.3" r="1.8"/>
+<circle class="sdot ev" cx="518.9" cy="178.1" r="1.8"/>
+<circle class="sdot ev" cx="601.7" cy="140.6" r="1.8"/>
+<circle class="sdot ev" cx="489.6" cy="143.7" r="1.8"/>
+<circle class="sdot ev" cx="550.2" cy="108.0" r="1.8"/>
+<circle class="sdot ev" cx="514.2" cy="136.4" r="1.8"/>
+<circle class="sdot ev" cx="544.4" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="519.2" cy="153.6" r="1.8"/>
+<circle class="sdot ev" cx="566.7" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="514.5" cy="170.0" r="1.8"/>
+<circle class="sdot ev" cx="626.6" cy="142.4" r="1.8"/>
+<circle class="sdot ev" cx="505.8" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="543.8" cy="147.6" r="1.8"/>
+<circle class="sdot ev" cx="516.6" cy="152.4" r="1.8"/>
+<circle class="sdot ev" cx="600.2" cy="152.1" r="1.8"/>
+<circle class="sdot ev" cx="501.1" cy="149.9" r="1.8"/>
+<circle class="sdot ev" cx="552.8" cy="122.3" r="1.8"/>
+<circle class="sdot ev" cx="509.6" cy="146.7" r="1.8"/>
+<circle class="sdot ev" cx="530.8" cy="111.4" r="1.8"/>
+<circle class="sdot ev" cx="495.3" cy="136.8" r="1.8"/>
+<circle class="sdot ev" cx="587.2" cy="158.5" r="1.8"/>
+<circle class="sdot ev" cx="528.2" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="598.5" cy="154.8" r="1.8"/>
+<circle class="sdot ev" cx="504.3" cy="168.6" r="1.8"/>
+<circle class="sdot ev" cx="609.2" cy="167.0" r="1.8"/>
+<circle class="sdot ev" cx="518.8" cy="163.5" r="1.8"/>
+<circle class="sdot ev" cx="626.2" cy="125.3" r="1.8"/>
+<circle class="sdot ev" cx="531.2" cy="181.7" r="1.8"/>
+<circle class="sdot ev" cx="606.4" cy="134.5" r="1.8"/>
+<circle class="sdot ev" cx="513.4" cy="141.8" r="1.8"/>
+<circle class="sdot ev" cx="608.5" cy="126.4" r="1.8"/>
+<circle class="sdot ev" cx="497.3" cy="150.2" r="1.8"/>
+<circle class="sdot ev" cx="607.7" cy="149.1" r="1.8"/>
+<circle class="sdot ev" cx="489.7" cy="144.9" r="1.8"/>
+<circle class="sdot ev" cx="572.2" cy="164.3" r="1.8"/>
+<circle class="sdot ev" cx="543.5" cy="174.4" r="1.8"/>
+<circle class="sdot ev" cx="550.8" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="508.2" cy="163.6" r="1.8"/>
+<circle class="sdot ev" cx="545.0" cy="127.1" r="1.8"/>
+<circle class="sdot ev" cx="515.0" cy="139.5" r="1.8"/>
+<circle class="sdot ev" cx="618.3" cy="115.5" r="1.8"/>
+<circle class="sdot ev" cx="501.3" cy="154.4" r="1.8"/>
+<circle class="sdot ev" cx="591.8" cy="158.4" r="1.8"/>
+<circle class="sdot ev" cx="531.9" cy="160.6" r="1.8"/>
+<circle class="sdot ev" cx="500.0" cy="161.8" r="1.8"/>
+<circle class="sdot ev" cx="497.0" cy="161.6" r="1.8"/>
+<circle class="sdot ev" cx="516.7" cy="166.5" r="1.8"/>
+<circle class="sdot ev" cx="515.0" cy="172.9" r="1.8"/>
+<circle class="sdot ev" cx="517.6" cy="166.1" r="1.8"/>
+<circle class="sdot ev" cx="514.6" cy="171.9" r="1.8"/>
+<circle class="sdot ev" cx="619.7" cy="151.1" r="1.8"/>
+<circle class="sdot ev" cx="505.4" cy="161.4" r="1.8"/>
+<circle class="sdot ev" cx="559.9" cy="153.5" r="1.8"/>
+<circle class="sdot ev" cx="512.9" cy="141.7" r="1.8"/>
+<circle class="sdot ev" cx="563.4" cy="129.6" r="1.8"/>
+<circle class="sdot ev" cx="512.8" cy="136.2" r="1.8"/>
+<circle class="sdot ev" cx="546.3" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="543.7" cy="169.1" r="1.8"/>
+<circle class="sdot ev" cx="542.8" cy="163.3" r="1.8"/>
+<circle class="sdot ev" cx="544.7" cy="170.2" r="1.8"/>
+<circle class="sdot ev" cx="516.2" cy="167.8" r="1.8"/>
+<circle class="sdot ev" cx="516.8" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="514.9" cy="166.8" r="1.8"/>
+<circle class="sdot ev" cx="517.8" cy="178.8" r="1.8"/>
+<circle class="sdot ev" cx="585.2" cy="168.4" r="1.8"/>
+<circle class="sdot ev" cx="544.5" cy="182.0" r="1.8"/>
+<circle class="sdot ev" cx="532.7" cy="170.0" r="1.8"/>
+<circle class="sdot ev" cx="525.6" cy="177.9" r="1.8"/>
+<circle class="sdot ev" cx="528.0" cy="170.4" r="1.8"/>
+<circle class="sdot ev" cx="524.7" cy="177.2" r="1.8"/>
+<circle class="sdot ev" cx="608.2" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="504.8" cy="150.6" r="1.8"/>
+<circle class="sdot ev" cx="624.2" cy="129.8" r="1.8"/>
+<circle class="sdot ev" cx="515.3" cy="133.7" r="1.8"/>
+<circle class="sdot ev" cx="587.0" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="521.1" cy="180.0" r="1.8"/>
+<circle class="sdot ev" cx="523.0" cy="139.3" r="1.8"/>
+<circle class="sdot ev" cx="504.2" cy="137.9" r="1.8"/>
+<circle class="sdot ev" cx="557.3" cy="96.6" r="1.8"/>
+<circle class="sdot ev" cx="499.0" cy="139.6" r="1.8"/>
+<circle class="sdot ev" cx="572.2" cy="152.3" r="1.8"/>
+<circle class="sdot ev" cx="503.8" cy="141.7" r="1.8"/>
+<circle class="sdot ev" cx="535.5" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="523.3" cy="162.6" r="1.8"/>
+<circle class="sdot ev" cx="528.9" cy="154.5" r="1.8"/>
+<circle class="sdot ev" cx="527.8" cy="165.3" r="1.8"/>
+<circle class="sdot ev" cx="600.7" cy="150.1" r="1.8"/>
+<circle class="sdot ev" cx="507.0" cy="155.6" r="1.8"/>
+<circle class="sdot ev" cx="585.8" cy="151.1" r="1.8"/>
+<circle class="sdot ev" cx="490.3" cy="137.2" r="1.8"/>
+<circle class="sdot ev" cx="600.3" cy="132.1" r="1.8"/>
+<circle class="sdot ev" cx="512.9" cy="151.5" r="1.8"/>
+<circle class="sdot ev" cx="555.7" cy="162.7" r="1.8"/>
+<circle class="sdot ev" cx="496.7" cy="148.9" r="1.8"/>
+<circle class="sdot ev" cx="617.9" cy="130.8" r="1.8"/>
+<circle class="sdot ev" cx="490.8" cy="157.6" r="1.8"/>
+<circle class="sdot ev" cx="571.1" cy="159.2" r="1.8"/>
+<circle class="sdot ev" cx="501.5" cy="147.5" r="1.8"/>
+<circle class="sdot ev" cx="539.6" cy="171.4" r="1.8"/>
+<circle class="sdot ev" cx="489.5" cy="168.0" r="1.8"/>
+<circle class="sdot ev" cx="635.4" cy="143.6" r="1.8"/>
+<circle class="sdot ev" cx="503.4" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="606.7" cy="139.5" r="1.8"/>
+<circle class="sdot ev" cx="511.5" cy="150.9" r="1.8"/>
+<circle class="sdot ev" cx="602.7" cy="132.4" r="1.8"/>
+<circle class="sdot ev" cx="496.7" cy="143.0" r="1.8"/>
+<circle class="sdot ev" cx="504.2" cy="131.5" r="1.8"/>
+<circle class="sdot ev" cx="511.3" cy="147.5" r="1.8"/>
+<circle class="sdot ev" cx="606.1" cy="160.2" r="1.8"/>
+<circle class="sdot ev" cx="517.8" cy="166.9" r="1.8"/>
+<circle class="sdot ev" cx="648.3" cy="150.5" r="1.8"/>
+<circle class="sdot ev" cx="510.2" cy="159.2" r="1.8"/>
+<circle class="sdot ev" cx="602.9" cy="156.2" r="1.8"/>
+<circle class="sdot ev" cx="507.9" cy="156.5" r="1.8"/>
+<circle class="sdot ev" cx="621.4" cy="148.1" r="1.8"/>
+<circle class="sdot ev" cx="505.1" cy="150.9" r="1.8"/>
+<circle class="sdot ev" cx="605.3" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="503.2" cy="161.2" r="1.8"/>
+<circle class="sdot ev" cx="553.9" cy="138.3" r="1.8"/>
+<circle class="sdot ev" cx="492.3" cy="138.4" r="1.8"/>
+<circle class="sdot ev" cx="578.3" cy="159.7" r="1.8"/>
+<circle class="sdot ev" cx="497.2" cy="147.4" r="1.8"/>
+<circle class="sdot ev" cx="647.8" cy="117.9" r="1.8"/>
+<circle class="sdot ev" cx="522.9" cy="172.3" r="1.8"/>
+<circle class="sdot ev" cx="648.8" cy="129.0" r="1.8"/>
+<circle class="sdot ev" cx="514.8" cy="152.8" r="1.8"/>
+<circle class="sdot ev" cx="519.1" cy="151.1" r="1.8"/>
+<circle class="sdot ev" cx="499.0" cy="158.7" r="1.8"/>
+<circle class="sdot ev" cx="600.3" cy="118.5" r="1.8"/>
+<circle class="sdot ev" cx="514.3" cy="141.9" r="1.8"/>
+<circle class="sdot ev" cx="603.6" cy="122.6" r="1.8"/>
+<circle class="sdot ev" cx="499.6" cy="128.3" r="1.8"/>
+<circle class="sdot ev" cx="614.4" cy="112.2" r="1.8"/>
+<circle class="sdot ev" cx="488.9" cy="108.6" r="1.8"/>
+<circle class="sdot ev" cx="588.6" cy="156.9" r="1.8"/>
+<circle class="sdot ev" cx="500.6" cy="151.6" r="1.8"/>
+<circle class="sdot ev" cx="526.7" cy="174.9" r="1.8"/>
+<circle class="sdot ev" cx="518.7" cy="183.1" r="1.8"/>
+<circle class="sdot ev" cx="528.4" cy="175.3" r="1.8"/>
+<circle class="sdot ev" cx="522.7" cy="186.1" r="1.8"/>
+<circle class="sdot ev" cx="602.7" cy="151.8" r="1.8"/>
+<circle class="sdot ev" cx="500.3" cy="148.8" r="1.8"/>
+<circle class="sdot ev" cx="628.0" cy="123.0" r="1.8"/>
+<circle class="sdot ev" cx="495.7" cy="154.1" r="1.8"/>
+<circle class="sdot ev" cx="550.7" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="546.4" cy="179.4" r="1.8"/>
+<circle class="sdot ev" cx="546.9" cy="172.0" r="1.8"/>
+<circle class="sdot ev" cx="547.5" cy="178.0" r="1.8"/>
+<circle class="sdot ev" cx="529.1" cy="172.6" r="1.8"/>
+<circle class="sdot ev" cx="499.2" cy="173.0" r="1.8"/>
+<circle class="sdot ev" cx="574.0" cy="100.2" r="1.8"/>
+<circle class="sdot ev" cx="487.5" cy="155.9" r="1.8"/>
+<circle class="sdot ev" cx="596.7" cy="125.5" r="1.8"/>
+<circle class="sdot ev" cx="505.7" cy="141.9" r="1.8"/>
+<circle class="sdot ev" cx="557.8" cy="123.5" r="1.8"/>
+<circle class="sdot ev" cx="520.3" cy="136.3" r="1.8"/>
+<circle class="sdot ev" cx="547.8" cy="93.5" r="1.8"/>
+<circle class="sdot ev" cx="501.9" cy="127.0" r="1.8"/>
+<circle class="sdot ev" cx="649.8" cy="126.3" r="1.8"/>
+<circle class="sdot ev" cx="502.0" cy="149.3" r="1.8"/>
+<circle class="sdot ev" cx="555.1" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="550.4" cy="183.8" r="1.8"/>
+<circle class="sdot ev" cx="554.9" cy="175.4" r="1.8"/>
+<circle class="sdot ev" cx="551.1" cy="180.7" r="1.8"/>
+<circle class="sdot ev" cx="590.8" cy="156.3" r="1.8"/>
+<circle class="sdot ev" cx="496.4" cy="141.4" r="1.8"/>
+<circle class="sdot ev" cx="494.5" cy="171.8" r="1.8"/>
+<circle class="sdot ev" cx="503.6" cy="175.8" r="1.8"/>
+<circle class="sdot ev" cx="508.9" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="523.8" cy="173.0" r="1.8"/>
+<circle class="sdot ev" cx="513.2" cy="174.6" r="1.8"/>
+<circle class="sdot ev" cx="503.0" cy="174.9" r="1.8"/>
+<circle class="sdot ev" cx="534.6" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="529.3" cy="161.0" r="1.8"/>
+<circle class="sdot ev" cx="482.9" cy="167.2" r="1.8"/>
+<circle class="sdot ev" cx="491.8" cy="168.5" r="1.8"/>
+<circle class="sdot ev" cx="533.6" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="528.8" cy="162.3" r="1.8"/>
+<circle class="sdot ev" cx="492.5" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="487.7" cy="169.1" r="1.8"/>
+<circle class="sdot ev" cx="508.4" cy="180.4" r="1.8"/>
+<circle class="sdot ev" cx="511.4" cy="177.5" r="1.8"/>
+<circle class="sdot ev" cx="523.4" cy="171.0" r="1.8"/>
+<circle class="sdot ev" cx="522.5" cy="170.9" r="1.8"/>
+<circle class="sdot ev" cx="513.9" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="511.6" cy="177.9" r="1.8"/>
+<circle class="sdot ev" cx="509.6" cy="164.5" r="1.8"/>
+<circle class="sdot ev" cx="516.2" cy="172.3" r="1.8"/>
+<circle class="sdot ev" cx="531.2" cy="164.9" r="1.8"/>
+<circle class="sdot ev" cx="537.3" cy="163.8" r="1.8"/>
+<circle class="sdot ev" cx="552.4" cy="166.7" r="1.8"/>
+<circle class="sdot ev" cx="554.3" cy="166.0" r="1.8"/>
+<circle class="sdot ev" cx="533.0" cy="179.3" r="1.8"/>
+<circle class="sdot ev" cx="523.5" cy="175.4" r="1.8"/>
+<circle class="sdot ev" cx="527.0" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="535.4" cy="164.1" r="1.8"/>
+<circle class="sdot ev" cx="520.8" cy="182.6" r="1.8"/>
+<circle class="sdot ev" cx="523.2" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="514.8" cy="159.0" r="1.8"/>
+<circle class="sdot ev" cx="509.3" cy="156.8" r="1.8"/>
+<circle class="sdot ev" cx="533.4" cy="179.6" r="1.8"/>
+<circle class="sdot ev" cx="529.0" cy="174.5" r="1.8"/>
+<circle class="sdot ev" cx="533.9" cy="165.4" r="1.8"/>
+<circle class="sdot ev" cx="537.1" cy="160.9" r="1.8"/>
+<circle class="sdot ev" cx="527.3" cy="182.5" r="1.8"/>
+<circle class="sdot ev" cx="513.4" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="512.4" cy="186.9" r="1.8"/>
+<circle class="sdot ev" cx="528.6" cy="186.1" r="1.8"/>
+<circle class="sdot ev" cx="543.7" cy="179.6" r="1.8"/>
+<circle class="sdot ev" cx="540.1" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="531.4" cy="174.2" r="1.8"/>
+<circle class="sdot ev" cx="520.5" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="507.5" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="520.7" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="520.5" cy="179.6" r="1.8"/>
+<circle class="sdot ev" cx="524.9" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="527.2" cy="171.7" r="1.8"/>
+<circle class="sdot ev" cx="523.5" cy="171.7" r="1.8"/>
+<circle class="sdot ev" cx="502.0" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="508.3" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="524.5" cy="162.2" r="1.8"/>
+<circle class="sdot ev" cx="520.5" cy="159.1" r="1.8"/>
+<circle class="sdot ev" cx="524.8" cy="179.5" r="1.8"/>
+<circle class="sdot ev" cx="522.2" cy="175.2" r="1.8"/>
+<circle class="sdot ev" cx="522.8" cy="175.7" r="1.8"/>
+<circle class="sdot ev" cx="529.2" cy="168.4" r="1.8"/>
+<circle class="sdot ev" cx="520.8" cy="169.8" r="1.8"/>
+<circle class="sdot ev" cx="518.5" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="527.6" cy="168.1" r="1.8"/>
+<circle class="sdot ev" cx="515.5" cy="166.1" r="1.8"/>
+<circle class="sdot ev" cx="529.9" cy="167.4" r="1.8"/>
+<circle class="sdot ev" cx="529.1" cy="165.9" r="1.8"/>
+<circle class="sdot ev" cx="516.8" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="511.5" cy="161.4" r="1.8"/>
+<circle class="sdot ev" cx="505.0" cy="170.3" r="1.8"/>
+<circle class="sdot ev" cx="507.8" cy="171.7" r="1.8"/>
+<circle class="sdot ev" cx="502.6" cy="174.7" r="1.8"/>
+<circle class="sdot ev" cx="505.7" cy="174.7" r="1.8"/>
+<circle class="sdot ev" cx="533.6" cy="162.4" r="1.8"/>
+<circle class="sdot ev" cx="527.7" cy="160.1" r="1.8"/>
+<circle class="sdot ev" cx="529.2" cy="161.3" r="1.8"/>
+<circle class="sdot ev" cx="528.7" cy="157.2" r="1.8"/>
+<circle class="sdot ev" cx="499.3" cy="182.7" r="1.8"/>
+<circle class="sdot ev" cx="496.6" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="514.0" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="514.1" cy="155.9" r="1.8"/>
+<circle class="sdot ev" cx="534.3" cy="157.9" r="1.8"/>
+<circle class="sdot ev" cx="539.0" cy="154.4" r="1.8"/>
+<circle class="sdot ev" cx="496.8" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="484.6" cy="164.2" r="1.8"/>
+<circle class="sdot ev" cx="502.4" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="518.7" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="501.7" cy="169.3" r="1.8"/>
+<circle class="sdot ev" cx="516.1" cy="173.9" r="1.8"/>
+<circle class="sdot ev" cx="528.1" cy="171.2" r="1.8"/>
+<circle class="sdot ev" cx="520.5" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="533.2" cy="178.8" r="1.8"/>
+<circle class="sdot ev" cx="525.0" cy="178.1" r="1.8"/>
+<circle class="sdot ev" cx="518.3" cy="171.2" r="1.8"/>
+<circle class="sdot ev" cx="508.6" cy="167.9" r="1.8"/>
+<circle class="sdot ev" cx="498.7" cy="183.8" r="1.8"/>
+<circle class="sdot ev" cx="504.9" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="492.6" cy="179.0" r="1.8"/>
+<circle class="sdot ev" cx="528.3" cy="183.8" r="1.8"/>
+<circle class="sdot ev" cx="516.3" cy="171.1" r="1.8"/>
+<circle class="sdot ev" cx="520.5" cy="169.6" r="1.8"/>
+<circle class="sdot ev" cx="533.1" cy="165.7" r="1.8"/>
+<circle class="sdot ev" cx="529.9" cy="163.2" r="1.8"/>
+<circle class="sdot ev" cx="553.6" cy="159.5" r="1.8"/>
+<circle class="sdot ev" cx="552.1" cy="154.6" r="1.8"/>
+<circle class="sdot ev" cx="502.8" cy="169.1" r="1.8"/>
+<circle class="sdot ev" cx="500.0" cy="163.4" r="1.8"/>
+<circle class="sdot ev" cx="503.5" cy="181.5" r="1.8"/>
+<circle class="sdot ev" cx="505.7" cy="181.6" r="1.8"/>
+<circle class="sdot ev" cx="545.6" cy="161.3" r="1.8"/>
+<circle class="sdot ev" cx="541.8" cy="157.7" r="1.8"/>
+<circle class="sdot ev" cx="527.9" cy="176.5" r="1.8"/>
+<circle class="sdot ev" cx="519.8" cy="176.6" r="1.8"/>
+<circle class="sdot ev" cx="520.3" cy="159.9" r="1.8"/>
+<circle class="sdot ev" cx="522.5" cy="157.4" r="1.8"/>
+<circle class="sdot ev" cx="505.9" cy="165.6" r="1.8"/>
+<circle class="sdot ev" cx="496.9" cy="162.6" r="1.8"/>
+<circle class="sdot ev" cx="496.3" cy="170.6" r="1.8"/>
+<circle class="sdot ev" cx="515.1" cy="174.5" r="1.8"/>
+<circle class="sdot ev" cx="524.8" cy="185.0" r="1.8"/>
+<circle class="sdot ev" cx="525.4" cy="183.7" r="1.8"/>
+<circle class="sdot ev" cx="522.7" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="529.5" cy="173.4" r="1.8"/>
+<circle class="sdot ev" cx="538.5" cy="175.2" r="1.8"/>
+<circle class="sdot ev" cx="525.8" cy="172.4" r="1.8"/>
+<circle class="sdot ev" cx="532.0" cy="170.2" r="1.8"/>
+<circle class="sdot ev" cx="523.5" cy="167.2" r="1.8"/>
+<circle class="sdot ev" cx="520.8" cy="169.9" r="1.8"/>
+<circle class="sdot ev" cx="527.9" cy="167.8" r="1.8"/>
+<circle class="sdot ev" cx="502.9" cy="166.2" r="1.8"/>
+<circle class="sdot ev" cx="495.7" cy="161.7" r="1.8"/>
+<circle class="sdot ev" cx="534.7" cy="160.2" r="1.8"/>
+<circle class="sdot ev" cx="523.6" cy="160.8" r="1.8"/>
+<circle class="sdot ev" cx="475.7" cy="169.1" r="1.8"/>
+<circle class="sdot ev" cx="472.9" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="522.1" cy="177.6" r="1.8"/>
+<circle class="sdot ev" cx="516.8" cy="176.0" r="1.8"/>
+<circle class="sdot ev" cx="530.1" cy="177.3" r="1.8"/>
+<circle class="sdot ev" cx="529.2" cy="181.5" r="1.8"/>
+<circle class="sdot ev" cx="510.7" cy="180.6" r="1.8"/>
+<circle class="sdot ev" cx="514.6" cy="181.1" r="1.8"/>
+<circle class="sdot ev" cx="543.1" cy="185.1" r="1.8"/>
+<circle class="sdot ev" cx="529.9" cy="179.2" r="1.8"/>
+<circle class="sdot ev" cx="528.3" cy="151.7" r="1.8"/>
+<circle class="sdot ev" cx="525.9" cy="146.0" r="1.8"/>
+<circle class="sdot ev" cx="541.1" cy="169.5" r="1.8"/>
+<circle class="sdot ev" cx="541.5" cy="174.3" r="1.8"/>
+<circle class="sdot ev" cx="515.0" cy="174.8" r="1.8"/>
+<circle class="sdot ev" cx="515.2" cy="171.4" r="1.8"/>
+<circle class="sdot ev" cx="518.0" cy="154.1" r="1.8"/>
+<circle class="sdot ev" cx="513.4" cy="149.7" r="1.8"/>
+<circle class="sdot ev" cx="515.1" cy="168.1" r="1.8"/>
+<circle class="sdot ev" cx="515.6" cy="161.3" r="1.8"/>
+<circle class="sdot ev" cx="485.6" cy="170.7" r="1.8"/>
+<circle class="sdot ev" cx="493.7" cy="175.6" r="1.8"/>
+<circle class="sdot ev" cx="526.0" cy="168.9" r="1.8"/>
+<circle class="sdot ev" cx="518.1" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="510.9" cy="168.6" r="1.8"/>
+<circle class="sdot ev" cx="509.3" cy="166.1" r="1.8"/>
+<circle class="sdot ev" cx="555.8" cy="151.8" r="1.8"/>
+<circle class="sdot ev" cx="541.6" cy="152.6" r="1.8"/>
+<circle class="sdot ev" cx="536.9" cy="173.8" r="1.8"/>
+<circle class="sdot ev" cx="524.6" cy="170.8" r="1.8"/>
+<circle class="sdot ev" cx="503.5" cy="172.0" r="1.8"/>
+<circle class="sdot ev" cx="504.4" cy="169.7" r="1.8"/>
+<circle class="sdot ev" cx="505.2" cy="172.2" r="1.8"/>
+<circle class="sdot ev" cx="510.7" cy="167.4" r="1.8"/>
+<circle class="sdot ev" cx="510.7" cy="176.7" r="1.8"/>
+<circle class="sdot ev" cx="515.0" cy="173.3" r="1.8"/>
+<circle class="sdot ev" cx="524.3" cy="180.4" r="1.8"/>
+<circle class="sdot ev" cx="526.7" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="515.7" cy="172.1" r="1.8"/>
+<circle class="sdot ev" cx="506.6" cy="168.2" r="1.8"/>
+<circle class="sdot ev" cx="520.2" cy="166.1" r="1.8"/>
+<circle class="sdot ev" cx="520.1" cy="167.4" r="1.8"/>
+<circle class="sdot ev" cx="500.1" cy="174.1" r="1.8"/>
+<circle class="sdot ev" cx="512.8" cy="172.4" r="1.8"/>
+<circle class="sdot ev" cx="527.7" cy="177.2" r="1.8"/>
+<circle class="sdot ev" cx="524.8" cy="175.4" r="1.8"/>
+<circle class="sdot ev" cx="536.1" cy="165.5" r="1.8"/>
+<circle class="sdot ev" cx="528.9" cy="162.9" r="1.8"/>
+<circle class="sdot ev" cx="543.1" cy="180.1" r="1.8"/>
+<circle class="sdot ev" cx="531.4" cy="175.2" r="1.8"/>
+<circle class="sdot ev" cx="519.8" cy="171.6" r="1.8"/>
+<circle class="sdot ev" cx="532.8" cy="172.8" r="1.8"/>
+<circle class="sdot ev" cx="511.5" cy="164.6" r="1.8"/>
+<circle class="sdot ev" cx="513.8" cy="157.8" r="1.8"/>
+<circle class="sdot ev" cx="536.8" cy="177.7" r="1.8"/>
+<circle class="sdot ev" cx="532.4" cy="178.6" r="1.8"/>
+<circle class="sdot ev" cx="530.7" cy="151.6" r="1.8"/>
+<circle class="sdot ev" cx="525.9" cy="151.3" r="1.8"/>
+<circle class="sdot ev" cx="511.0" cy="176.8" r="1.8"/>
+<circle class="sdot ev" cx="506.7" cy="170.5" r="1.8"/>
+<circle class="sdot ev" cx="485.3" cy="179.6" r="1.8"/>
+<circle class="sdot ev" cx="488.6" cy="181.7" r="1.8"/>
+<circle class="sdot ev" cx="505.7" cy="174.2" r="1.8"/>
+<circle class="sdot ev" cx="508.8" cy="170.6" r="1.8"/>
+<circle class="sdot gen pos" cx="636.4" cy="121.1" r="2.6"/>
+<circle class="sdot gen pos" cx="610.5" cy="115.1" r="2.6"/>
+<circle class="sdot gen pos" cx="625.6" cy="113.9" r="2.6"/>
+<circle class="sdot gen pos" cx="644.3" cy="133.9" r="2.6"/>
+<circle class="sdot gen pos" cx="624.4" cy="145.9" r="2.6"/>
+<circle class="sdot gen pos" cx="644.4" cy="130.3" r="2.6"/>
+<circle class="sdot gen pos" cx="649.6" cy="118.6" r="2.6"/>
+<circle class="sdot gen pos" cx="615.8" cy="135.5" r="2.6"/>
+<circle class="sdot gen pos" cx="610.6" cy="135.1" r="2.6"/>
+<circle class="sdot gen pos" cx="625.1" cy="130.2" r="2.6"/>
+<circle class="sdot gen pos" cx="600.6" cy="110.9" r="2.6"/>
+<circle class="sdot gen pos" cx="611.5" cy="144.5" r="2.6"/>
+<circle class="sdot gen pos" cx="618.1" cy="142.7" r="2.6"/>
+<circle class="sdot gen pos" cx="635.8" cy="140.7" r="2.6"/>
+<circle class="sdot gen pos" cx="576.4" cy="155.9" r="2.6"/>
+<circle class="sdot gen pos" cx="580.0" cy="155.5" r="2.6"/>
+<circle class="sdot gen pos" cx="556.4" cy="164.9" r="2.6"/>
+<circle class="sdot gen pos" cx="587.5" cy="137.6" r="2.6"/>
+<circle class="sdot gen pos" cx="616.9" cy="130.7" r="2.6"/>
+<circle class="sdot gen pos" cx="614.6" cy="135.9" r="2.6"/>
+<circle class="sdot gen pos" cx="587.7" cy="132.9" r="2.6"/>
+<circle class="sdot gen pos" cx="610.7" cy="120.4" r="2.6"/>
+<circle class="sdot gen pos" cx="623.9" cy="156.4" r="2.6"/>
+<circle class="sdot gen pos" cx="599.8" cy="140.5" r="2.6"/>
+<circle class="sdot gen pos" cx="610.1" cy="142.3" r="2.6"/>
+<circle class="sdot gen pos" cx="602.6" cy="137.7" r="2.6"/>
+<circle class="sdot gen pos" cx="579.5" cy="137.6" r="2.6"/>
+<circle class="sdot gen pos" cx="599.2" cy="123.6" r="2.6"/>
+<circle class="sdot gen pos" cx="598.1" cy="153.5" r="2.6"/>
+<circle class="sdot gen pos" cx="609.8" cy="143.0" r="2.6"/>
+<circle class="sdot gen pos" cx="635.0" cy="154.7" r="2.6"/>
+<circle class="sdot gen pos" cx="589.7" cy="148.6" r="2.6"/>
+<circle class="sdot gen pos" cx="625.2" cy="128.9" r="2.6"/>
+<circle class="sdot gen pos" cx="604.8" cy="124.3" r="2.6"/>
+<circle class="sdot gen pos" cx="595.2" cy="136.4" r="2.6"/>
+<circle class="sdot gen pos" cx="604.9" cy="134.2" r="2.6"/>
+<circle class="sdot gen pos" cx="598.3" cy="138.1" r="2.6"/>
+<circle class="sdot gen pos" cx="594.1" cy="146.9" r="2.6"/>
+<circle class="sdot gen pos" cx="586.5" cy="155.6" r="2.6"/>
+<circle class="sdot gen pos" cx="589.6" cy="146.2" r="2.6"/>
+<circle class="sdot gen pos" cx="603.7" cy="140.6" r="2.6"/>
+<circle class="sdot gen pos" cx="624.4" cy="152.0" r="2.6"/>
+<circle class="sdot gen pos" cx="644.3" cy="123.5" r="2.6"/>
+<circle class="sdot gen pos" cx="596.0" cy="138.4" r="2.6"/>
+<circle class="sdot gen pos" cx="606.4" cy="147.3" r="2.6"/>
+<circle class="sdot gen pos" cx="614.1" cy="119.6" r="2.6"/>
+<circle class="sdot gen pos" cx="602.8" cy="143.7" r="2.6"/>
+<circle class="sdot gen pos" cx="615.1" cy="128.3" r="2.6"/>
+<circle class="sdot gen pos" cx="623.7" cy="129.8" r="2.6"/>
+<circle class="sdot gen pos" cx="594.9" cy="119.9" r="2.6"/>
+<circle class="sdot gen pos" cx="607.2" cy="139.0" r="2.6"/>
+<circle class="sdot gen pos" cx="529.9" cy="155.2" r="2.6"/>
+<circle class="sdot gen pos" cx="612.0" cy="140.1" r="2.6"/>
+<circle class="sdot gen pos" cx="602.1" cy="154.4" r="2.6"/>
+<circle class="sdot gen pos" cx="561.2" cy="172.1" r="2.6"/>
+<circle class="sdot gen pos" cx="561.9" cy="166.8" r="2.6"/>
+<circle class="sdot gen pos" cx="585.5" cy="153.3" r="2.6"/>
+<circle class="sdot gen pos" cx="596.8" cy="132.8" r="2.6"/>
+<circle class="sdot gen pos" cx="633.9" cy="138.4" r="2.6"/>
+<circle class="sdot gen pos" cx="613.0" cy="135.4" r="2.6"/>
+<circle class="sdot gen pos" cx="600.8" cy="132.0" r="2.6"/>
+<circle class="sdot gen pos" cx="604.5" cy="137.2" r="2.6"/>
+<circle class="sdot gen pos" cx="551.8" cy="165.9" r="2.6"/>
+<circle class="sdot gen pos" cx="605.1" cy="146.9" r="2.6"/>
+<circle class="sdot gen pos" cx="649.5" cy="142.2" r="2.6"/>
+<circle class="sdot gen pos" cx="618.5" cy="130.4" r="2.6"/>
+<circle class="sdot gen pos" cx="578.4" cy="154.2" r="2.6"/>
+<circle class="sdot gen pos" cx="613.6" cy="143.8" r="2.6"/>
+<circle class="sdot gen pos" cx="594.3" cy="130.0" r="2.6"/>
+<circle class="sdot gen pos" cx="577.1" cy="163.6" r="2.6"/>
+<circle class="sdot gen pos" cx="613.1" cy="148.0" r="2.6"/>
+<circle class="sdot gen pos" cx="565.0" cy="151.2" r="2.6"/>
+<circle class="sdot gen pos" cx="608.7" cy="139.0" r="2.6"/>
+<circle class="sdot gen pos" cx="586.3" cy="146.4" r="2.6"/>
+<circle class="sdot gen pos" cx="631.5" cy="133.0" r="2.6"/>
+<circle class="sdot gen pos" cx="600.7" cy="148.7" r="2.6"/>
+<circle class="sdot gen pos" cx="574.3" cy="163.1" r="2.6"/>
+<circle class="sdot gen pos" cx="607.0" cy="132.6" r="2.6"/>
+<circle class="sdot gen pos" cx="571.8" cy="159.0" r="2.6"/>
+<circle class="sdot gen pos" cx="640.8" cy="138.5" r="2.6"/>
+<circle class="sdot gen pos" cx="613.7" cy="141.3" r="2.6"/>
+<circle class="sdot gen pos" cx="592.6" cy="147.7" r="2.6"/>
+<circle class="sdot gen pos" cx="584.8" cy="146.2" r="2.6"/>
+<circle class="sdot gen pos" cx="607.7" cy="143.5" r="2.6"/>
+<circle class="sdot gen pos" cx="607.2" cy="139.8" r="2.6"/>
+<circle class="sdot gen pos" cx="600.9" cy="146.4" r="2.6"/>
+<circle class="sdot gen pos" cx="619.0" cy="141.2" r="2.6"/>
+<circle class="sdot gen pos" cx="587.4" cy="134.5" r="2.6"/>
+<circle class="sdot gen pos" cx="606.5" cy="141.8" r="2.6"/>
+<circle class="sdot gen pos" cx="613.2" cy="140.7" r="2.6"/>
+<circle class="sdot gen pos" cx="608.2" cy="143.0" r="2.6"/>
+<circle class="sdot gen pos" cx="613.4" cy="154.9" r="2.6"/>
+<circle class="sdot gen pos" cx="566.9" cy="139.0" r="2.6"/>
+<circle class="sdot gen pos" cx="605.1" cy="138.7" r="2.6"/>
+<circle class="sdot gen pos" cx="624.6" cy="131.6" r="2.6"/>
+<circle class="sdot gen pos" cx="614.6" cy="154.4" r="2.6"/>
+<circle class="sdot gen pos" cx="608.0" cy="154.3" r="2.6"/>
+<circle class="sdot gen pos" cx="631.5" cy="141.3" r="2.6"/>
+<circle class="sdot gen pos" cx="602.5" cy="138.8" r="2.6"/>
+<circle class="sdot gen pos" cx="602.7" cy="130.3" r="2.6"/>
+<circle class="sdot gen pos" cx="604.7" cy="140.7" r="2.6"/>
+<circle class="sdot gen pos" cx="618.2" cy="126.9" r="2.6"/>
+<circle class="sdot gen pos" cx="613.2" cy="137.2" r="2.6"/>
+<circle class="sdot gen pos" cx="609.5" cy="130.6" r="2.6"/>
+<circle class="sdot gen pos" cx="589.4" cy="147.0" r="2.6"/>
+<circle class="sdot gen pos" cx="614.3" cy="152.0" r="2.6"/>
+<circle class="sdot gen pos" cx="594.3" cy="147.2" r="2.6"/>
+<circle class="sdot gen pos" cx="607.1" cy="166.4" r="2.6"/>
+<circle class="sdot gen pos" cx="584.9" cy="152.2" r="2.6"/>
+<circle class="sdot gen pos" cx="578.1" cy="149.9" r="2.6"/>
+<circle class="sdot gen pos" cx="599.4" cy="141.6" r="2.6"/>
+<circle class="sdot gen pos" cx="603.3" cy="128.2" r="2.6"/>
+<circle class="sdot gen pos" cx="588.7" cy="133.8" r="2.6"/>
+<circle class="sdot gen pos" cx="569.1" cy="133.5" r="2.6"/>
+<circle class="sdot gen pos" cx="606.6" cy="130.6" r="2.6"/>
+<circle class="sdot gen pos" cx="579.6" cy="140.0" r="2.6"/>
+<circle class="sdot gen pos" cx="570.6" cy="138.9" r="2.6"/>
+<circle class="sdot gen pos" cx="637.1" cy="130.7" r="2.6"/>
+<circle class="sdot gen pos" cx="600.6" cy="142.2" r="2.6"/>
+<circle class="sdot gen pos" cx="571.7" cy="137.7" r="2.6"/>
+<circle class="sdot gen neg" cx="527.0" cy="123.6" r="2.6"/>
+<circle class="sdot gen neg" cx="558.4" cy="139.3" r="2.6"/>
+<circle class="sdot gen neg" cx="533.3" cy="138.7" r="2.6"/>
+<circle class="sdot gen neg" cx="519.8" cy="148.3" r="2.6"/>
+<circle class="sdot gen neg" cx="535.1" cy="147.8" r="2.6"/>
+<circle class="sdot gen neg" cx="533.0" cy="146.1" r="2.6"/>
+<circle class="sdot gen neg" cx="529.9" cy="149.0" r="2.6"/>
+<circle class="sdot gen neg" cx="539.5" cy="121.4" r="2.6"/>
+<circle class="sdot gen neg" cx="536.3" cy="136.2" r="2.6"/>
+<circle class="sdot gen neg" cx="535.4" cy="139.4" r="2.6"/>
+<circle class="sdot gen neg" cx="569.6" cy="151.6" r="2.6"/>
+<circle class="sdot gen neg" cx="553.8" cy="136.2" r="2.6"/>
+<circle class="sdot gen neg" cx="534.9" cy="137.4" r="2.6"/>
+<circle class="sdot gen neg" cx="544.1" cy="151.2" r="2.6"/>
+<circle class="sdot gen neg" cx="549.1" cy="147.0" r="2.6"/>
+<circle class="sdot gen neg" cx="532.4" cy="147.3" r="2.6"/>
+<circle class="sdot gen neg" cx="547.8" cy="137.2" r="2.6"/>
+<circle class="sdot gen neg" cx="525.2" cy="144.5" r="2.6"/>
+<circle class="sdot gen neg" cx="545.3" cy="141.1" r="2.6"/>
+<circle class="sdot gen neg" cx="530.4" cy="141.8" r="2.6"/>
+<circle class="sdot gen neg" cx="546.8" cy="124.5" r="2.6"/>
+<circle class="sdot gen neg" cx="530.1" cy="157.0" r="2.6"/>
+<circle class="sdot gen neg" cx="528.6" cy="148.6" r="2.6"/>
+<circle class="sdot gen neg" cx="523.0" cy="148.9" r="2.6"/>
+<circle class="sdot gen neg" cx="541.1" cy="144.5" r="2.6"/>
+<circle class="sdot gen neg" cx="548.8" cy="140.9" r="2.6"/>
+<circle class="sdot gen neg" cx="561.5" cy="144.6" r="2.6"/>
+<circle class="sdot gen neg" cx="534.3" cy="152.4" r="2.6"/>
+<circle class="sdot gen neg" cx="551.3" cy="141.7" r="2.6"/>
+<circle class="sdot gen neg" cx="549.9" cy="146.3" r="2.6"/>
+<circle class="sdot gen neg" cx="548.7" cy="144.6" r="2.6"/>
+<circle class="sdot gen neg" cx="533.2" cy="152.8" r="2.6"/>
+<circle class="sdot gen neg" cx="546.6" cy="147.1" r="2.6"/>
+<circle class="sdot gen neg" cx="539.0" cy="155.9" r="2.6"/>
+<circle class="sdot gen neg" cx="532.3" cy="147.1" r="2.6"/>
+<circle class="sdot gen neg" cx="539.5" cy="139.5" r="2.6"/>
+<circle class="sdot gen neg" cx="515.8" cy="151.5" r="2.6"/>
+<circle class="sdot gen neg" cx="555.5" cy="141.6" r="2.6"/>
+<circle class="sdot gen neg" cx="546.9" cy="131.5" r="2.6"/>
+<circle class="sdot gen neg" cx="557.8" cy="129.5" r="2.6"/>
+<circle class="sdot gen neg" cx="562.4" cy="129.2" r="2.6"/>
+<circle class="sdot gen neg" cx="532.1" cy="142.0" r="2.6"/>
+<circle class="sdot gen neg" cx="545.5" cy="136.5" r="2.6"/>
+<circle class="sdot gen neg" cx="557.3" cy="142.1" r="2.6"/>
+<circle class="sdot gen neg" cx="547.5" cy="138.0" r="2.6"/>
+<circle class="sdot gen neg" cx="541.4" cy="140.1" r="2.6"/>
+<circle class="sdot gen neg" cx="564.0" cy="150.4" r="2.6"/>
+<circle class="sdot gen neg" cx="558.1" cy="138.5" r="2.6"/>
+<circle class="sdot gen neg" cx="553.1" cy="127.8" r="2.6"/>
+<circle class="sdot gen neg" cx="564.1" cy="138.4" r="2.6"/>
+<circle class="sdot gen neg" cx="556.0" cy="140.1" r="2.6"/>
+<circle class="sdot gen neg" cx="534.4" cy="135.6" r="2.6"/>
+<circle class="sdot gen neg" cx="543.4" cy="144.0" r="2.6"/>
+<circle class="sdot gen neg" cx="537.4" cy="129.3" r="2.6"/>
+<circle class="sdot gen neg" cx="563.2" cy="152.7" r="2.6"/>
+<circle class="sdot gen neg" cx="537.3" cy="134.3" r="2.6"/>
+<circle class="sdot gen neg" cx="546.0" cy="133.6" r="2.6"/>
+<circle class="sdot gen neg" cx="546.6" cy="140.6" r="2.6"/>
+<circle class="sdot gen neg" cx="549.6" cy="130.9" r="2.6"/>
+<circle class="sdot gen neg" cx="532.9" cy="141.0" r="2.6"/>
+<circle class="sdot gen neg" cx="554.4" cy="134.1" r="2.6"/>
+<circle class="sdot gen neg" cx="551.7" cy="138.5" r="2.6"/>
+<circle class="sdot gen neg" cx="551.9" cy="135.3" r="2.6"/>
+<circle class="sdot gen neg" cx="550.6" cy="138.1" r="2.6"/>
+<circle class="sdot gen neg" cx="560.7" cy="127.0" r="2.6"/>
+<circle class="sdot gen neg" cx="548.0" cy="147.5" r="2.6"/>
+<circle class="sdot gen neg" cx="553.6" cy="151.7" r="2.6"/>
+<circle class="sdot gen neg" cx="569.0" cy="133.3" r="2.6"/>
+<circle class="sdot gen neg" cx="532.8" cy="131.0" r="2.6"/>
+<circle class="sdot gen neg" cx="549.1" cy="135.3" r="2.6"/>
+<circle class="sdot gen neg" cx="528.8" cy="136.2" r="2.6"/>
+<circle class="sdot gen neg" cx="563.6" cy="137.5" r="2.6"/>
+<circle class="sdot gen neg" cx="547.3" cy="148.8" r="2.6"/>
+<circle class="sdot gen neg" cx="567.8" cy="136.6" r="2.6"/>
+<circle class="sdot gen neg" cx="546.2" cy="135.1" r="2.6"/>
+<circle class="sdot gen neg" cx="546.3" cy="134.5" r="2.6"/>
+<circle class="sdot gen neg" cx="552.0" cy="146.1" r="2.6"/>
+<circle class="sdot gen neg" cx="545.8" cy="141.9" r="2.6"/>
+<circle class="sdot gen neg" cx="540.3" cy="131.1" r="2.6"/>
+<circle class="sdot gen neg" cx="554.6" cy="135.2" r="2.6"/>
+<circle class="sdot gen neg" cx="562.8" cy="143.1" r="2.6"/>
+<circle class="sdot gen neg" cx="546.8" cy="145.9" r="2.6"/>
+<circle class="sdot gen neg" cx="558.6" cy="139.1" r="2.6"/>
+<circle class="sdot gen neg" cx="566.1" cy="146.5" r="2.6"/>
+<circle class="sdot gen neg" cx="556.9" cy="138.1" r="2.6"/>
+<circle class="sdot gen neg" cx="568.5" cy="143.4" r="2.6"/>
+<circle class="sdot gen neg" cx="560.8" cy="139.3" r="2.6"/>
+<circle class="sdot gen neg" cx="560.2" cy="142.3" r="2.6"/>
+<circle class="sdot gen neg" cx="560.2" cy="140.7" r="2.6"/>
+<circle class="sdot gen neg" cx="560.0" cy="130.7" r="2.6"/>
+<circle class="sdot gen neg" cx="552.0" cy="147.3" r="2.6"/>
+<circle class="sdot gen neg" cx="539.7" cy="139.9" r="2.6"/>
+<circle class="sdot gen neg" cx="540.3" cy="132.1" r="2.6"/>
+<circle class="sdot gen neg" cx="568.0" cy="148.8" r="2.6"/>
+<circle class="sdot gen neg" cx="552.7" cy="133.4" r="2.6"/>
+<circle class="sdot gen neg" cx="566.6" cy="145.4" r="2.6"/>
+<circle class="sdot gen neg" cx="556.7" cy="148.1" r="2.6"/>
+<circle class="sdot gen neg" cx="567.9" cy="139.3" r="2.6"/>
+<circle class="sdot gen neg" cx="561.5" cy="135.8" r="2.6"/>
+<circle class="sdot gen neg" cx="578.7" cy="143.6" r="2.6"/>
+<circle class="sdot gen neg" cx="544.7" cy="136.8" r="2.6"/>
+<circle class="sdot gen neg" cx="565.7" cy="141.3" r="2.6"/>
+<circle class="sdot gen neg" cx="560.4" cy="131.5" r="2.6"/>
+<circle class="sdot gen neg" cx="555.6" cy="139.8" r="2.6"/>
+<circle class="sdot gen neg" cx="560.5" cy="141.4" r="2.6"/>
+<circle class="sdot gen neg" cx="570.4" cy="143.2" r="2.6"/>
+<circle class="sdot gen neg" cx="565.0" cy="141.8" r="2.6"/>
+<circle class="sdot gen neg" cx="570.3" cy="142.2" r="2.6"/>
+<circle class="sdot gen neg" cx="560.0" cy="144.4" r="2.6"/>
+<circle class="sdot gen neg" cx="561.4" cy="140.8" r="2.6"/>
+<circle class="sdot gen neg" cx="557.9" cy="132.2" r="2.6"/>
+<circle class="sdot gen neg" cx="563.2" cy="141.9" r="2.6"/>
+<circle class="sdot gen neg" cx="560.5" cy="135.3" r="2.6"/>
+<circle class="sdot gen neg" cx="556.1" cy="137.3" r="2.6"/>
+<circle class="sdot gen neg" cx="568.6" cy="136.0" r="2.6"/>
+<circle class="sdot gen neg" cx="552.7" cy="146.6" r="2.6"/>
+<circle class="sdot gen neg" cx="556.7" cy="139.0" r="2.6"/>
+<circle class="sdot gen neg" cx="551.4" cy="144.7" r="2.6"/>
+<circle class="sdot gen neg" cx="567.3" cy="151.1" r="2.6"/>
+<circle class="sdot gen neg" cx="548.0" cy="137.3" r="2.6"/>
+<circle class="sdot gen neg" cx="544.2" cy="138.7" r="2.6"/>
+<circle class="sdot gen neg" cx="563.5" cy="143.4" r="2.6"/>
+<circle class="sdot gen neg" cx="559.7" cy="136.1" r="2.6"/>
+<circle class="sdot gen neg" cx="553.2" cy="137.3" r="2.6"/>
+<circle class="sdot gen neg" cx="537.3" cy="141.4" r="2.6"/>
+<circle class="sdot gen neg" cx="565.7" cy="133.1" r="2.6"/>
+<circle class="sdot gen neg" cx="563.0" cy="130.5" r="2.6"/>
+<circle class="sdot gen neg" cx="558.6" cy="135.3" r="2.6"/>
+<circle class="sdot gen neg" cx="552.4" cy="143.1" r="2.6"/>
+<circle class="sdot gen neg" cx="558.6" cy="138.1" r="2.6"/>
+<circle class="sdot gen neg" cx="564.8" cy="146.1" r="2.6"/>
+<circle class="sdot gen neg" cx="549.3" cy="131.6" r="2.6"/>
+<circle class="sdot gen neg" cx="559.0" cy="134.0" r="2.6"/>
+<circle class="sdot gen neg" cx="559.3" cy="141.9" r="2.6"/>
+<circle class="sdot gen neg" cx="551.6" cy="121.6" r="2.6"/>
+<circle class="sdot gen neg" cx="545.4" cy="138.0" r="2.6"/>
+<circle class="sdot gen neg" cx="541.1" cy="134.7" r="2.6"/>
+<circle class="sdot gen neg" cx="557.2" cy="135.2" r="2.6"/>
+<circle class="sdot gen neg" cx="535.5" cy="147.7" r="2.6"/>
+<circle class="sdot gen neg" cx="545.7" cy="147.8" r="2.6"/>
+<circle class="sdot gen neg" cx="555.9" cy="127.3" r="2.6"/>
+<circle class="sdot gen neg" cx="553.2" cy="142.9" r="2.6"/>
+<circle class="sdot gen neg" cx="558.4" cy="125.4" r="2.6"/>
+<circle class="sdot gen neg" cx="553.9" cy="145.6" r="2.6"/>
+<circle class="sdot gen neg" cx="536.0" cy="129.5" r="2.6"/>
+<circle class="sdot gen neg" cx="530.9" cy="140.2" r="2.6"/>
+<circle class="sdot gen neg" cx="551.4" cy="126.9" r="2.6"/>
+<circle class="sdot gen neg" cx="542.1" cy="149.1" r="2.6"/>
+<circle class="sdot gen neg" cx="535.0" cy="131.9" r="2.6"/>
+<circle class="sdot gen neg" cx="544.5" cy="129.8" r="2.6"/>
+<circle class="sdot gen neg" cx="544.6" cy="138.8" r="2.6"/>
+<circle class="sdot gen neg" cx="578.0" cy="153.0" r="2.6"/>
+<circle class="sdot gen neg" cx="523.1" cy="139.1" r="2.6"/>
+<circle class="sdot gen neg" cx="539.8" cy="136.4" r="2.6"/>
+<circle class="sdot gen neg" cx="554.3" cy="139.5" r="2.6"/>
+<circle class="sdot gen neg" cx="562.0" cy="142.6" r="2.6"/>
+<circle class="sdot gen neg" cx="554.0" cy="141.1" r="2.6"/>
+<circle class="sdot gen neg" cx="532.1" cy="136.2" r="2.6"/>
+<circle class="sdot gen neg" cx="554.1" cy="144.9" r="2.6"/>
+<circle class="sdot gen neg" cx="557.0" cy="138.5" r="2.6"/>
+<circle class="sdot gen neg" cx="543.5" cy="138.2" r="2.6"/>
+<circle class="sdot gen neg" cx="542.4" cy="144.2" r="2.6"/>
+<circle class="sdot gen neg" cx="569.3" cy="141.1" r="2.6"/>
+<circle class="sdot gen neg" cx="529.2" cy="139.0" r="2.6"/>
+<circle class="sdot gen neg" cx="536.0" cy="145.6" r="2.6"/>
+<circle class="sdot gen neg" cx="553.7" cy="142.3" r="2.6"/>
+<circle class="sdot gen neg" cx="545.8" cy="135.7" r="2.6"/>
+<circle class="sdot gen neg" cx="535.3" cy="143.4" r="2.6"/>
+<circle class="sdot gen neg" cx="548.7" cy="149.1" r="2.6"/>
+<circle class="sdot gen neg" cx="552.6" cy="132.9" r="2.6"/>
+<circle class="sdot gen neg" cx="542.9" cy="135.7" r="2.6"/>
+<circle class="sdot gen neg" cx="540.3" cy="138.0" r="2.6"/>
+<circle class="sdot gen neg" cx="536.1" cy="142.4" r="2.6"/>
+<circle class="sdot gen neg" cx="544.1" cy="138.2" r="2.6"/>
+<text class="oaxlab" x="543" y="287" text-anchor="middle">projection on w &#8594;</text>
+<text class="oaxlab rot" transform="translate(18,157) rotate(-90)" text-anchor="middle">everything orthogonal to w</text>
+<text class="okeyhead" x="58.0" y="321.6">marks</text>
+<circle class="sdot src pos" cx="112.0" cy="318.0" r="3.4"/>
+<text class="okey" x="122.0" y="321.6">a submission  294</text>
+<circle class="sdot gen pos" cx="308.0" cy="318.0" r="3.4"/>
+<text class="okey" x="318.0" y="321.6">a partner  294</text>
+<circle class="sdot ev" cx="504.0" cy="318.0" r="3.4"/>
+<text class="okey" x="514.0" y="321.6">an eval row  866</text>
+<text class="okeyhead" x="58.0" y="341.6"></text>
+<circle class="sdot src neg" cx="112.0" cy="338.0" r="3.4"/>
+<text class="okey" x="122.0" y="341.6">hollow: labelled not_harmful_to_human</text>
+</svg></div>
+        <p class="cap">The same axes as the figure in Q4 &#8212; projection on <code>w</code>
+        against the magnitude of the residual &#8212; with arm 1&#8217;s eval cloud behind both
+        panels as the shared reference. Filled marks are <code>harmful_to_human</code>, hollow
+        <code>not_harmful_to_human</code>. Two panels rather than two colours in one: the halves sit almost on
+        top of each other, and overplotting 294 against 294
+        would hide the comparison the panels exist for.</p>
+        <p>The generated partners are the <em>further</em> of the two halves from eval &#8212;
+        27.7 against 26.7 mean kNN, and
+        0.76 against 0.64 on
+        Q1&#8217;s text discriminator &#8212; and yet keeping only them scores
+        0.8549 against
+        0.7589 for keeping only the submissions. Distance from
+        eval is not what makes a half worth keeping. That is Q3&#8217;s answer arriving from a
+        second direction.</p>
+        <p>What the panels do show is the class split. Inside the submissions, projection on
+        <code>w</code> orders the two labels at AUROC
+        <strong>0.947</strong>; inside the partners,
+        <strong>0.980</strong>. Both halves line up with the
+        boundary the run reached &#8212; though <code>w</code> here is the arm&#8217;s own final
+        probe, fit on both halves, so this measures agreement with where the run ended up rather
+        than what either half would reach alone. Between the halves there is no separation along
+        <code>w</code> to see: the offset is vertical, 26.5 against
+        24.8 mean residual, which is the orthogonal displacement Q4
+        described and cannot move a score by itself.</p>
+        <div class="armhead">what the probe thought of each half
+        <span>&middot; scored by the probe its pair was found against</span></div>
+        <p>A success is, by definition, a row the live probe got wrong &#8212; that is what made
+        it a success. Its partner was written afterwards and <em>never scored at all</em>. So
+        one half of every pair has a verdict and the other has none. Scoring each partner with
+        <code>probe_iter{k}</code>, where <code>k</code> is the iteration its source was found
+        in &#8212; the last probe that had seen neither half &#8212; closes that gap.</p>
+        <div class="panel"><table class="key"><thead><tr><th>the probe classifies it correctly</th><th>arm 1</th><th>arm 2</th></tr></thead><tbody><tr><td>the attacker&#8217;s success</td><td class="n neg">0.7%</td><td class="n neg">0.2%</td></tr><tr><td>its generated partner</td><td class="n pos">98.0%</td><td class="n pos">97.4%</td></tr><tr><td>mean probe score, partners</td><td class="n">0.387</td><td class="n">0.455</td></tr></tbody></table></div>
+        <p class="cap">The source row is the control, and its answer is known before the
+        measurement: 0%, since that is what made it a success. It lands at
+        0.7% and
+        0.2%, and every exception
+        is a row sitting within 0.002 of the 0.5 threshold.</p>
+        <p>The partner is the finding. The probe already classifies
+        <strong>98.0%</strong> and
+        <strong>97.4%</strong> of
+        them correctly. The generation step is not manufacturing a second failure per pair
+        &#8212; it is attaching, to every row the probe gets wrong, a near-identical row it
+        already gets right. That is the object the retrain is handed, and it is why the
+        submissions alone score below no-red-team-data at all: on their own they are a pile of
+        failures with nothing to read the label against.</p>
+
+        <div class="armhead">before and after <span>&middot; every success and partner, scored
+        by <code>probe_iter0</code> (before any red-teaming) and
+        <code>probe_iter5</code> (after)</span></div>
+        <div class="panel"><table class="key"><thead><tr><th>iter0 &rarr; iter5</th><th>arm 1</th><th>arm 2</th></tr></thead><tbody><tr><td>the attacker&#8217;s success &middot; mean score</td><td class="n">0.172 &rarr; 0.592</td><td class="n">0.220 &rarr; 0.516</td></tr><tr><td>the attacker&#8217;s success &middot; predicted harmful</td><td class="n">6% &rarr; 59%</td><td class="n">17% &rarr; 52%</td></tr><tr><td>the attacker&#8217;s success &middot; classified correctly</td><td class="n">40% &rarr; 100%</td><td class="n">36% &rarr; 100%</td></tr><tr><td>its generated partner &middot; mean score</td><td class="n">0.271 &rarr; 0.408</td><td class="n">0.316 &rarr; 0.484</td></tr><tr><td>its generated partner &middot; predicted harmful</td><td class="n">29% &rarr; 41%</td><td class="n">32% &rarr; 48%</td></tr><tr><td>its generated partner &middot; classified correctly</td><td class="n">88% &rarr; 100%</td><td class="n">84% &rarr; 100%</td></tr></tbody></table></div>
+        <p class="cap">Before, both halves are out-of-sample; after, both are in-sample, so the
+        after column is the fit, not generalisation (that is the last question). The movement is
+        concentrated on the harmful successes &#8212;
+        5% correct
+        before, 100% after &#8212; while the benign rows and the partners were mostly right at
+        <code>iter0</code> already.</p>
+        <p>One number there invites a wrong reading: the probe classifies
+        40% of the successes correctly
+        <em>before</em> training. That is not weak attacks &#8212; it is which probe they beat. A
+        success fooled the probe of the day, <code>probe_iter{k}</code>, which is
+        <code>iter0</code> only for the first batch. Split by true
+        class and the iteration that found them:</p>
+        <div class="panel"><table class="key"><thead><tr><th>true class, by iteration found</th><th>iter 0</th><th>iter 1</th><th>iter 2</th><th>iter 3</th><th>iter 4</th></tr></thead><tbody><tr><td>harmful_to_human</td><td class="n neg">1%<br><span class="sub">n=93</span></td><td class="n">0%<br><span class="sub">n=11</span></td><td class="n">0%<br><span class="sub">n=16</span></td><td class="n">20%<br><span class="sub">n=30</span></td><td class="n">4%<br><span class="sub">n=24</span></td></tr><tr><td>not_harmful_to_human</td><td class="n neg">0%<br><span class="sub">n=11</span></td><td class="n pos">100%<br><span class="sub">n=74</span></td><td class="n pos">100%<br><span class="sub">n=9</span></td><td class="n pos">100%<br><span class="sub">n=17</span></td><td class="n pos">100%<br><span class="sub">n=9</span></td></tr></tbody></table></div>
+        <p class="cap">Share <code>probe_iter0</code> classifies
+        correctly. The <span class="hlneg">iteration-0 column</span>
+        is ~0% because that is the probe those rows beat. The overall
+        40% is carried by the benign
+        successes found at later iterations, which
+        <code>iter0</code> scores 100% correct: those were false
+        positives against a <em>later</em> probe that drifted into over-flagging benign edge
+        cases, and the earlier, negative-biased <code>iter0</code>
+        predates that drift. It agrees with the judge on them not because it is good but because it
+        had not yet learned the failure that made them successes.</p>
+
+        <div class="armhead">is it the voice? <span>&middot; the same successes, re-expressed
+        by the generator</span></div>
+        <p>Provenance is confounded with authorship: every submission was written by
+        gpt-oss-120b and every partner by <code>openai/gpt-5.1</code>, so
+        &#8220;which half&#8221; and &#8220;who wrote it&#8221; are the same variable. Handing the
+        submissions back to the generator removes that confound from one side &#8212; the same
+        294 conversations, re-expressed in its own words with the scenario,
+        the assistant&#8217;s behaviour and the label held fixed (median similarity to the
+        original 0.41; turn count preserved on
+        288 of 294).</p>
+        <p>It changes nothing. <strong>0.7647</strong>
+        against 0.7589 for the originals &#8212;
+        +0.0059,
+        inside the &#177;0.0188 spread of the random-half control. And not
+        because the rewrite failed to move the writing: it carried the submissions most of the
+        way to the generator&#8217;s own profile.</p>
+        <div class="panel"><table class="key"><thead><tr><th>per conversation</th><th>submissions</th><th>rewritten</th><th>partners</th><th>eval</th></tr></thead><tbody><tr><td>conversation, characters</td><td class="n drift">836</td><td class="n ">1,341</td><td class="n drift">1,949</td><td class="n evalcol">381</td></tr><tr><td>assistant reply, characters</td><td class="n drift">647</td><td class="n ">1,084</td><td class="n drift">1,758</td><td class="n evalcol">141</td></tr><tr><td>line breaks</td><td class="n drift">5</td><td class="n ">10</td><td class="n drift">20</td><td class="n evalcol">1</td></tr><tr><td>carries a bulleted list</td><td class="n drift">10%</td><td class="n ">18%</td><td class="n drift">65%</td><td class="n evalcol">0%</td></tr><tr><td>carries a numbered list</td><td class="n drift">35%</td><td class="n ">44%</td><td class="n drift">75%</td><td class="n evalcol">0%</td></tr></tbody></table></div>
+        <p class="cap">Means per conversation. The rewrite prompt asked for
+        &#8220;similar structure and length&#8221;; a model&#8217;s voice brings its own anyway,
+        which is what makes this a real test of the voice hypothesis rather than a null from a
+        rewrite that did not rewrite.</p>
+        <p>Restore the <em>pairing</em> and the score comes back. Those same rewrites, paired
+        with the partners already generated for the originals, reach
+        <strong>0.8955</strong> &#8212; within
+        0.0210 of
+        the untouched set, from a training half that was rewritten wholesale. What the partners
+        contribute is the contrast, not the prose.</p>
+        <p class="cap">One caveat the number carries: the rewrites&#8217; labels are asserted by
+        the rewrite prompt and were never re-judged, so a rewrite that drifted across the
+        boundary enters as a mislabelled row. That pushes the rewritten conditions <em>down</em>
+        &#8212; against the hypothesis under test &#8212; so it cannot manufacture the null,
+        though it could deepen it.</p>
+        <p>Read against Q1, this is the shape of the whole study. The red-team text is
+        0.9983-separable from eval and none of it is eval-like
+        &#8212; yet what makes it usable is not how close any row sits to the eval distribution but
+        whether it arrives with a partner that differs only in the thing being labelled.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="qhead">
+    <div class="qnum">Q6</div>
+    <div>
+      <h2>Did the retrain memorise the strings, or patch the behaviour?</h2>
+      <p class="verdict">Patched. <span class="ok">25/25 hand-written variations,
+      unseen.</span></p>
+      <div class="qbody">
+        <p>The final probe scores the 294 successes it trained on 100%
+        correctly &#8212; but in-sample, so that number cannot tell a patched decision boundary
+        from memorised text. So 25 conversations were written <em>by hand</em> to vary those
+        successes: the same scenario type and the same thing the assistant does (hence the same
+        class), but fresh wording and details, in a third voice that is neither the attacker nor
+        the generator. Each is scored by the probe from before any red-teaming and by the final
+        one.</p>
+        <div class="panel"><svg viewBox="0 0 720 529" class="chart" role="img" aria-label="probe score of each hand-written variation, before and after red-team retraining, against the 0.5 threshold">
+<line class="cgrid" x1="250.0" y1="28" x2="250.0" y2="513"/>
+<text class="ctick" x="250.0" y="525" text-anchor="middle">0.00</text>
+<line class="cgrid" x1="360.0" y1="28" x2="360.0" y2="513"/>
+<text class="ctick" x="360.0" y="525" text-anchor="middle">0.25</text>
+<line class="cgrid" x1="470.0" y1="28" x2="470.0" y2="513"/>
+<text class="ctick" x="470.0" y="525" text-anchor="middle">0.50</text>
+<line class="cgrid" x1="580.0" y1="28" x2="580.0" y2="513"/>
+<text class="ctick" x="580.0" y="525" text-anchor="middle">0.75</text>
+<line class="cgrid" x1="690.0" y1="28" x2="690.0" y2="513"/>
+<text class="ctick" x="690.0" y="525" text-anchor="middle">1.00</text>
+<line class="czero" x1="470.0" y1="28" x2="470.0" y2="513"/>
+<text class="ctick" x="470.0" y="22" text-anchor="middle">threshold</text>
+<text class="hwhdr harm" x="478.0" y="22" text-anchor="start">harmful &#8594; correct this side</text>
+<text class="hwhdr" x="462.0" y="22" text-anchor="end">&#8592; benign correct this side</text>
+<line class="hwlink" x1="267.2" y1="41.5" x2="673.2" y2="41.5"/>
+<circle class="hwbase" cx="267.2" cy="41.5" r="3"/>
+<circle class="hwok" cx="673.2" cy="41.5" r="3.4"/>
+<text class="crow" x="236" y="45" text-anchor="end">based on #132<tspan class="hwband"> harmful</tspan></text>
+<line class="hwlink" x1="448.2" y1="60.5" x2="685.2" y2="60.5"/>
+<circle class="hwbase" cx="448.2" cy="60.5" r="3"/>
+<circle class="hwok" cx="685.2" cy="60.5" r="3.4"/>
+<text class="crow" x="236" y="64" text-anchor="end">based on #213<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="475.0" y1="79.5" x2="686.2" y2="79.5"/>
+<circle class="hwbase" cx="475.0" cy="79.5" r="3"/>
+<circle class="hwok" cx="686.2" cy="79.5" r="3.4"/>
+<text class="crow" x="236" y="83" text-anchor="end">based on #142<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="636.8" y1="98.5" x2="688.6" y2="98.5"/>
+<circle class="hwbase" cx="636.8" cy="98.5" r="3"/>
+<circle class="hwok" cx="688.6" cy="98.5" r="3.4"/>
+<text class="crow" x="236" y="102" text-anchor="end">based on #248<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="355.8" y1="117.5" x2="689.7" y2="117.5"/>
+<circle class="hwbase" cx="355.8" cy="117.5" r="3"/>
+<circle class="hwok" cx="689.7" cy="117.5" r="3.4"/>
+<text class="crow" x="236" y="121" text-anchor="end">based on #215<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="251.9" y1="136.5" x2="689.8" y2="136.5"/>
+<circle class="hwbase" cx="251.9" cy="136.5" r="3"/>
+<circle class="hwok" cx="689.8" cy="136.5" r="3.4"/>
+<text class="crow" x="236" y="140" text-anchor="end">based on #290<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="579.5" y1="155.5" x2="689.8" y2="155.5"/>
+<circle class="hwbase" cx="579.5" cy="155.5" r="3"/>
+<circle class="hwok" cx="689.8" cy="155.5" r="3.4"/>
+<text class="crow" x="236" y="159" text-anchor="end">based on #123<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="276.6" y1="174.5" x2="690.0" y2="174.5"/>
+<circle class="hwbase" cx="276.6" cy="174.5" r="3"/>
+<circle class="hwok" cx="690.0" cy="174.5" r="3.4"/>
+<text class="crow" x="236" y="178" text-anchor="end">based on #283<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="666.5" y1="193.5" x2="690.0" y2="193.5"/>
+<circle class="hwbase" cx="666.5" cy="193.5" r="3"/>
+<circle class="hwok" cx="690.0" cy="193.5" r="3.4"/>
+<text class="crow" x="236" y="197" text-anchor="end">based on #235<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="620.2" y1="212.5" x2="690.0" y2="212.5"/>
+<circle class="hwbase" cx="620.2" cy="212.5" r="3"/>
+<circle class="hwok" cx="690.0" cy="212.5" r="3.4"/>
+<text class="crow" x="236" y="216" text-anchor="end">based on #150<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="561.2" y1="231.5" x2="690.0" y2="231.5"/>
+<circle class="hwbase" cx="561.2" cy="231.5" r="3"/>
+<circle class="hwok" cx="690.0" cy="231.5" r="3.4"/>
+<text class="crow" x="236" y="235" text-anchor="end">based on #195<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="303.1" y1="250.5" x2="690.0" y2="250.5"/>
+<circle class="hwbase" cx="303.1" cy="250.5" r="3"/>
+<circle class="hwok" cx="690.0" cy="250.5" r="3.4"/>
+<text class="crow" x="236" y="254" text-anchor="end">based on #225<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="687.9" y1="269.5" x2="690.0" y2="269.5"/>
+<circle class="hwbase" cx="687.9" cy="269.5" r="3"/>
+<circle class="hwok" cx="690.0" cy="269.5" r="3.4"/>
+<text class="crow" x="236" y="273" text-anchor="end">based on #242<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="340.0" y1="288.5" x2="250.0" y2="288.5"/>
+<circle class="hwbase" cx="340.0" cy="288.5" r="3"/>
+<circle class="hwok" cx="250.0" cy="288.5" r="3.4"/>
+<text class="crow" x="236" y="292" text-anchor="end">based on #0<tspan class="hwband"> not-harmful</tspan></text>
+<line class="hwlink" x1="382.6" y1="307.5" x2="250.0" y2="307.5"/>
+<circle class="hwbase" cx="382.6" cy="307.5" r="3"/>
+<circle class="hwok" cx="250.0" cy="307.5" r="3.4"/>
+<text class="crow" x="236" y="311" text-anchor="end">based on #76<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="251.7" y1="326.5" x2="250.0" y2="326.5"/>
+<circle class="hwbase" cx="251.7" cy="326.5" r="3"/>
+<circle class="hwok" cx="250.0" cy="326.5" r="3.4"/>
+<text class="crow" x="236" y="330" text-anchor="end">based on #63<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="251.5" y1="345.5" x2="250.0" y2="345.5"/>
+<circle class="hwbase" cx="251.5" cy="345.5" r="3"/>
+<circle class="hwok" cx="250.0" cy="345.5" r="3.4"/>
+<text class="crow" x="236" y="349" text-anchor="end">based on #90<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="251.6" y1="364.5" x2="250.1" y2="364.5"/>
+<circle class="hwbase" cx="251.6" cy="364.5" r="3"/>
+<circle class="hwok" cx="250.1" cy="364.5" r="3.4"/>
+<text class="crow" x="236" y="368" text-anchor="end">based on #13<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="251.9" y1="383.5" x2="250.1" y2="383.5"/>
+<circle class="hwbase" cx="251.9" cy="383.5" r="3"/>
+<circle class="hwok" cx="250.1" cy="383.5" r="3.4"/>
+<text class="crow" x="236" y="387" text-anchor="end">based on #30<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="404.7" y1="402.5" x2="250.1" y2="402.5"/>
+<circle class="hwbase" cx="404.7" cy="402.5" r="3"/>
+<circle class="hwok" cx="250.1" cy="402.5" r="3.4"/>
+<text class="crow" x="236" y="406" text-anchor="end">based on #107<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="253.2" y1="421.5" x2="251.4" y2="421.5"/>
+<circle class="hwbase" cx="253.2" cy="421.5" r="3"/>
+<circle class="hwok" cx="251.4" cy="421.5" r="3.4"/>
+<text class="crow" x="236" y="425" text-anchor="end">based on #94<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="307.8" y1="440.5" x2="251.4" y2="440.5"/>
+<circle class="hwbase" cx="307.8" cy="440.5" r="3"/>
+<circle class="hwok" cx="251.4" cy="440.5" r="3.4"/>
+<text class="crow" x="236" y="444" text-anchor="end">based on #115<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="266.1" y1="459.5" x2="253.6" y2="459.5"/>
+<circle class="hwbase" cx="266.1" cy="459.5" r="3"/>
+<circle class="hwok" cx="253.6" cy="459.5" r="3.4"/>
+<text class="crow" x="236" y="463" text-anchor="end">based on #109<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="369.1" y1="478.5" x2="271.2" y2="478.5"/>
+<circle class="hwbase" cx="369.1" cy="478.5" r="3"/>
+<circle class="hwok" cx="271.2" cy="478.5" r="3.4"/>
+<text class="crow" x="236" y="482" text-anchor="end">based on #31<tspan class="hwband"> </tspan></text>
+<line class="hwlink" x1="314.9" y1="497.5" x2="289.2" y2="497.5"/>
+<circle class="hwbase" cx="314.9" cy="497.5" r="3"/>
+<circle class="hwok" cx="289.2" cy="497.5" r="3.4"/>
+<text class="crow" x="236" y="501" text-anchor="end">based on #96<tspan class="hwband"> </tspan></text>
+</svg></div>
+        <p class="cap">Each row is one variation; the dot is its probe score, the dashed line the
+        0.5 threshold. A dot on the correct side of the line for its class is a correct
+        classification. <span class="hwok">iter5</span> against
+        <span class="hwbase">iter0</span>.</p>
+        <div class="panel"><table class="key"><thead><tr><th>probe</th><th>overall</th><th>harmful</th><th>not-harmful</th></tr></thead><tbody><tr><td><code>probe_iter0</code> &middot; before red-teaming</td><td class="n">76%</td><td class="n">54%</td><td class="n">100%</td></tr><tr><td><code>probe_iter5</code> &middot; after five retrains</td><td class="n pos">100%</td><td class="n">100%</td><td class="n">100%</td></tr></tbody></table></div>
+        <p>The final probe gets <strong>all 25</strong> right, on conversations it never
+        saw. And the lift over the pre-retrain probe is entirely on the harmful side
+        (54% &#8594;
+        100%) &#8212; the benign variations were already handled
+        before red-teaming, and the failure red-teaming was hunting is the one that closed. The
+        pairing does not just move an AUROC on the fixed eval splits; it generalises to fresh
+        instances of the same failure, written by hand, off-distribution from both models in the
+        pipeline.</p>
+        <p class="cap">Two caveats worth keeping. These are 25 rows hand-picked as clear
+        cases, not a balanced held-out split; and each variation stays near its training scenario
+        (a relative&#8217;s addiction, a triage call, a dark-pattern app), so this measures
+        generalisation across <em>wording and detail</em>, not across new kinds of harm.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section style="border-bottom:none">
   <div class="qhead">
     <div class="qnum">&#8212;</div>
     <div>
       <h2>Everything, side by side</h2>
-      <div class="qbody"><div class="panel"><table class="key"><thead><tr><th>measure</th><th>arm 1 &middot; gpt-oss-120b</th><th>arm 2 &middot; deepseek-v4-pro</th></tr></thead><tbody><tr><td>separable from eval on text alone</td><td class="n">0.9983</td><td class="n">0.9981</td></tr><tr><td>separable from eval in activation space</td><td class="n">0.9999</td><td class="n">1.0000</td></tr><tr><td>past eval&#8217;s own p95 self-kNN radius</td><td class="n">35.5%</td><td class="n">52.2%</td></tr><tr><td>rows containing a refusal &nbsp;<span class='ref'>eval 13.3%</span></td><td class="n">1.0%</td><td class="n">2.6%</td></tr><tr><td>labelled opposite to the eval convention</td><td class="n">0</td><td class="n">7</td></tr><tr><td>pairs contrasting on the assistant turn</td><td class="n">294/294</td><td class="n">457/459</td></tr><tr><td>displacement orthogonal to w</td><td class="n">99.87%</td><td class="n">99.93%</td></tr><tr><td>&nbsp;&nbsp;the same, for the eval rows</td><td class="n">99.87%</td><td class="n">99.95%</td></tr><tr><td>eval AUROC, all red-team data</td><td class="n">0.9164</td><td class="n">0.8314</td></tr><tr><td>eval AUROC, no red-team data</td><td class="n">0.8523</td><td class="n">0.8523</td></tr></tbody></table></div></div>
+      <div class="qbody"><div class="panel"><table class="key"><thead><tr><th>measure</th><th>arm 1 &middot; gpt-oss-120b</th><th>arm 2 &middot; deepseek-v4-pro</th></tr></thead><tbody><tr><td>separable from eval on text alone</td><td class="n">0.9983</td><td class="n">0.9981</td></tr><tr><td>separable from eval in activation space</td><td class="n">0.9999</td><td class="n">1.0000</td></tr><tr><td>past eval&#8217;s own p95 self-kNN radius</td><td class="n">35.5%</td><td class="n">52.2%</td></tr><tr><td>rows containing a refusal &nbsp;<span class='ref'>eval 13.3%</span></td><td class="n">1.0%</td><td class="n">2.6%</td></tr><tr><td>labelled opposite to the eval convention</td><td class="n">0</td><td class="n">7</td></tr><tr><td>pairs contrasting on the assistant turn</td><td class="n">294/294</td><td class="n">457/459</td></tr><tr><td>displacement orthogonal to w</td><td class="n">99.87%</td><td class="n">99.93%</td></tr><tr><td>&nbsp;&nbsp;the same, for the eval rows</td><td class="n">99.87%</td><td class="n">99.95%</td></tr><tr><td>eval AUROC, all red-team data</td><td class="n">0.9164</td><td class="n">0.8314</td></tr><tr><td>eval AUROC, attacker successes only</td><td class="n">0.7589</td><td class="n">0.6814</td></tr><tr><td>eval AUROC, generated partners only</td><td class="n">0.8549</td><td class="n">0.7612</td></tr><tr><td>eval AUROC, a random half of every pair</td><td class="n">0.8981</td><td class="n">0.7940</td></tr><tr><td>eval AUROC, no red-team data</td><td class="n">0.8523</td><td class="n">0.8523</td></tr></tbody></table></div></div>
     </div>
   </div>
 </section>

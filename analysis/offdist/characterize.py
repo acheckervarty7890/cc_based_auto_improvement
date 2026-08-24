@@ -170,6 +170,15 @@ def run(arm: O.Arm, evrows, conv, args) -> None:
     for f, e in zip(ev_feats, evrows):
         f["refuses"] = int(refuses(e["messages"]))
 
+    # Which half of a contrastive pair a row is. `recover_pairs` returns
+    # `(source, generated)` — the source is the conversation the attacker actually
+    # submitted and the judge labelled; the generated half is what
+    # `generate_contrastive_dataset` wrote to give it an opposite-label partner. The two are
+    # interchangeable for every measurement above, but not for a retrain that asks what the
+    # generation step is worth, so the provenance is recorded here with everything else.
+    src_ids = {i for i, _ in pairs}
+    gen_ids = {j for _, j in pairs}
+
     out_rows = []
     for n, r in enumerate(rows):
         a = axis.get(n, {})
@@ -183,6 +192,8 @@ def run(arm: O.Arm, evrows, conv, args) -> None:
             "convention_inverted": int(feats[n]["refuses"] and r["label"] == O.POS),
             "pair_with": a.get("pair_with"),
             "pair_axis": a.get("pair_axis"),
+            "pair_role": ("source" if r["i"] in src_ids
+                          else "generated" if r["i"] in gen_ids else None),
             "structural": feats[n],
         })
     path = O.RESULTS / f"flags_{arm.key}.jsonl"

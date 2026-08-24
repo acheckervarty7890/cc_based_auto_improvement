@@ -96,8 +96,46 @@ def conditions(flags, groups, args) -> dict[str, list[int]]:
         if 0 < len(rows) < len(flags):
             out[f"drop_topic_{c}"] = rows
 
+    out.update(provenance_conditions(flags))
     out["base_only"] = [f["i"] for f in flags]
     return out
+
+
+def provenance_conditions(flags) -> dict[str, list[int]]:
+    """Removals that ask what the CONTRASTIVE GENERATION step is worth.
+
+    Every other condition here removes whole pairs, so the class balance never moves with
+    the flag. These two deliberately do the opposite: they keep one half of every pair and
+    drop the other. `drop_generated` keeps the conversations the attacker actually submitted
+    and the judge labelled, dropping the opposite-label partners
+    `generate_contrastive_dataset` wrote for them — i.e. the retrain the run would have done
+    with no `preprocessing:` section at all. `drop_sources` is its mirror, and is what says
+    whether an effect is about *generated-ness* or merely about halving a paired set.
+
+    Rows with no recovered partner are kept by both: there is no half of them to drop.
+    """
+    return {
+        "drop_generated": [f["i"] for f in flags if f.get("pair_role") == "generated"],
+        "drop_sources": [f["i"] for f in flags if f.get("pair_role") == "source"],
+    }
+
+
+def random_half(flags, seed: int) -> list[int]:
+    """Drop one side of every pair, chosen at random — the control for the two above.
+
+    `matched_random` cannot serve here: it removes whole pairs, so it preserves both the
+    pairing and the exact class balance, which are the two things `drop_generated` breaks.
+    This removes the same number of rows, breaks the pairing exactly as hard, and leaves
+    only the source-versus-generated choice to chance.
+    """
+    rng = np.random.default_rng(seed)
+    drop = []
+    for f in flags:                      # iterate sources, so each pair is decided once
+        j = f.get("pair_with")
+        if f.get("pair_role") != "source" or j is None:
+            continue
+        drop.append(f["i"] if rng.random() < 0.5 else j)
+    return drop
 
 
 def matched_random(groups, n_rows_removed: int, seed: int) -> list[int]:
@@ -149,6 +187,8 @@ def run_arm(arm: O.Arm, args) -> None:
     for n in sizes:
         for s in range(args.random_seeds):
             jobs.append((f"random_{n}", s, matched_random(groups, n, 1000 + s)))
+    for s in range(args.random_seeds):   # the control for drop_generated / drop_sources
+        jobs.append(("keep_random_half", s, random_half(flags, 2000 + s)))
 
     print(f"[{arm.key}] {len(flags)} red-team rows in {len(groups)} removal units; "
           f"{len(jobs)} fits", flush=True)

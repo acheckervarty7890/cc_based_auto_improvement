@@ -44,6 +44,7 @@ class Arm:
     attacker: str
     probe_dir: Path
     concept: str  # the ca_common CONCEPTS key, so fits reuse the ceiling harness
+    config: Path  # the run's own config — where the preprocessing model/knobs are read from
 
     @property
     def redteam_jsonl(self) -> Path:
@@ -59,11 +60,13 @@ ARMS = {
         "gptoss120b", "openai/gpt-oss-120b",
         REPO / "probes/hu_harm_gemma27b_gptoss120b_datadesc",
         "hu_ha_dd_gptoss120b",
+        REPO / "configs/gptoss120b_hu_harm_gemma27b_ens10_devval_itermemo150_datadesc.md",
     ),
     "deepseekv4pro": Arm(
         "deepseekv4pro", "deepseek/deepseek-v4-pro",
         REPO / "probes/hu_harm_gemma27b_deepseekv4pro_datadesc",
         "hu_ha_dd_deepseekv4pro",
+        REPO / "configs/deepseekv4pro_hu_harm_gemma27b_ens10_devval_itermemo150_datadesc.md",
     ),
 }
 

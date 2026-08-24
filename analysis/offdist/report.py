@@ -34,6 +34,24 @@ def load_ablation(arm: str) -> list[dict]:
     return list(reversed(out))
 
 
+# The three row-level conditions that ask what the contrastive generation step is worth.
+# They break the pairing on purpose, so `controls()` — matched removal of whole pairs — is
+# the wrong yardstick for them and they are kept out of the Q3 table entirely.
+PROVENANCE = ("drop_generated", "drop_sources", "keep_random_half",
+              # Substitution conditions (rewrite_ablate.py): these ADD rows written by a
+              # different model as well as dropping rows, so no removal-of-the-same-size
+              # control speaks to them at all.
+              "rewritten_sources", "rewritten_plus_generated")
+
+
+def half_control(rows) -> tuple[float, float, int] | None:
+    """(mean, sd, n_seeds) over `keep_random_half` — the control for the provenance pair."""
+    v = [r["mean"]["auroc"] for r in rows if r["condition"] == "keep_random_half"]
+    if not v:
+        return None
+    return st.mean(v), (st.pstdev(v) if len(v) > 1 else 0.0), len(v)
+
+
 def controls(rows) -> dict[int, tuple[float, float, int]]:
     """removal size -> (mean, sd, n_seeds) over the matched random seeds.
 
@@ -50,6 +68,9 @@ def controls(rows) -> dict[int, tuple[float, float, int]]:
             byn.setdefault(int(r["condition"].split("_")[1]), []).append(r["mean"]["auroc"])
     return {n: (st.mean(v), st.pstdev(v) if len(v) > 1 else 0.0, len(v))
             for n, v in byn.items()}
+
+
+N_BASE = 50   # base rows are in every condition's n_train
 
 
 def _cond(rows, name):
@@ -79,6 +100,14 @@ def headline(loaded, band: float) -> str:
         lambda k, s, a, r: f"{a['mean_orthogonal_fraction']:.1%}")
     row("full (all red-team data)",
         lambda k, s, a, r: f"{_cond(r,'full')['mean']['auroc']:.4f}" if _cond(r,'full') else "-")
+    row("attacker successes only, no generated halves",
+        lambda k, s, a, r: f"{_cond(r,'drop_generated')['mean']['auroc']:.4f}"
+        if _cond(r, 'drop_generated') else "-")
+    row("generated halves only",
+        lambda k, s, a, r: f"{_cond(r,'drop_sources')['mean']['auroc']:.4f}"
+        if _cond(r, 'drop_sources') else "-")
+    row("a random half of every pair",
+        lambda k, s, a, r: f"{half_control(r)[0]:.4f}" if half_control(r) else "-")
     row("base_only (no red-team data)",
         lambda k, s, a, r: f"{_cond(r,'base_only')['mean']['auroc']:.4f}" if _cond(r,'base_only') else "-")
     row("best single removal, vs its matched random",
@@ -102,7 +131,17 @@ def headline(loaded, band: float) -> str:
           "of the red-team data. Either way it cannot move an eval score directly; it can "
           "only act by rotating `w` at the next refit. The surface flag is a weak proxy for representation-level "
           "novelty (Spearman ~0.3) yet still names a group that is linearly separable in "
-          "activation space at ~0.90.", ""]
+          "activation space at ~0.90.",
+          "5. **The generated halves are doing the work, and it is the pairing.** Dropping "
+          "the LLM-written partner of every red-team conversation - i.e. the retrain a run "
+          "with no `preprocessing:` section would have done - costs 0.16 and 0.15 AUROC, "
+          "landing below `base_only` in both arms. It is not a matter of who wrote the text: "
+          "re-expressing arm 1's successes in the generator's own voice moves the score "
+          "+0.006, inside the control's noise, even though the rewrite carried them most of "
+          "the way to the generator's own length and formatting. Pair those same rewrites "
+          "with the partners and the score returns to 0.8955 against 0.9164 untouched. The "
+          "contrast between two near-identical conversations is the mechanism - not the row "
+          "count, not the prose.", ""]
     return "\n".join(L)
 
 
@@ -113,7 +152,7 @@ def _best(rows, band: float) -> str:
     best, bd = None, -9.0
     for r in rows:
         n = r["condition"]
-        if n in ("full", "base_only") or n.startswith("random_"):
+        if n in ("full", "base_only") or n in PROVENANCE or n.startswith("random_"):
             continue
         c = ctrl.get(r["n_removed"])
         if not c:
@@ -175,7 +214,7 @@ def section(arm_key: str, surf: dict, acts: dict, rows: list[dict], band: float)
               "Δ vs random | outside band? |", "| --- | --- | --- | --- | --- | --- | --- |"]
         for r in rows:
             name = r["condition"]
-            if name in ("full",) or name.startswith("random_"):
+            if name in ("full",) or name in PROVENANCE or name.startswith("random_"):
                 continue
             n = r["n_removed"]
             a = r["mean"]["auroc"]
@@ -222,6 +261,256 @@ def section(arm_key: str, surf: dict, acts: dict, rows: list[dict], band: float)
                  f"{pt['knn_to_eval']:.2f} | {pt['outside_frac']:.0%} | "
                  f"{pt['mean_p_redteam']:.3f} |")
     L.append("")
+
+    if rows and half_control(rows):
+        base = _cond(rows, "full")
+        only = _cond(rows, "base_only")
+        gen = _cond(rows, "drop_sources")        # generated halves kept
+        srcs = _cond(rows, "drop_generated")     # attacker successes kept
+        hm, hsd, hn = half_control(rows)
+        L += ["### 5. What are the generated halves worth?", ""]
+        L += [f"Every red-team conversation the attacker landed was given an opposite-label "
+              f"partner by `generate_contrastive_dataset`, so the {surf['n_redteam']} rows "
+              f"are {surf['n_pairs']} pairs. Dropping one side of every pair asks what each "
+              f"side contributes. The control is `keep_random_half`, which keeps a randomly "
+              f"chosen side of each pair — same row count, pairing broken just as hard, only "
+              f"the source-versus-generated choice left to chance.", ""]
+        L += ["| kept | rows | eval AUROC | Δ vs full | Δ vs random half |",
+              "| --- | --- | --- | --- | --- |"]
+
+        def line(label, r, n_rows):
+            if r is None:
+                return
+            a = r["mean"]["auroc"]
+            L.append(f"| {label} | {n_rows} | {a:.4f} | {a - base['mean']['auroc']:+.4f} | "
+                     f"{a - hm:+.4f} |")
+
+        line("everything (`full`)", base, surf["n_redteam"])
+        n_half = next(r["n_train"] - N_BASE for r in rows
+                      if r["condition"] == "keep_random_half")
+        L.append(f"| a random half of every pair | {n_half} | "
+                 f"{hm:.4f} ± {hsd:.4f} (n={hn}) | {hm - base['mean']['auroc']:+.4f} | — |")
+        line("the attacker's own successes only", srcs, surf["n_pairs"])
+        line("the generated partners only", gen, surf["n_pairs"])
+        line("no red-team data (`base_only`)", only, 0)
+        worse = [lab for lab, r in (("the attacker's own successes", srcs),
+                                    ("the generated partners", gen))
+                 if r and r["mean"]["auroc"] < only["mean"]["auroc"]]
+        vs_base = (f"{' and '.join(worse)} score below `base_only` "
+                   f"({only['mean']['auroc']:.4f}) — worse than training on the "
+                   f"{N_BASE} base rows alone"
+                   if worse else
+                   f"neither half falls below `base_only` ({only['mean']['auroc']:.4f})")
+        pr = acts.get("per_pair_role") or {}
+        if {"source", "generated"} <= set(pr):
+            src_g, gen_g = pr["source"], pr["generated"]
+            L += ["", "In activation space the two halves are near-twins, and what difference "
+                      "there is runs the wrong way for a distance story:", "",
+                  f"* The generated partners are the **further** of the two from eval "
+                  f"({gen_g['knn_to_eval']:.2f} against {src_g['knn_to_eval']:.2f} mean kNN) and "
+                  f"the more off-distribution on the Q1 text discriminator "
+                  f"({gen_g['mean_p_redteam']:.3f} against {src_g['mean_p_redteam']:.3f}) — yet "
+                  f"they are the better half to keep.",
+                  f"* Their displacement from the eval centroid is also the larger, and it is "
+                  f"the orthogonal part that grows ({gen_g['orth']:.2f} against "
+                  f"{src_g['orth']:.2f} mean residual) — the component that cannot move a score "
+                  f"by itself.",
+                  f"* Both halves order their own two labels along `w` "
+                  f"({src_g['auroc_along_w']:.3f} for the submissions, "
+                  f"{gen_g['auroc_along_w']:.3f} for the partners). `w` here is the arm's own "
+                  f"final probe, fit on both halves, so this is agreement with where the run "
+                  f"ended up — not what either half would reach alone.", ""]
+
+        hw_path = O.RESULTS / f"handwritten_scores_{arm_key}.json"
+        if hw_path.exists():
+            hw = O.read_json(hw_path)
+            pp = hw["per_probe"]
+            L += ["", "**Did it memorise the strings, or patch the behaviour?** The final "
+                      f"probe scores the {surf['n_pairs']} successes it trained on 100% "
+                      "correctly, but in-sample, so that cannot separate a patched boundary "
+                      f"from memorised text. {hw['n']} conversations were hand-written to "
+                      "vary those successes — same scenario type and same assistant "
+                      "behaviour, hence the same class, but fresh wording and details, "
+                      "written by neither model in the pipeline — and scored by the "
+                      "pre-retrain probe and the final one:", ""]
+            L += ["| probe | classifies the variations correctly | harmful | not-harmful |",
+                  "| --- | --- | --- | --- |"]
+            L.append(f"| `probe_iter0` (before red-teaming) | {pp['0']['overall']:.0%} | "
+                     f"{pp['0']['harmful']:.0%} | {pp['0']['not_harmful']:.0%} |")
+            L.append(f"| `probe_iter5` (after five retrains) | **{pp['5']['overall']:.0%}** | "
+                     f"{pp['5']['harmful']:.0%} | {pp['5']['not_harmful']:.0%} |")
+            L += ["", f"The final probe gets **all {hw['n']}** right, on conversations it was "
+                      f"never shown. The retrain patched the behaviour, not the wording: the "
+                      f"lift is entirely on the harmful side "
+                      f"({pp['0']['harmful']:.0%} -> {pp['5']['harmful']:.0%}), which is what "
+                      f"red-teaming this concept was hunting — the pre-retrain probe already "
+                      f"handled the benign variations. So the pairing does not just move an "
+                      f"AUROC on the fixed eval splits; it generalises to fresh instances of "
+                      f"the same failure, by hand, off-distribution from both writers.", ""]
+            L += ["Two caveats. These are 25 rows the author judged clear cases, not a "
+                  "balanced held-out split; and the variations stay close to the training "
+                  "scenarios (a sibling's addiction, a triage call), so this measures "
+                  "generalisation across wording and detail, not across new kinds of harm.",
+                  ""]
+
+        pps_path = O.RESULTS / f"pair_probe_scores_{arm_key}.json"
+        if pps_path.exists():
+            pps = O.read_json(pps_path)
+            po = pps["probe_of_the_day"]
+            L += ["", "**What the probe thought of each half.** A success is by definition a "
+                      "row the live probe got wrong; its partner was written afterwards and "
+                      "never scored at all. Scoring each partner with `probe_iter{k}` — the "
+                      "probe its source was submitted against, and the last one that had "
+                      "seen neither half — closes that gap:", ""]
+            L += ["| half | n | mean probe score | probe classifies it correctly |",
+                  "| --- | --- | --- | --- |"]
+            for g, lab in (("source", "the attacker's success"),
+                           ("generated", "its generated partner")):
+                d = po[g]
+                L.append(f"| {lab} | {d['n']} | {d['mean_score']:.3f} | "
+                         f"**{d['correct']:.1%}** |")
+            L += ["", f"The source row is the control and its answer is known in advance: "
+                      f"0%, because that is what made it a success. It comes out at "
+                      f"{po['source']['correct']:.1%}, and every exception is a row sitting "
+                      f"within 0.002 of the 0.5 threshold, so the wiring is right.", ""]
+            ba_path = O.RESULTS / f"before_after_scores_{arm_key}.json"
+            if ba_path.exists():
+                ba = O.read_json(ba_path)
+                gsrc, ggen = ba["groups"]["source"], ba["groups"]["generated"]
+                L += ["", f"And the flat before/after, `probe_iter{ba['before_iter']}` (trained "
+                          f"on the base rows only, so both halves are out-of-sample) against "
+                          f"`probe_iter{ba['after_iter']}` (trained on both, so both are "
+                          f"in-sample):", ""]
+                L += ["| half | mean score | % predicted harmful | % classified correctly |",
+                      "| --- | --- | --- | --- |"]
+                for g, lab in ((gsrc, "the attacker's success"), (ggen, "its partner")):
+                    b, a = g["before"], g["after"]
+                    L.append(f"| {lab} | {b['mean']:.3f} &rarr; {a['mean']:.3f} | "
+                             f"{b['predicted_positive']:.0%} &rarr; {a['predicted_positive']:.0%} | "
+                             f"{b['correct']:.0%} &rarr; {a['correct']:.0%} |")
+                brk = ba.get("source_before_by_found_iter")
+                if brk:
+                    iters_seen = sorted({k for cls in brk.values() for k in cls}, key=int)
+                    L += ["", f"That {gsrc['before']['correct']:.0%}-correct figure for the "
+                              f"successes is not evidence they were weak attacks — it is an "
+                              f"artefact of *which* probe they beat. A success fooled the probe "
+                              f"of the day, `probe_iter{{k}}`, which is `probe_iter"
+                              f"{ba['before_iter']}` only for the iteration-"
+                              f"{ba['before_iter']} batch. Split the successes by true class and "
+                              f"the iteration that found them, scored by `probe_iter"
+                              f"{ba['before_iter']}` (share it classifies correctly):", ""]
+                    header = "| class \\ found in | " + " | ".join(
+                        f"iter {k}" for k in iters_seen) + " |"
+                    L += [header, "| " + " | ".join(["---"] * (len(iters_seen) + 1)) + " |"]
+                    for cls in (O.POS, O.NEG):
+                        cells = []
+                        for k in iters_seen:
+                            d = brk[cls].get(k)
+                            cells.append(f"{d['correct']:.0%} (n={d['n']})" if d else "—")
+                        L.append(f"| {cls} | " + " | ".join(cells) + " |")
+                    z0 = brk[O.POS].get(str(ba['before_iter']))
+                    n0z = brk[O.NEG].get(str(ba['before_iter']))
+                    later_benign = sum(d["n"] for k, d in brk[O.NEG].items()
+                                       if int(k) > int(ba['before_iter']))
+                    L += ["", f"Two things read off this. The iteration-{ba['before_iter']} rows "
+                              f"score ~0% ({z0['correct']:.0%} harmful, "
+                              f"{n0z['correct']:.0%} benign) — `probe_iter{ba['before_iter']}` "
+                              f"IS the probe they beat, so it must get them wrong. The "
+                              f"{gsrc['before']['correct']:.0%} overall is carried almost "
+                              f"entirely by the {later_benign} benign successes found at later "
+                              f"iterations, which `probe_iter{ba['before_iter']}` calls correctly "
+                              f"100% of the time: those were false positives against a LATER "
+                              f"probe that had drifted into over-flagging benign edge cases, and "
+                              f"`probe_iter{ba['before_iter']}` — negative-biased and earlier — "
+                              f"predates that drift. It agrees with the judge on them not because "
+                              f"it is good but because it had not yet developed the failure that "
+                              f"made them successes.", ""]
+
+                bh = gsrc["before"]["by_class"].get(O.POS)
+                L += ["", f"The move is concentrated where it should be: the harmful successes "
+                          f"go from {bh['correct']:.0%} correct before to 100% after, while the "
+                          f"benign ones and the partners were mostly right already. `iter0` "
+                          f"scores the successes low across the board "
+                          f"({gsrc['before']['predicted_positive']:.0%} assigned to the harmful "
+                          f"class) — it is a probe that has not yet learned this attacker's "
+                          f"failure mode; five retrains on these very rows move that boundary "
+                          f"onto them.", ""]
+
+            L += [f"The partner is the finding: the probe already classifies "
+                  f"**{po['generated']['correct']:.1%}** of them correctly. The generation "
+                  f"step is not manufacturing a second misclassification per pair — it is "
+                  f"attaching, to each row the probe fails, a near-identical row the probe "
+                  f"already gets right. That is what the retrain is actually being handed, "
+                  f"and it is why the sources alone are worse than no red-team data at all: "
+                  f"on their own they are a pile of failures with nothing to contrast "
+                  f"against.", ""]
+
+        rw = _cond(rows, "rewritten_sources")
+        rwg = _cond(rows, "rewritten_plus_generated")
+        stats_path = O.RESULTS / f"rewrite_stats_{arm_key}.json"
+        if rw and stats_path.exists():
+            stx = O.read_json(stats_path)
+            sm = stx["structural_means"]
+            L += ["", "**Is it the voice?** Every source was written by the attacker model "
+                      "and every partner by the contrastive generator, so who wrote a row is "
+                      "perfectly confounded with which half it is. `rewrite_successes.py` "
+                      f"removes that confound from one side: the same {stx['n_rewrites']} "
+                      f"successes, re-expressed by `{stx['rewrite_model']}` with the "
+                      "scenario, the assistant's behaviour and the label held fixed "
+                      f"(median difflib similarity to the original "
+                      f"{stx['similarity_median']:.2f}, turn count preserved on "
+                      f"{stx['turn_count_preserved']}/{stx['n_rewrites']}).", ""]
+            L += ["| kept | rows | eval AUROC | Δ vs the originals |",
+                  "| --- | --- | --- | --- |"]
+            L.append(f"| the attacker's own successes | {surf['n_pairs']} | "
+                     f"{srcs['mean']['auroc']:.4f} | — |")
+            L.append(f"| the same, rewritten | {rw['n_train'] - N_BASE} | "
+                     f"{rw['mean']['auroc']:.4f} | "
+                     f"{rw['mean']['auroc'] - srcs['mean']['auroc']:+.4f} |")
+            if rwg:
+                L.append(f"| the rewrites **and** the generated partners | "
+                         f"{rwg['n_train'] - N_BASE} | {rwg['mean']['auroc']:.4f} | "
+                         f"{rwg['mean']['auroc'] - srcs['mean']['auroc']:+.4f} |")
+            L.append(f"| everything, untouched (`full`) | {surf['n_redteam']} | "
+                     f"{base['mean']['auroc']:.4f} | "
+                     f"{base['mean']['auroc'] - srcs['mean']['auroc']:+.4f} |")
+            L += ["", f"Rewriting moves the score {rw['mean']['auroc'] - srcs['mean']['auroc']:+.4f} "
+                      f"— inside the ±{hsd:.4f} spread of the random-half control, i.e. nothing. "
+                      f"And it is not that the rewrite failed to change the writing: it carried "
+                      f"the sources most of the way to the generator's own profile "
+                      f"({sm['sources']['chars_total']:.0f} -> "
+                      f"{sm['rewrites']['chars_total']:.0f} characters against "
+                      f"{sm['partners']['chars_total']:.0f} for the partners, and "
+                      f"{sm['sources']['chars_assistant']:.0f} -> "
+                      f"{sm['rewrites']['chars_assistant']:.0f} against "
+                      f"{sm['partners']['chars_assistant']:.0f} in the assistant turn; eval "
+                      f"sits at {sm['eval']['chars_total']:.0f} / "
+                      f"{sm['eval']['chars_assistant']:.0f}). The voice moved and the score "
+                      f"did not.", ""]
+            if rwg:
+                L += [f"Restoring the pairing does move it. The rewrites plus the partners "
+                      f"already generated for the originals reach "
+                      f"{rwg['mean']['auroc']:.4f}, within "
+                      f"{abs(base['mean']['auroc'] - rwg['mean']['auroc']):.4f} of the "
+                      f"untouched set — from a training half that was rewritten wholesale. "
+                      f"What the partners contribute is the contrast, not the prose.", ""]
+            L += ["Caveat: the rewrites' labels are asserted by the rewrite prompt and were "
+                  "not re-judged, so a rewrite that drifted across the boundary enters as a "
+                  "mislabelled row. That biases the rewritten conditions downward, against "
+                  "the hypothesis being tested — it cannot manufacture the null, but it "
+                  "could deepen it.", ""]
+
+        L += ["", f"Halving the set moves the score {hm - base['mean']['auroc']:+.4f} when "
+                  f"the side is chosen at random. Choosing it *systematically* costs more in "
+                  f"both "
+                  f"directions — {srcs['mean']['auroc'] - hm:+.4f} for the attacker's own "
+                  f"successes, {gen['mean']['auroc'] - hm:+.4f} for the generated partners — "
+                  f"and {vs_base}. So this is not the row count, and not the generated text "
+                  f"as such: it is the *pairing*. With both halves the label can only be read "
+                  f"off the behavioural difference between two near-identical conversations; "
+                  f"with one side systematically removed the class becomes predictable from "
+                  f"who wrote the conversation.", ""]
+
     return "\n".join(L)
 
 
@@ -234,7 +523,8 @@ def main() -> int:
     parts = ["# Off-distribution red-team samples — results", "",
              "Which red-team rows are unlike the eval set, whether any are labelled the "
              "opposite way round from how eval labels that behaviour, whether removing them "
-             "helps, and whether they show up in activation space.", "",
+             "helps, whether they show up in activation space, and what the generated "
+             "contrastive halves are worth.", "",
              "Fits are the ceiling analysis's: one `linear_then_softmax` head, seed 42, "
              "early-stopped on that study's reserved 25% dev slice. Removals are by "
              "contrastive **pair**, so the class balance never moves with the flag.", ""]

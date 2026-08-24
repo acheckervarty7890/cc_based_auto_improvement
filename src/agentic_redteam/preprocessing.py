@@ -349,6 +349,38 @@ class _ContrastiveLLM:
                 raise ValueError(f"Unknown preprocessing provider: {self.provider!r}")
         return self._client
 
+    def build_prompts(
+        self,
+        messages: list[dict[str, str]],
+        current_label: str,
+        target_label: str,
+        feedback: str = "",
+    ) -> tuple[str, str]:
+        """``(system, user)`` for one call.
+
+        Split out of ``generate`` as the one thing a different task over the same
+        transport has to replace. Everything else in ``generate`` — the two
+        providers, the circuit-breaker accounting, the connection-outage retry
+        schedule, the no-choices envelope, the tolerant JSON parse — is task
+        independent and must not be re-implemented per call site (see the
+        "OpenRouterOutageError must never be swallowed" convention).
+        """
+        system = _generation_system_prompt(
+            current_label,
+            target_label,
+            assistant_centric=self.assistant_centric,
+            concept_description=self.concept_description,
+            label_guidance=self.label_guidance,
+            max_sample_tokens=self.max_sample_tokens,
+        )
+        user = (
+            f'Original "{_short_label(current_label)}" conversation:\n\n'
+            f"{_render_transcript(messages)}\n\n"
+            f'Now produce the "{_short_label(target_label)}" version as instructed.'
+            f"{feedback}"
+        )
+        return system, user
+
     def generate(
         self,
         messages: list[dict[str, str]],
@@ -365,20 +397,7 @@ class _ContrastiveLLM:
         travel here rather than in a message history.
         """
         client = self._ensure_client()
-        system = _generation_system_prompt(
-            current_label,
-            target_label,
-            assistant_centric=self.assistant_centric,
-            concept_description=self.concept_description,
-            label_guidance=self.label_guidance,
-            max_sample_tokens=self.max_sample_tokens,
-        )
-        user = (
-            f'Original "{_short_label(current_label)}" conversation:\n\n'
-            f"{_render_transcript(messages)}\n\n"
-            f'Now produce the "{_short_label(target_label)}" version as instructed.'
-            f"{feedback}"
-        )
+        system, user = self.build_prompts(messages, current_label, target_label, feedback)
         openrouter = self.provider != "claude_sdk"
         if not openrouter:
             try:

@@ -293,6 +293,11 @@ def redteam_source(concept: Concept) -> D.BlobSource:
 
 
 def build_redteam_pool_blob(concept: Concept, merged) -> None:
+    """The concept's own base+red-team pool. See `build_pool_blob` for what it does."""
+    build_pool_blob(merged, concept.redteam_cache_dir, concept.redteam_pool_blob)
+
+
+def build_pool_blob(merged, cache_dir: Path, out_path: Path) -> None:
     """Consolidate the per-conversation red-team/base cache into one mmap-able blob.
 
     The extraction writes one `.pt` per conversation — that is what makes it resumable and
@@ -315,12 +320,12 @@ def build_redteam_pool_blob(concept: Concept, merged) -> None:
     """
     from tuberlens.model import LLMModel
 
-    _, paths = _redteam_conv_sources(merged, concept.redteam_cache_dir)
+    _, paths = _redteam_conv_sources(merged, cache_dir)
     missing = [p for p in paths if not p.exists()]
     if missing:
         raise FileNotFoundError(
             f"{len(missing)}/{len(paths)} conversations have no cached activations under "
-            f"{concept.redteam_cache_dir} — run extract_redteam_activations.py"
+            f"{cache_dir} — run extract_redteam_activations.py"
         )
     loaded = [LLMModel.load_activations(p) for p in paths]
     lengths = [int(a.attention_mask[0].sum().item()) for a in loaded]
@@ -334,11 +339,11 @@ def build_redteam_pool_blob(concept: Concept, merged) -> None:
         acts[i, :n] = a.activations[0][keep]
         mask[i, :n] = a.attention_mask[0][keep]
         ids[i, :n] = a.input_ids[0][keep]
-    concept.redteam_pool_blob.parent.mkdir(parents=True, exist_ok=True)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {"activations": acts, "attention_mask": mask, "input_ids": ids,
          "model_name": MODEL_NAME, "layer": LAYER},
-        concept.redteam_pool_blob,
+        out_path,
     )
 
 

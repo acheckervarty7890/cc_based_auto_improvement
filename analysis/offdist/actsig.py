@@ -95,6 +95,15 @@ def knn_mean(A: np.ndarray, B: np.ndarray, k: int, exclude_self: bool = False) -
     return out
 
 
+def _auc(scores: np.ndarray, y: np.ndarray) -> float:
+    """Rank AUROC of one score against a boolean label, ties averaged."""
+    from sklearn.metrics import roc_auc_score
+
+    if len(np.unique(y)) < 2:
+        return float("nan")
+    return float(roc_auc_score(y.astype(int), scores))
+
+
 def separability(X: np.ndarray, y: np.ndarray, seed: int = 0) -> float:
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import roc_auc_score
@@ -119,6 +128,8 @@ def run_arm(arm: O.Arm, args) -> None:
              (O.RESULTS / f"flags_{arm.key}.jsonl").read_text().splitlines() if l.strip()]
     p_surface = np.array([f["p_redteam"] for f in flags])
     topic = np.array([f["topic"] for f in flags])
+    pair_role = np.array([f.get("pair_role") or "none" for f in flags], dtype=object)
+    is_pos = np.array([f["label"] == O.POS for f in flags])
 
     rt_src = C.redteam_source(concept)
     H_rt = pooled(rt_src, range(N_BASE, len(rt_src)))
@@ -162,6 +173,25 @@ def run_arm(arm: O.Arm, args) -> None:
     sep_flag = separability(H_rt, flagged, seed=args.seed)
     y_rt_ev = np.r_[np.ones(len(H_rt), int), np.zeros(len(H_ev), int)]
     sep_corpus = separability(np.concatenate([H_rt, H_ev]), y_rt_ev, seed=args.seed)
+
+    # Each side of the contrastive pairs, in the same coordinates. `auroc_along_w` is how
+    # well projection on `w` orders that side's two labels — measured against the arm's own
+    # FINAL probe, which was fit on both sides, so it reads as agreement with where the run
+    # ended up, not as what either side would reach on its own.
+    per_pair_role = {}
+    for name in ("source", "generated"):
+        m = pair_role == name
+        if not m.any():
+            continue
+        per_pair_role[name] = {
+            "n": int(m.sum()),
+            "abs_proj_on_w": float(along[m].mean()),
+            "orth": float(np.sqrt(np.maximum(
+                norm_rt[m] ** 2 - proj_rt[m] ** 2, 0.0)).mean()),
+            "knn_to_eval": float(knn_rt[m].mean()),
+            "mean_p_redteam": float(p_surface[m].mean()),
+            "auroc_along_w": _auc(proj_rt[m], is_pos[m]),
+        }
 
     per_eval_split = {}
     for i, name in enumerate(ev_split_names):
@@ -210,6 +240,7 @@ def run_arm(arm: O.Arm, args) -> None:
         "flag_frac": args.flag_frac,
         "per_topic": per_topic,
         "per_eval_split": per_eval_split,
+        "per_pair_role": per_pair_role,
     }
     O.write_json(O.RESULTS / f"actsig_{arm.key}.json", summary)
     np.savez_compressed(
@@ -220,6 +251,8 @@ def run_arm(arm: O.Arm, args) -> None:
         # instead of standing in as a single centroid marker.
         proj_on_w_eval=proj_ev, centroid_dist_eval=np.linalg.norm(d_ev, axis=1),
         knn_self_eval=knn_ev, eval_split=ev_split,
+        pair_role=np.array([str(r) for r in pair_role], dtype="U16"),
+        is_positive=is_pos,
         eval_split_names=np.array(ev_split_names, dtype="U64"),
     )
     print(f"[{arm.key}] outside eval's own p95 kNN: {outside.mean():.1%}  "

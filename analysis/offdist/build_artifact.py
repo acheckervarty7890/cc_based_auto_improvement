@@ -120,6 +120,15 @@ def diverging_chart(k) -> str:
     return "\n".join(o)
 
 
+def flag_rows(k):
+    """`flags_<arm>.jsonl` as a list, cached — row `i` is its own index into the npz."""
+    if "flags" not in D[k]:
+        D[k]["flags"] = [json.loads(l) for l in
+                         (O.RESULTS / f"flags_{k}.jsonl").read_text(encoding="utf-8").splitlines()
+                         if l.strip()]
+    return D[k]["flags"]
+
+
 def extreme_groups(k) -> dict[str, np.ndarray]:
     """The red-team rows at each end of the surface-distance axis, as row indices.
 
@@ -128,9 +137,7 @@ def extreme_groups(k) -> dict[str, np.ndarray]:
     `drop_most_evallike_{EXTREME_PCT}pct` remove in Q3 — not a second ordering that could
     drift from them. Flag row `i` is its own index into the npz arrays.
     """
-    flags = [json.loads(l) for l in
-             (O.RESULTS / f"flags_{k}.jsonl").read_text(encoding="utf-8").splitlines()
-             if l.strip()]
+    flags = flag_rows(k)
     groups = pair_groups(flags)
     p = group_score(groups, flags, "p_redteam")
     n = max(1, int(round(len(groups) * EXTREME_PCT / 100)))
@@ -155,6 +162,172 @@ def extreme_stats(k) -> dict[str, dict]:
             "knn": float(z["knn_to_eval"][idx].mean()),
         }
     return out
+
+
+# What each side of a contrastive pair is worth. These conditions break the pairing on
+# purpose, so their control is `keep_random_half` — a randomly chosen side of every pair —
+# and never the whole-pair `matched_random` the Q3 bars use.
+PROV_ROWS = [
+    ("full", "everything"),
+    ("keep_random_half", "a random half of every pair"),
+    ("drop_generated", "the attacker&#8217;s own successes only"),
+    ("rewritten_sources", "the same, rewritten by the generator"),
+    ("drop_sources", "the generated partners only"),
+    ("rewritten_plus_generated", "the rewrites, paired with the partners"),
+    ("base_only", "no red-team data"),
+]
+
+
+def half_control(k):
+    """(mean, sd) over the `keep_random_half` seeds, or None if it was never run."""
+    v = [r["mean"]["auroc"] for r in D[k]["abl"] if r["condition"] == "keep_random_half"]
+    if not v:
+        return None
+    return st.mean(v), (st.pstdev(v) if len(v) > 1 else 0.0)
+
+
+def prov_rows(k):
+    """(label, auroc, sd) per row of the provenance chart, in display order."""
+    out = []
+    for name, label in PROV_ROWS:
+        if name == "keep_random_half":
+            hc = half_control(k)
+            if hc:
+                out.append((label, hc[0], hc[1]))
+            continue
+        r = cond(k, name)
+        if r:
+            out.append((label, r["mean"]["auroc"], 0.0))
+    return out
+
+
+def provenance_chart(k) -> str:
+    """Eval AUROC when one side of every contrastive pair is dropped — or replaced.
+
+    A dot per condition on a shared scale, with two reference lines: what all the data
+    scores, and what no red-team data at all scores. A dot left of the second one is a
+    training set that is worse than not red-teaming.
+    """
+    rows = prov_rows(k)
+    if not rows:
+        return ""
+    full = cond(k, "full")["mean"]["auroc"]
+    base = cond(k, "base_only")["mean"]["auroc"]
+    # One domain for both arms: the "no red-team data" line is the same 0.8523 in each, and
+    # on per-arm scales it would sit in a different place in each chart.
+    vals = [v for a in ARMS for _, v, sd in prov_rows(a) for v in (v - sd, v + sd)]
+    lo, hi = min(vals) - 0.02, max(vals) + 0.02
+    W, rowh, gap = 720, 26, 9
+    L, R = 268, 600
+    H = len(rows) * (rowh + gap) + 40
+
+    def X(v):
+        return L + (R - L) * (v - lo) / (hi - lo)
+
+    o = [f'<svg viewBox="0 0 {W} {H}" class="chart" role="img" '
+         f'aria-label="eval AUROC when one side of every contrastive pair is dropped, '
+         f'or replaced by a rewrite of it">']
+    ticks = [t / 100 for t in range(int(lo * 100) + 1, int(hi * 100) + 1)
+             if t % 5 == 0]
+    for t in ticks:
+        o.append(f'<line class="cgrid" x1="{X(t):.1f}" y1="14" x2="{X(t):.1f}" y2="{H-20}"/>')
+        o.append(f'<text class="ctick" x="{X(t):.1f}" y="{H-6}" text-anchor="middle">'
+                 f'{t:.2f}</text>')
+    for v, cls, lab in ((full, "pref full", "all data"), (base, "pref base", "no red-team")):
+        o.append(f'<line class="{cls}" x1="{X(v):.1f}" y1="14" x2="{X(v):.1f}" y2="{H-20}"/>')
+        o.append(f'<text class="preflab {cls.split()[1]}" x="{X(v):.1f}" y="10" '
+                 f'text-anchor="middle">{lab}</text>')
+    for i, (label, v, sd) in enumerate(rows):
+        y = 20 + i * (rowh + gap) + rowh / 2
+        if sd > 0:
+            o.append(f'<rect class="cband" x="{X(v-sd):.1f}" y="{y-7:.1f}" '
+                     f'width="{max(X(v+sd)-X(v-sd), 1):.1f}" height="14" rx="2"/>')
+        cls = "pdot low" if v < base else "pdot"
+        o.append(f'<circle class="{cls}" cx="{X(v):.1f}" cy="{y:.1f}" r="4.6"/>')
+        o.append(f'<text class="crow" x="{L-16}" y="{y+4:.0f}" text-anchor="end">'
+                 f'{label}</text>')
+        txt = f"{v:.4f}" + (f" &#177; {sd:.4f}" if sd > 0 else "")
+        o.append(f'<text class="cval" x="{R+8}" y="{y+4:.0f}">{txt}</text>')
+    o.append("</svg>")
+    return "\n".join(o)
+
+
+def prov_geometry(k) -> dict[str, dict]:
+    """Each side of the pairs in activation space — computed by `actsig.py`, read here."""
+    return D[k]["acts"]["per_pair_role"]
+
+
+def provenance_scatter(k) -> str:
+    """Q4's coordinates again, but one panel per side of the contrastive pair.
+
+    Same axes as `orthogonality_diagram` — projection on `w` horizontally, the magnitude of
+    the residual vertically, both read off the npz — so the two figures are comparable. What
+    changes is the split: the attacker's own submissions on the left, the partners
+    `generate_contrastive_dataset` wrote for them on the right, with the eval cloud behind
+    both as the shared reference. Filled marks are the positive class, hollow the negative,
+    which is what makes the horizontal split inside each panel legible.
+
+    Two panels rather than two colours in one: the groups sit almost on top of each other,
+    and overplotting 294 against 294 would hide exactly the comparison the panels are for.
+    """
+    z = D[k]["npz"]
+    proj, dist = z["proj_on_w"], z["centroid_dist"]
+    orth = np.sqrt(np.maximum(dist ** 2 - proj ** 2, 0))
+    ev_proj, ev_orth, _split, _names = eval_coords(k)
+    rows = flag_rows(k)
+    role = np.array([r.get("pair_role") or "none" for r in rows], dtype=object)
+    is_pos = np.array([r["label"] == O.POS for r in rows])
+
+    W, H = 720, 348
+    T, B = 46, 268
+    PANELS = [("source", "the attacker&#8217;s own submissions", 58, 352),
+              ("generated", "the partners written for them", 396, 690)]
+    xlim = max(float(np.abs(proj).max()), float(np.abs(ev_proj).max())) * 1.1
+    ylim = max(float(orth.max()), float(ev_orth.max())) * 1.06
+
+    def Y(v):
+        return B - (B - T) * (v / ylim)
+
+    o = [f'<svg viewBox="0 0 {W} {H}" class="chart" role="img" '
+         f'aria-label="the attacker&#8217;s own red-team submissions and the contrastive '
+         f'partners generated for them, in the same activation-space coordinates as the '
+         f'earlier figure">']
+    for name, title, L, R in PANELS:
+        def X(v, L=L, R=R):
+            return L + (R - L) * (v + xlim) / (2 * xlim)
+
+        o.append(f'<text class="ptitle" x="{(L+R)/2:.0f}" y="30" text-anchor="middle">'
+                 f'{title}</text>')
+        for t in range(0, int(ylim) + 1, max(1, int(ylim // 5))):
+            o.append(f'<line class="ogrid" x1="{L}" y1="{Y(t):.1f}" x2="{R}" y2="{Y(t):.1f}"/>')
+            if L == PANELS[0][2]:
+                o.append(f'<text class="otick" x="{L-8}" y="{Y(t)+4:.1f}" '
+                         f'text-anchor="end">{t}</text>')
+        o.append(f'<line class="oaxis" x1="{L}" y1="{B}" x2="{R}" y2="{B}"/>')
+        o.append(f'<line class="oaxis dash" x1="{X(0):.1f}" y1="{T}" x2="{X(0):.1f}" y2="{B}"/>')
+        for a, b in zip(ev_proj, ev_orth):                       # the shared reference cloud
+            o.append(f'<circle class="sdot ev" cx="{X(float(a)):.1f}" '
+                     f'cy="{Y(float(b)):.1f}" r="1.8"/>')
+        cls = "src" if name == "source" else "gen"
+        for i in np.where(role == name)[0]:
+            o.append(f'<circle class="sdot {cls} {"pos" if is_pos[i] else "neg"}" '
+                     f'cx="{X(float(proj[i])):.1f}" cy="{Y(float(orth[i])):.1f}" r="2.6"/>')
+        o.append(f'<text class="oaxlab" x="{(L+R)/2:.0f}" y="{B+19}" text-anchor="middle">'
+                 f'projection on w &#8594;</text>')
+    o.append(f'<text class="oaxlab rot" transform="translate(18,{(T+B)/2:.0f}) rotate(-90)" '
+             f'text-anchor="middle">everything orthogonal to w</text>')
+
+    n_src = int((role == "source").sum())
+    n_gen = int((role == "generated").sum())
+    o.append(swatch_row("marks", [
+        ("sdot src pos", f"a submission \u00a0{n_src}"),
+        ("sdot gen pos", f"a partner \u00a0{n_gen}"),
+        ("sdot ev", f"an eval row \u00a0{len(ev_proj)}"),
+    ], x=58, y=B + 50, item_w=196, title_w=54))
+    o.append(swatch_row("", [("sdot src neg", f"hollow: labelled {O.NEG}")],
+                        x=58, y=B + 70, item_w=196, title_w=54))
+    o.append("</svg>")
+    return "\n".join(o)
 
 
 def eval_coords(k):
@@ -309,6 +482,14 @@ def answers_table() -> str:
          lambda k: f"{D[k]['acts']['mean_orthogonal_fraction_eval']:.2%}"),
         ("eval AUROC, all red-team data",
          lambda k: f"{cond(k,'full')['mean']['auroc']:.4f}"),
+        ("eval AUROC, attacker successes only",
+         lambda k: f"{cond(k,'drop_generated')['mean']['auroc']:.4f}"
+         if cond(k, 'drop_generated') else "&#8212;"),
+        ("eval AUROC, generated partners only",
+         lambda k: f"{cond(k,'drop_sources')['mean']['auroc']:.4f}"
+         if cond(k, 'drop_sources') else "&#8212;"),
+        ("eval AUROC, a random half of every pair",
+         lambda k: f"{half_control(k)[0]:.4f}" if half_control(k) else "&#8212;"),
         ("eval AUROC, no red-team data",
          lambda k: f"{cond(k,'base_only')['mean']['auroc']:.4f}"),
     ]
@@ -341,6 +522,172 @@ def structure_table() -> str:
             f'{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>')
 
 
+def before_after_table() -> str:
+    """The flat before/after per half, both arms."""
+    if not ba:
+        return ""
+    arms = [k for k in ARMS if k in ba]
+    b0 = ba[arms[0]]
+    head = "".join(f"<th>{SHORT[k]}</th>" for k in arms)
+    def cell(k, g, field, fmt):
+        e = ba[k]["groups"][g]
+        return f'{fmt(e["before"][field])} &rarr; {fmt(e["after"][field])}'
+    pct = lambda v: f"{v:.0%}"
+    num = lambda v: f"{v:.3f}"
+    rows = []
+    for g, lab in (("source", "the attacker&#8217;s success"),
+                   ("generated", "its generated partner")):
+        for field, flab, fmt in (("mean", "mean score", num),
+                                  ("predicted_positive", "predicted harmful", pct),
+                                  ("correct", "classified correctly", pct)):
+            cells = "".join(f'<td class="n">{cell(k, g, field, fmt)}</td>' for k in arms)
+            rows.append(f"<tr><td>{lab} &middot; {flab}</td>{cells}</tr>")
+    return (f'<table class="key"><thead><tr><th>iter{b0["before_iter"]} &rarr; '
+            f'iter{b0["after_iter"]}</th>{head}</tr></thead>'
+            f'<tbody>{"".join(rows)}</tbody></table>')
+
+
+def found_iter_table(k) -> str:
+    """Why the before probe is not 0% on the successes: split by class x found-iteration."""
+    d = ba.get(k, {}).get("source_before_by_found_iter")
+    if not d:
+        return ""
+    b = ba[k]["before_iter"]
+    iters = sorted({i for cls in d.values() for i in cls}, key=int)
+    head = "".join(f"<th>iter {i}</th>" for i in iters)
+    rows = []
+    for cls, per in d.items():
+        cells = ""
+        for i in iters:
+            e = per.get(i)
+            if not e:
+                cells += '<td class="n">&#8212;</td>'
+            else:
+                # iter b IS the probe these beat → ~0 is expected; shade it
+                strong = (i == str(b))
+                cls_a = "n neg" if strong else ("n pos" if e["correct"] > 0.5 else "n")
+                cells += f'<td class="{cls_a}">{e["correct"]:.0%}<br><span class="sub">n={e["n"]}</span></td>'
+        rows.append(f'<tr><td>{cls}</td>{cells}</tr>')
+    return (f'<table class="key"><thead><tr><th>true class, by iteration found</th>{head}'
+            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>')
+
+
+def pair_verdict_table() -> str:
+    """What the probe of the day made of each half of the pairs, both arms."""
+    if not pps:
+        return ""
+    head = "".join(f"<th>{SHORT[k]}</th>" for k in ARMS if k in pps)
+    rows = []
+    for g, lab in (("source", "the attacker&#8217;s success"),
+                   ("generated", "its generated partner")):
+        cells = "".join(
+            f'<td class="n {"pos" if g == "generated" else "neg"}">'
+            f'{pps[k]["probe_of_the_day"][g]["correct"]:.1%}</td>'
+            for k in ARMS if k in pps)
+        rows.append(f"<tr><td>{lab}</td>{cells}</tr>")
+    mean = "".join(
+        f'<td class="n">{pps[k]["probe_of_the_day"]["generated"]["mean_score"]:.3f}</td>'
+        for k in ARMS if k in pps)
+    rows.append(f"<tr><td>mean probe score, partners</td>{mean}</tr>")
+    return ('<table class="key"><thead><tr><th>the probe classifies it correctly</th>'
+            f'{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>')
+
+
+def handwritten_summary_table() -> str:
+    if not hw:
+        return ""
+    pp = hw["per_probe"]
+    head = "<th>overall</th><th>harmful</th><th>not-harmful</th>"
+    def row(k, lab):
+        d = pp[str(k)]
+        cls = "n pos" if d["overall"] == 1.0 else "n"
+        return (f'<tr><td>{lab}</td><td class="{cls}">{d["overall"]:.0%}</td>'
+                f'<td class="n">{d["harmful"]:.0%}</td>'
+                f'<td class="n">{d["not_harmful"]:.0%}</td></tr>')
+    return ('<table class="key"><thead><tr><th>probe</th>' + head + '</tr></thead><tbody>'
+            + row(0, "<code>probe_iter0</code> &middot; before red-teaming")
+            + row(5, "<code>probe_iter5</code> &middot; after five retrains")
+            + '</tbody></table>')
+
+
+def handwritten_chart() -> str:
+    """One row per variation: its iter0 and iter5 probe scores against the 0.5 threshold.
+
+    Harmful variations (true positive) are correct to the RIGHT of the line, benign ones to
+    the LEFT, so the two blocks read in opposite directions — which is the point: the whole
+    iter5 harmful block has crossed the line the iter0 one straddles.
+    """
+    if not hw or not hw.get("rows"):
+        return ""
+    rows = hw["rows"]
+    order = sorted(range(len(rows)),
+                   key=lambda i: (rows[i]["label"] != O.POS, rows[i]["scores"]["5"]))
+    W, rowh, gap = 720, 15, 4
+    L, R, T = 250, 690, 34
+    H = len(rows) * (rowh + gap) + T + 20
+    thr = 0.5
+
+    def X(v):
+        return L + (R - L) * v
+
+    o = [f'<svg viewBox="0 0 {W} {H}" class="chart" role="img" '
+         f'aria-label="probe score of each hand-written variation, before and after red-team '
+         f'retraining, against the 0.5 threshold">']
+    for t in (0.0, 0.25, 0.5, 0.75, 1.0):
+        o.append(f'<line class="cgrid" x1="{X(t):.1f}" y1="{T-6}" x2="{X(t):.1f}" y2="{H-16}"/>')
+        o.append(f'<text class="ctick" x="{X(t):.1f}" y="{H-4}" text-anchor="middle">{t:.2f}</text>')
+    o.append(f'<line class="czero" x1="{X(thr):.1f}" y1="{T-6}" x2="{X(thr):.1f}" y2="{H-16}"/>')
+    o.append(f'<text class="ctick" x="{X(thr):.1f}" y="{T-12}" text-anchor="middle">threshold</text>')
+    o.append(f'<text class="hwhdr harm" x="{X(0.5)+8:.1f}" y="{T-12}" text-anchor="start">'
+             f'harmful &#8594; correct this side</text>')
+    o.append(f'<text class="hwhdr" x="{X(0.5)-8:.1f}" y="{T-12}" text-anchor="end">'
+             f'&#8592; benign correct this side</text>')
+    last_label = None
+    for r_i, i in enumerate(order):
+        row = rows[i]
+        y = T + r_i * (rowh + gap) + rowh / 2
+        s0, s5 = row["scores"]["0"], row["scores"]["5"]
+        o.append(f'<line class="hwlink" x1="{X(s0):.1f}" y1="{y:.1f}" '
+                 f'x2="{X(s5):.1f}" y2="{y:.1f}"/>')
+        o.append(f'<circle class="hwbase" cx="{X(s0):.1f}" cy="{y:.1f}" r="3"/>')
+        o.append(f'<circle class="hwok" cx="{X(s5):.1f}" cy="{y:.1f}" r="3.4"/>')
+        lab = "harmful" if row["label"] == O.POS else "not-harmful"
+        tag = f'based on #{row["based_on"]}'
+        band = lab if lab != last_label else ""
+        last_label = lab
+        o.append(f'<text class="crow" x="{L-14}" y="{y+3.5:.0f}" text-anchor="end">'
+                 f'{esc(tag)}<tspan class="hwband"> {esc(band)}</tspan></text>')
+    o.append("</svg>")
+    return "\n".join(o)
+
+
+def rewrite_table() -> str:
+    """Where the rewrites landed between the two halves, structurally."""
+    if not rw_stats:
+        return ""
+    m = rw_stats["structural_means"]
+    fields = [("chars_total", "conversation, characters"),
+              ("chars_assistant", "assistant reply, characters"),
+              ("n_newlines", "line breaks"),
+              ("has_bullets", "carries a bulleted list"),
+              ("has_numbered", "carries a numbered list")]
+    cols = [("sources", "submissions"), ("rewrites", "rewritten"),
+            ("partners", "partners"), ("eval", "eval")]
+    head = "".join(f"<th>{lab}</th>" for _g, lab in cols)
+    rows = []
+    for f, lab in fields:
+        pct = f.startswith("has_")
+        cells = "".join(
+            f'<td class="n {"evalcol" if g == "eval" else "drift" if g != "rewrites" else ""}">'
+            f'{m[g][f]:.0%}</td>' if pct else
+            f'<td class="n {"evalcol" if g == "eval" else "drift" if g != "rewrites" else ""}">'
+            f'{m[g][f]:,.0f}</td>'
+            for g, _lab in cols)
+        rows.append(f"<tr><td>{lab}</td>{cells}</tr>")
+    return ('<table class="key"><thead><tr><th>per conversation</th>'
+            f'{head}</tr></thead><tbody>{"".join(rows)}</tbody></table>')
+
+
 def topic_table(k) -> str:
     s, a = D[k]["surface"], D[k]["acts"]
     rows = []
@@ -367,6 +714,23 @@ la = {k: delta_vs_random(k, "drop_longest_assistant_30pct") for k in ARMS}
 best_ds = delta_vs_random("deepseekv4pro", "drop_most_evallike_20pct")
 ex_ds = extreme_stats("deepseekv4pro")
 ev_ds = eval_stats("deepseekv4pro")
+pg_g = prov_geometry("gptoss120b")
+rw_stats = O.read_json(O.RESULTS / "rewrite_stats_gptoss120b.json") \
+    if (O.RESULTS / "rewrite_stats_gptoss120b.json").exists() else None
+pps = {k: O.read_json(O.RESULTS / f"pair_probe_scores_{k}.json")
+       for k in ARMS if (O.RESULTS / f"pair_probe_scores_{k}.json").exists()}
+ba = {k: O.read_json(O.RESULTS / f"before_after_scores_{k}.json")
+      for k in ARMS if (O.RESULTS / f"before_after_scores_{k}.json").exists()}
+hw = O.read_json(O.RESULTS / "handwritten_scores_gptoss120b.json") \
+    if (O.RESULTS / "handwritten_scores_gptoss120b.json").exists() else None
+hw_rows = [json.loads(l) for l in
+           (O.RESULTS / "handwritten_gptoss120b.jsonl").read_text().splitlines() if l.strip()] \
+    if (O.RESULTS / "handwritten_gptoss120b.jsonl").exists() else []
+prov = {k: {n: (cond(k, n)["mean"]["auroc"] if cond(k, n) else None)
+            for n in ("full", "base_only", "drop_generated", "drop_sources",
+                      "rewritten_sources", "rewritten_plus_generated")}
+        for k in ARMS}
+half = {k: half_control(k) for k in ARMS}
 rt_orth_ds = float(np.sqrt(np.maximum(
     D["deepseekv4pro"]["npz"]["centroid_dist"] ** 2
     - D["deepseekv4pro"]["npz"]["proj_on_w"] ** 2, 0)).mean())
@@ -382,7 +746,7 @@ HTML = f"""<title>Orthogonal by Construction</title>
   --rule:#D5DEDB; --rule-strong:#B9C6C3;
   --eval:#0F6F68; --eval-soft:#DCEBE8;
   --drift:#AC432C; --drift-soft:#F4E2DC;
-  --near:#A8761B;
+  --near:#A8761B; --gen:#6B5BA6;
   --ev1:#0F6F68; --ev2:#2F6DA8; --ev3:#6B5BA6; --ev4:#3F8A55;
   --band:#DFE6E4;
   --measure:66ch; --wide:1000px;
@@ -394,7 +758,7 @@ HTML = f"""<title>Orthogonal by Construction</title>
     --rule:#253134; --rule-strong:#374548;
     --eval:#4FB3A6; --eval-soft:#12302D;
     --drift:#D97A5E; --drift-soft:#331B14;
-    --near:#D9A441;
+    --near:#D9A441; --gen:#A294E0;
     --ev1:#4FB3A6; --ev2:#6FA8DE; --ev3:#A294E0; --ev4:#6FC183;
     --band:#1E292B;
   }}
@@ -405,7 +769,7 @@ HTML = f"""<title>Orthogonal by Construction</title>
   --rule:#253134; --rule-strong:#374548;
   --eval:#4FB3A6; --eval-soft:#12302D;
   --drift:#D97A5E; --drift-soft:#331B14;
-  --near:#D9A441;
+  --near:#D9A441; --gen:#A294E0;
   --ev1:#4FB3A6; --ev2:#6FA8DE; --ev3:#A294E0; --ev4:#6FC183;
   --band:#1E292B;
 }}
@@ -420,7 +784,8 @@ body {{
 .col {{ max-width:var(--measure); }}
 h1,h2,h3,.display {{ font-family:Archivo,"Helvetica Neue",Arial,sans-serif; color:var(--ink);
   text-wrap:balance; margin:0; }}
-.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.otick,.olab,.oaxlab,.okey,.okeyhead,.ref,.chip {{
+.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.preflab,.otick,.olab,.oaxlab,.okey,.okeyhead,
+.ptitle,.ref,.chip {{
   font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; }}
 .eyebrow {{ font-size:11px; letter-spacing:.18em; text-transform:uppercase;
   color:var(--muted); font-weight:500; }}
@@ -483,6 +848,22 @@ caption,.cap {{ font-size:13px; color:var(--muted); max-width:var(--measure);
 .cbar.pos {{ fill:var(--eval); }}
 .cbar.neg {{ fill:var(--drift); }}
 .cbar.flat {{ fill:var(--faint); }}
+.hwbase {{ fill:var(--faint); }}
+.hwok {{ fill:var(--eval); }}
+.hwlink {{ stroke:var(--rule-strong); stroke-width:1; }}
+.hwhdr {{ font-size:9.5px; fill:var(--muted); letter-spacing:.04em; }}
+.hwhdr.harm {{ fill:var(--drift); }}
+.hwband {{ fill:var(--faint); font-size:9px; }}
+.pdot {{ fill:var(--ink); }}
+.pdot.low {{ fill:var(--drift); }}
+td .sub {{ font-size:10px; color:var(--faint); font-variant-numeric:tabular-nums; }}
+.hlneg {{ color:var(--drift); font-weight:600; }}
+.pref {{ stroke-width:1.4; stroke-dasharray:4 4; }}
+.pref.full {{ stroke:var(--eval); }}
+.pref.base {{ stroke:var(--faint); }}
+.preflab {{ font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; }}
+.preflab.full {{ fill:var(--eval); }}
+.preflab.base {{ fill:var(--faint); }}
 .crow {{ font-size:11.5px; fill:var(--body); }}
 .cval {{ font-size:11px; fill:var(--muted); font-variant-numeric:tabular-nums; }}
 .ctick {{ font-size:10px; fill:var(--faint); }}
@@ -493,6 +874,12 @@ caption,.cap {{ font-size:13px; color:var(--muted); max-width:var(--measure);
 .odot.off {{ fill:var(--drift); fill-opacity:.85; }}
 .odot.like {{ fill:var(--near); fill-opacity:.85; }}
 .ering {{ fill:none; stroke-width:1.05; stroke-opacity:.62; }}
+.sdot.ev {{ fill:var(--faint); fill-opacity:.20; }}
+.sdot.src.pos {{ fill:var(--drift); fill-opacity:.85; }}
+.sdot.gen.pos {{ fill:var(--gen); fill-opacity:.85; }}
+.sdot.src.neg {{ fill:none; stroke:var(--drift); stroke-width:1.15; stroke-opacity:.9; }}
+.sdot.gen.neg {{ fill:none; stroke:var(--gen); stroke-width:1.15; stroke-opacity:.9; }}
+.ptitle {{ font-size:11px; fill:var(--ink); letter-spacing:.02em; }}
 .ering.s1 {{ stroke:var(--ev1); }}
 .ering.s2 {{ stroke:var(--ev2); }}
 .ering.s3 {{ stroke:var(--ev3); }}
@@ -526,13 +913,14 @@ a {{ color:var(--eval); }}
   <h1>Orthogonal<span class="thin">by construction</span></h1>
   <p class="standfirst">The red-team conversations a probe is retrained on are not drawn from
   the distribution it is scored on. This asks how far off they sit, whether any are labelled
-  backwards, whether dropping the worst of them helps &#8212; and where, in the model&#8217;s
-  own representation, the difference actually lives.</p>
+  backwards, whether dropping the worst of them helps, where in the model&#8217;s own
+  representation the difference actually lives &#8212; and which half of each generated pair
+  the retrain is really learning from.</p>
   <div class="meta">
     <span class="chip">2 attacker arms</span>
     <span class="chip">{g['surface']['n_redteam']} + {d['surface']['n_redteam']} red-team rows</span>
     <span class="chip">{g['surface']['n_eval']} eval rows</span>
-    <span class="chip">104 probe fits</span>
+    <span class="chip">{sum(len(D[k]['abl']) for k in ARMS)} probe fits</span>
     <span class="chip">no LLM loaded</span>
   </div>
 </header>
@@ -721,6 +1109,206 @@ a {{ color:var(--eval); }}
         <strong>{d['acts']['separability_flagged_vs_rest_auroc']:.4f}</strong>. The lexical flag
         names something the representation encodes; it just is not the thing that decides the
         score.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="qhead">
+    <div class="qnum">Q5</div>
+    <div>
+      <h2>What are the generated halves worth?</h2>
+      <p class="verdict">Drop them and the retrain goes <em>backwards</em>.</p>
+      <div class="qbody">
+        <p>Every conversation the attacker landed was given an opposite-label partner by
+        <code>generate_contrastive_dataset</code>, so arm 1&#8217;s {g['surface']['n_redteam']} rows
+        are {g['surface']['n_pairs']} pairs and arm 2&#8217;s {d['surface']['n_redteam']} are
+        {d['surface']['n_pairs']}. Dropping one side of every pair asks what each side contributes
+        &#8212; and dropping the generated side is precisely the retrain a run with no
+        <code>preprocessing:</code> section would have done.</p>
+        <p>The control has to change with the question. Q3&#8217;s bars are matched against removal
+        of whole pairs, which holds the class balance fixed by construction; these conditions break
+        the pairing deliberately, so they are matched against <em>keeping a randomly chosen
+        side</em> of every pair &#8212; same row count, pairing broken just as hard, only the
+        source-versus-generated choice left to chance.</p>
+        <div class="armhead">{SHORT['gptoss120b']} <span>&middot; {LABEL['gptoss120b']}</span></div>
+        <div class="panel">{provenance_chart('gptoss120b')}</div>
+        <div class="armhead">{SHORT['deepseekv4pro']} <span>&middot; {LABEL['deepseekv4pro']}</span></div>
+        <div class="panel">{provenance_chart('deepseekv4pro')}</div>
+        <p class="cap">Mean eval AUROC over the four <code>eval_sets/hu_ha</code> splits. The
+        random-half row is 3 seeds, mean &#177; sd. Dashed lines mark what all the data scores and
+        what no red-team data scores; a dot left of the second is a training set worse than not
+        red-teaming at all.</p>
+        <p>Keeping only the conversations the attacker actually landed scores
+        <strong>{prov['gptoss120b']['drop_generated']:.4f}</strong> and
+        <strong>{prov['deepseekv4pro']['drop_generated']:.4f}</strong> &#8212; both below the
+        {prov['gptoss120b']['base_only']:.4f} a probe reaches on the {50} base rows with no
+        red-team data at all, and
+        {prov['gptoss120b']['drop_generated'] - half['gptoss120b'][0]:+.4f} /
+        {prov['deepseekv4pro']['drop_generated'] - half['deepseekv4pro'][0]:+.4f} against a random
+        half of the same size. Keeping only the generated partners is milder but still negative
+        ({prov['gptoss120b']['drop_sources'] - half['gptoss120b'][0]:+.4f} /
+        {prov['deepseekv4pro']['drop_sources'] - half['deepseekv4pro'][0]:+.4f}).</p>
+        <p>So the cost is not the row count &#8212; a random half of the same size gives up only
+        {half['gptoss120b'][0] - prov['gptoss120b']['full']:+.4f} and
+        {half['deepseekv4pro'][0] - prov['deepseekv4pro']['full']:+.4f} &#8212; and it is not the
+        generated text as such, since dropping <em>that</em> side is the worse of the two.
+        <strong>It is the pairing.</strong> With both halves present the label can only be read off
+        the behavioural difference between two near-identical conversations. Take one side away
+        systematically and the class becomes predictable from who wrote the conversation, which is
+        a feature that does not exist in the eval set.</p>
+        <div class="armhead">{SHORT['gptoss120b']} <span>&middot; the two halves in activation
+        space, Q4&#8217;s coordinates</span></div>
+        <div class="panel">{provenance_scatter('gptoss120b')}</div>
+        <p class="cap">The same axes as the figure in Q4 &#8212; projection on <code>w</code>
+        against the magnitude of the residual &#8212; with arm 1&#8217;s eval cloud behind both
+        panels as the shared reference. Filled marks are <code>{O.POS}</code>, hollow
+        <code>{O.NEG}</code>. Two panels rather than two colours in one: the halves sit almost on
+        top of each other, and overplotting {pg_g['source']['n']} against {pg_g['generated']['n']}
+        would hide the comparison the panels exist for.</p>
+        <p>The generated partners are the <em>further</em> of the two halves from eval &#8212;
+        {pg_g['generated']['knn_to_eval']:.1f} against {pg_g['source']['knn_to_eval']:.1f} mean kNN, and
+        {pg_g['generated']['mean_p_redteam']:.2f} against {pg_g['source']['mean_p_redteam']:.2f} on
+        Q1&#8217;s text discriminator &#8212; and yet keeping only them scores
+        {prov['gptoss120b']['drop_sources']:.4f} against
+        {prov['gptoss120b']['drop_generated']:.4f} for keeping only the submissions. Distance from
+        eval is not what makes a half worth keeping. That is Q3&#8217;s answer arriving from a
+        second direction.</p>
+        <p>What the panels do show is the class split. Inside the submissions, projection on
+        <code>w</code> orders the two labels at AUROC
+        <strong>{pg_g['source']['auroc_along_w']:.3f}</strong>; inside the partners,
+        <strong>{pg_g['generated']['auroc_along_w']:.3f}</strong>. Both halves line up with the
+        boundary the run reached &#8212; though <code>w</code> here is the arm&#8217;s own final
+        probe, fit on both halves, so this measures agreement with where the run ended up rather
+        than what either half would reach alone. Between the halves there is no separation along
+        <code>w</code> to see: the offset is vertical, {pg_g['generated']['orth']:.1f} against
+        {pg_g['source']['orth']:.1f} mean residual, which is the orthogonal displacement Q4
+        described and cannot move a score by itself.</p>
+        <div class="armhead">what the probe thought of each half
+        <span>&middot; scored by the probe its pair was found against</span></div>
+        <p>A success is, by definition, a row the live probe got wrong &#8212; that is what made
+        it a success. Its partner was written afterwards and <em>never scored at all</em>. So
+        one half of every pair has a verdict and the other has none. Scoring each partner with
+        <code>probe_iter{{k}}</code>, where <code>k</code> is the iteration its source was found
+        in &#8212; the last probe that had seen neither half &#8212; closes that gap.</p>
+        <div class="panel">{pair_verdict_table()}</div>
+        <p class="cap">The source row is the control, and its answer is known before the
+        measurement: 0%, since that is what made it a success. It lands at
+        {pps['gptoss120b']['probe_of_the_day']['source']['correct']:.1%} and
+        {pps['deepseekv4pro']['probe_of_the_day']['source']['correct']:.1%}, and every exception
+        is a row sitting within 0.002 of the 0.5 threshold.</p>
+        <p>The partner is the finding. The probe already classifies
+        <strong>{pps['gptoss120b']['probe_of_the_day']['generated']['correct']:.1%}</strong> and
+        <strong>{pps['deepseekv4pro']['probe_of_the_day']['generated']['correct']:.1%}</strong> of
+        them correctly. The generation step is not manufacturing a second failure per pair
+        &#8212; it is attaching, to every row the probe gets wrong, a near-identical row it
+        already gets right. That is the object the retrain is handed, and it is why the
+        submissions alone score below no-red-team-data at all: on their own they are a pile of
+        failures with nothing to read the label against.</p>
+
+        <div class="armhead">before and after <span>&middot; every success and partner, scored
+        by <code>probe_iter{ba['gptoss120b']['before_iter']}</code> (before any red-teaming) and
+        <code>probe_iter{ba['gptoss120b']['after_iter']}</code> (after)</span></div>
+        <div class="panel">{before_after_table()}</div>
+        <p class="cap">Before, both halves are out-of-sample; after, both are in-sample, so the
+        after column is the fit, not generalisation (that is the last question). The movement is
+        concentrated on the harmful successes &#8212;
+        {ba['gptoss120b']['groups']['source']['before']['by_class'][O.POS]['correct']:.0%} correct
+        before, 100% after &#8212; while the benign rows and the partners were mostly right at
+        <code>iter{ba['gptoss120b']['before_iter']}</code> already.</p>
+        <p>One number there invites a wrong reading: the probe classifies
+        {ba['gptoss120b']['groups']['source']['before']['correct']:.0%} of the successes correctly
+        <em>before</em> training. That is not weak attacks &#8212; it is which probe they beat. A
+        success fooled the probe of the day, <code>probe_iter{{k}}</code>, which is
+        <code>iter{ba['gptoss120b']['before_iter']}</code> only for the first batch. Split by true
+        class and the iteration that found them:</p>
+        <div class="panel">{found_iter_table('gptoss120b')}</div>
+        <p class="cap">Share <code>probe_iter{ba['gptoss120b']['before_iter']}</code> classifies
+        correctly. The <span class="hlneg">iteration-{ba['gptoss120b']['before_iter']} column</span>
+        is ~0% because that is the probe those rows beat. The overall
+        {ba['gptoss120b']['groups']['source']['before']['correct']:.0%} is carried by the benign
+        successes found at later iterations, which
+        <code>iter{ba['gptoss120b']['before_iter']}</code> scores 100% correct: those were false
+        positives against a <em>later</em> probe that drifted into over-flagging benign edge
+        cases, and the earlier, negative-biased <code>iter{ba['gptoss120b']['before_iter']}</code>
+        predates that drift. It agrees with the judge on them not because it is good but because it
+        had not yet learned the failure that made them successes.</p>
+
+        <div class="armhead">is it the voice? <span>&middot; the same successes, re-expressed
+        by the generator</span></div>
+        <p>Provenance is confounded with authorship: every submission was written by
+        {LABEL['gptoss120b']} and every partner by <code>{rw_stats['rewrite_model']}</code>, so
+        &#8220;which half&#8221; and &#8220;who wrote it&#8221; are the same variable. Handing the
+        submissions back to the generator removes that confound from one side &#8212; the same
+        {rw_stats['n_rewrites']} conversations, re-expressed in its own words with the scenario,
+        the assistant&#8217;s behaviour and the label held fixed (median similarity to the
+        original {rw_stats['similarity_median']:.2f}; turn count preserved on
+        {rw_stats['turn_count_preserved']} of {rw_stats['n_rewrites']}).</p>
+        <p>It changes nothing. <strong>{prov['gptoss120b']['rewritten_sources']:.4f}</strong>
+        against {prov['gptoss120b']['drop_generated']:.4f} for the originals &#8212;
+        {prov['gptoss120b']['rewritten_sources'] - prov['gptoss120b']['drop_generated']:+.4f},
+        inside the &#177;{half['gptoss120b'][1]:.4f} spread of the random-half control. And not
+        because the rewrite failed to move the writing: it carried the submissions most of the
+        way to the generator&#8217;s own profile.</p>
+        <div class="panel">{rewrite_table()}</div>
+        <p class="cap">Means per conversation. The rewrite prompt asked for
+        &#8220;similar structure and length&#8221;; a model&#8217;s voice brings its own anyway,
+        which is what makes this a real test of the voice hypothesis rather than a null from a
+        rewrite that did not rewrite.</p>
+        <p>Restore the <em>pairing</em> and the score comes back. Those same rewrites, paired
+        with the partners already generated for the originals, reach
+        <strong>{prov['gptoss120b']['rewritten_plus_generated']:.4f}</strong> &#8212; within
+        {abs(prov['gptoss120b']['full'] - prov['gptoss120b']['rewritten_plus_generated']):.4f} of
+        the untouched set, from a training half that was rewritten wholesale. What the partners
+        contribute is the contrast, not the prose.</p>
+        <p class="cap">One caveat the number carries: the rewrites&#8217; labels are asserted by
+        the rewrite prompt and were never re-judged, so a rewrite that drifted across the
+        boundary enters as a mislabelled row. That pushes the rewritten conditions <em>down</em>
+        &#8212; against the hypothesis under test &#8212; so it cannot manufacture the null,
+        though it could deepen it.</p>
+        <p>Read against Q1, this is the shape of the whole study. The red-team text is
+        {g['surface']['discriminator_auroc']:.4f}-separable from eval and none of it is eval-like
+        &#8212; yet what makes it usable is not how close any row sits to the eval distribution but
+        whether it arrives with a partner that differs only in the thing being labelled.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="qhead">
+    <div class="qnum">Q6</div>
+    <div>
+      <h2>Did the retrain memorise the strings, or patch the behaviour?</h2>
+      <p class="verdict">Patched. <span class="ok">{hw['n']}/{hw['n']} hand-written variations,
+      unseen.</span></p>
+      <div class="qbody">
+        <p>The final probe scores the {g['surface']['n_pairs']} successes it trained on 100%
+        correctly &#8212; but in-sample, so that number cannot tell a patched decision boundary
+        from memorised text. So {hw['n']} conversations were written <em>by hand</em> to vary those
+        successes: the same scenario type and the same thing the assistant does (hence the same
+        class), but fresh wording and details, in a third voice that is neither the attacker nor
+        the generator. Each is scored by the probe from before any red-teaming and by the final
+        one.</p>
+        <div class="panel">{handwritten_chart()}</div>
+        <p class="cap">Each row is one variation; the dot is its probe score, the dashed line the
+        0.5 threshold. A dot on the correct side of the line for its class is a correct
+        classification. <span class="hwok">iter5</span> against
+        <span class="hwbase">iter0</span>.</p>
+        <div class="panel">{handwritten_summary_table()}</div>
+        <p>The final probe gets <strong>all {hw['n']}</strong> right, on conversations it never
+        saw. And the lift over the pre-retrain probe is entirely on the harmful side
+        ({hw['per_probe']['0']['harmful']:.0%} &#8594;
+        {hw['per_probe']['5']['harmful']:.0%}) &#8212; the benign variations were already handled
+        before red-teaming, and the failure red-teaming was hunting is the one that closed. The
+        pairing does not just move an AUROC on the fixed eval splits; it generalises to fresh
+        instances of the same failure, written by hand, off-distribution from both models in the
+        pipeline.</p>
+        <p class="cap">Two caveats worth keeping. These are {hw['n']} rows hand-picked as clear
+        cases, not a balanced held-out split; and each variation stays near its training scenario
+        (a relative&#8217;s addiction, a triage call, a dark-pattern app), so this measures
+        generalisation across <em>wording and detail</em>, not across new kinds of harm.</p>
       </div>
     </div>
   </div>
