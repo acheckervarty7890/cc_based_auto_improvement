@@ -97,8 +97,10 @@ def headline(loaded, band: float) -> str:
           "dropping the 30% with the LONGEST assistant replies - the rows least like eval "
           "structurally - is significantly WORSE than random in both arms.",
           "4. **The novelty is real but almost entirely orthogonal to the decision axis** "
-          "(~99.9%), so it cannot move an eval score directly; it can only act by rotating "
-          "`w` at the next refit. The surface flag is a weak proxy for representation-level "
+          "(~99.9%) - as are the eval rows themselves about their own centroid (~99.9%), "
+          "so this is the geometry of a 5376-dimensional space rather than a peculiarity "
+          "of the red-team data. Either way it cannot move an eval score directly; it can "
+          "only act by rotating `w` at the next refit. The surface flag is a weak proxy for representation-level "
           "novelty (Spearman ~0.3) yet still names a group that is linearly separable in "
           "activation space at ~0.90.", ""]
     return "\n".join(L)
@@ -200,6 +202,11 @@ def section(arm_key: str, surf: dict, acts: dict, rows: list[dict], band: float)
           f"the probe's decision direction `w` (10 ensemble members, pairwise cosine "
           f"{acts['ensemble_direction_agreement_cos']:.3f}). Novelty orthogonal to `w` cannot "
           f"move a score directly — it can only act by rotating `w` at the next refit.",
+          f"* Read that against its baseline: the **eval** rows are "
+          f"**{acts['mean_orthogonal_fraction_eval']:.2%}** orthogonal to `w` about their own "
+          f"centroid. Near-total orthogonality to one direction is what {acts['dim']:,} "
+          f"dimensions hand any row — the finding is which way the displacement points, not "
+          f"that it is orthogonal.",
           f"* The surface score is a **weak** proxy for it: Spearman ρ between `p_redteam` and "
           f"kNN-to-eval is {acts['spearman_p_redteam_vs_knn']:+.3f}. Text-level oddness and "
           f"representation-level oddness are not the same ordering.",

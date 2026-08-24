@@ -9,6 +9,8 @@
   --rule:#D5DEDB; --rule-strong:#B9C6C3;
   --eval:#0F6F68; --eval-soft:#DCEBE8;
   --drift:#AC432C; --drift-soft:#F4E2DC;
+  --near:#A8761B;
+  --ev1:#0F6F68; --ev2:#2F6DA8; --ev3:#6B5BA6; --ev4:#3F8A55;
   --band:#DFE6E4;
   --measure:66ch; --wide:1000px;
 }
@@ -19,6 +21,8 @@
     --rule:#253134; --rule-strong:#374548;
     --eval:#4FB3A6; --eval-soft:#12302D;
     --drift:#D97A5E; --drift-soft:#331B14;
+    --near:#D9A441;
+    --ev1:#4FB3A6; --ev2:#6FA8DE; --ev3:#A294E0; --ev4:#6FC183;
     --band:#1E292B;
   }
 }
@@ -28,6 +32,8 @@
   --rule:#253134; --rule-strong:#374548;
   --eval:#4FB3A6; --eval-soft:#12302D;
   --drift:#D97A5E; --drift-soft:#331B14;
+  --near:#D9A441;
+  --ev1:#4FB3A6; --ev2:#6FA8DE; --ev3:#A294E0; --ev4:#6FC183;
   --band:#1E292B;
 }
 * { box-sizing:border-box; }
@@ -41,7 +47,7 @@ body {
 .col { max-width:var(--measure); }
 h1,h2,h3,.display { font-family:Archivo,"Helvetica Neue",Arial,sans-serif; color:var(--ink);
   text-wrap:balance; margin:0; }
-.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.otick,.olab,.oaxlab,.ref,.chip {
+.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.otick,.olab,.oaxlab,.okey,.okeyhead,.ref,.chip {
   font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; }
 .eyebrow { font-size:11px; letter-spacing:.18em; text-transform:uppercase;
   color:var(--muted); font-weight:500; }
@@ -110,10 +116,21 @@ caption,.cap { font-size:13px; color:var(--muted); max-width:var(--measure);
 .ogrid { stroke:var(--rule); stroke-width:1; }
 .oaxis { stroke:var(--rule-strong); stroke-width:1.5; }
 .oaxis.dash { stroke-dasharray:3 4; }
-.odot { fill:var(--drift); fill-opacity:.42; }
-.ocent { fill:var(--eval); }
+.odot { fill:var(--faint); fill-opacity:.34; }   /* .rest, and the legend swatch */
+.odot.off { fill:var(--drift); fill-opacity:.85; }
+.odot.like { fill:var(--near); fill-opacity:.85; }
+.ering { fill:none; stroke-width:1.05; stroke-opacity:.62; }
+.ering.s1 { stroke:var(--ev1); }
+.ering.s2 { stroke:var(--ev2); }
+.ering.s3 { stroke:var(--ev3); }
+.ering.s4 { stroke:var(--ev4); }
+.ocent { fill:var(--ink); stroke:var(--surface); stroke-width:1.6; }
 .otick { font-size:10px; fill:var(--faint); }
-.olab { font-size:10.5px; fill:var(--eval); letter-spacing:.06em; }
+.olab { font-size:10.5px; fill:var(--ink); letter-spacing:.06em; }
+.okey { font-size:10.5px; fill:var(--body); letter-spacing:.02em;
+  font-variant-numeric:tabular-nums; }
+.okeyhead { font-size:10px; fill:var(--muted); letter-spacing:.12em;
+  text-transform:uppercase; }
 .oaxlab { font-size:10.5px; fill:var(--muted); letter-spacing:.08em; text-transform:uppercase; }
 
 .armhead { font-family:Archivo,sans-serif; font-size:12px; font-weight:600;
@@ -376,954 +393,1864 @@ a { color:var(--eval); }
         <code>LinearThenSoftmax</code>, so <code>w</code> is a single vector and a row&#8217;s
         offset from the eval centroid splits cleanly into a component along it and everything
         else. Almost all of it is everything else:</p>
-        <div class="armhead">arm 2 <span>&middot; every red-team row, resolved onto the decision axis</span></div>
-        <div class="panel"><svg viewBox="0 0 720 330" class="chart" role="img" aria-label="red-team displacement from the eval centroid, resolved onto the probe decision axis and its orthogonal complement">
-<line class="ogrid" x1="74" y1="272.0" x2="690" y2="272.0"/>
-<text class="otick" x="64" y="276.0" text-anchor="end">0</text>
-<line class="ogrid" x1="74" y1="223.6" x2="690" y2="223.6"/>
-<text class="otick" x="64" y="227.6" text-anchor="end">8</text>
-<line class="ogrid" x1="74" y1="175.2" x2="690" y2="175.2"/>
-<text class="otick" x="64" y="179.2" text-anchor="end">16</text>
-<line class="ogrid" x1="74" y1="126.9" x2="690" y2="126.9"/>
-<text class="otick" x="64" y="130.9" text-anchor="end">24</text>
-<line class="ogrid" x1="74" y1="78.5" x2="690" y2="78.5"/>
-<text class="otick" x="64" y="82.5" text-anchor="end">32</text>
-<line class="ogrid" x1="74" y1="30.1" x2="690" y2="30.1"/>
-<text class="otick" x="64" y="34.1" text-anchor="end">40</text>
-<line class="oaxis" x1="74" y1="272" x2="690" y2="272"/>
-<line class="oaxis dash" x1="382.0" y1="26" x2="382.0" y2="272"/>
-<circle class="odot" cx="380.8" cy="116.0" r="2.4"/>
-<circle class="odot" cx="407.6" cy="96.6" r="2.4"/>
-<circle class="odot" cx="434.8" cy="82.7" r="2.4"/>
-<circle class="odot" cx="382.4" cy="111.0" r="2.4"/>
-<circle class="odot" cx="390.0" cy="115.2" r="2.4"/>
-<circle class="odot" cx="385.6" cy="116.1" r="2.4"/>
-<circle class="odot" cx="405.4" cy="86.1" r="2.4"/>
-<circle class="odot" cx="364.5" cy="160.2" r="2.4"/>
-<circle class="odot" cx="407.3" cy="64.4" r="2.4"/>
-<circle class="odot" cx="343.0" cy="100.2" r="2.4"/>
-<circle class="odot" cx="387.2" cy="97.7" r="2.4"/>
-<circle class="odot" cx="351.3" cy="155.7" r="2.4"/>
-<circle class="odot" cx="345.8" cy="145.6" r="2.4"/>
-<circle class="odot" cx="376.4" cy="129.2" r="2.4"/>
-<circle class="odot" cx="406.2" cy="98.6" r="2.4"/>
-<circle class="odot" cx="400.3" cy="111.0" r="2.4"/>
-<circle class="odot" cx="377.6" cy="92.3" r="2.4"/>
-<circle class="odot" cx="347.0" cy="119.4" r="2.4"/>
-<circle class="odot" cx="387.9" cy="167.6" r="2.4"/>
-<circle class="odot" cx="408.0" cy="109.6" r="2.4"/>
-<circle class="odot" cx="401.8" cy="114.3" r="2.4"/>
-<circle class="odot" cx="368.2" cy="140.4" r="2.4"/>
-<circle class="odot" cx="361.8" cy="149.8" r="2.4"/>
-<circle class="odot" cx="399.5" cy="118.8" r="2.4"/>
-<circle class="odot" cx="351.9" cy="133.5" r="2.4"/>
-<circle class="odot" cx="380.1" cy="128.4" r="2.4"/>
-<circle class="odot" cx="372.0" cy="140.4" r="2.4"/>
-<circle class="odot" cx="399.7" cy="127.0" r="2.4"/>
-<circle class="odot" cx="413.9" cy="131.2" r="2.4"/>
-<circle class="odot" cx="399.7" cy="143.9" r="2.4"/>
-<circle class="odot" cx="402.0" cy="149.3" r="2.4"/>
-<circle class="odot" cx="396.2" cy="148.7" r="2.4"/>
-<circle class="odot" cx="391.9" cy="138.9" r="2.4"/>
-<circle class="odot" cx="369.4" cy="157.0" r="2.4"/>
-<circle class="odot" cx="408.7" cy="120.2" r="2.4"/>
-<circle class="odot" cx="390.9" cy="51.8" r="2.4"/>
-<circle class="odot" cx="395.6" cy="84.5" r="2.4"/>
-<circle class="odot" cx="376.9" cy="114.0" r="2.4"/>
-<circle class="odot" cx="389.3" cy="114.3" r="2.4"/>
-<circle class="odot" cx="399.1" cy="111.1" r="2.4"/>
-<circle class="odot" cx="390.7" cy="96.2" r="2.4"/>
-<circle class="odot" cx="420.4" cy="127.6" r="2.4"/>
-<circle class="odot" cx="413.7" cy="115.5" r="2.4"/>
-<circle class="odot" cx="404.9" cy="108.0" r="2.4"/>
-<circle class="odot" cx="390.9" cy="101.6" r="2.4"/>
-<circle class="odot" cx="357.9" cy="123.2" r="2.4"/>
-<circle class="odot" cx="369.4" cy="150.6" r="2.4"/>
-<circle class="odot" cx="406.9" cy="134.4" r="2.4"/>
-<circle class="odot" cx="374.4" cy="158.4" r="2.4"/>
-<circle class="odot" cx="392.0" cy="116.0" r="2.4"/>
-<circle class="odot" cx="367.9" cy="76.5" r="2.4"/>
-<circle class="odot" cx="346.6" cy="120.5" r="2.4"/>
-<circle class="odot" cx="382.7" cy="122.2" r="2.4"/>
-<circle class="odot" cx="381.7" cy="135.7" r="2.4"/>
-<circle class="odot" cx="413.7" cy="121.0" r="2.4"/>
-<circle class="odot" cx="407.5" cy="123.4" r="2.4"/>
-<circle class="odot" cx="388.9" cy="127.3" r="2.4"/>
-<circle class="odot" cx="403.4" cy="48.6" r="2.4"/>
-<circle class="odot" cx="412.1" cy="100.7" r="2.4"/>
-<circle class="odot" cx="378.6" cy="122.3" r="2.4"/>
-<circle class="odot" cx="358.3" cy="106.4" r="2.4"/>
-<circle class="odot" cx="398.5" cy="143.6" r="2.4"/>
-<circle class="odot" cx="384.5" cy="112.1" r="2.4"/>
-<circle class="odot" cx="372.5" cy="123.5" r="2.4"/>
-<circle class="odot" cx="361.4" cy="115.0" r="2.4"/>
-<circle class="odot" cx="382.0" cy="130.1" r="2.4"/>
-<circle class="odot" cx="417.9" cy="116.6" r="2.4"/>
-<circle class="odot" cx="382.4" cy="131.9" r="2.4"/>
-<circle class="odot" cx="377.1" cy="123.2" r="2.4"/>
-<circle class="odot" cx="385.0" cy="99.0" r="2.4"/>
-<circle class="odot" cx="376.0" cy="84.3" r="2.4"/>
-<circle class="odot" cx="376.2" cy="121.0" r="2.4"/>
-<circle class="odot" cx="371.0" cy="124.5" r="2.4"/>
-<circle class="odot" cx="386.6" cy="81.1" r="2.4"/>
-<circle class="odot" cx="376.9" cy="107.4" r="2.4"/>
-<circle class="odot" cx="370.0" cy="99.8" r="2.4"/>
-<circle class="odot" cx="354.4" cy="85.6" r="2.4"/>
-<circle class="odot" cx="385.8" cy="125.2" r="2.4"/>
-<circle class="odot" cx="372.7" cy="108.6" r="2.4"/>
-<circle class="odot" cx="395.9" cy="99.9" r="2.4"/>
-<circle class="odot" cx="373.3" cy="116.9" r="2.4"/>
-<circle class="odot" cx="367.2" cy="109.2" r="2.4"/>
-<circle class="odot" cx="364.8" cy="96.9" r="2.4"/>
-<circle class="odot" cx="387.7" cy="117.7" r="2.4"/>
-<circle class="odot" cx="372.2" cy="106.5" r="2.4"/>
-<circle class="odot" cx="379.6" cy="133.3" r="2.4"/>
-<circle class="odot" cx="350.8" cy="127.9" r="2.4"/>
-<circle class="odot" cx="385.3" cy="114.8" r="2.4"/>
-<circle class="odot" cx="384.1" cy="104.6" r="2.4"/>
-<circle class="odot" cx="375.7" cy="98.6" r="2.4"/>
-<circle class="odot" cx="380.9" cy="115.9" r="2.4"/>
-<circle class="odot" cx="359.5" cy="117.9" r="2.4"/>
-<circle class="odot" cx="388.1" cy="104.4" r="2.4"/>
-<circle class="odot" cx="361.1" cy="109.2" r="2.4"/>
-<circle class="odot" cx="351.0" cy="105.9" r="2.4"/>
-<circle class="odot" cx="366.5" cy="123.1" r="2.4"/>
-<circle class="odot" cx="392.1" cy="105.8" r="2.4"/>
-<circle class="odot" cx="390.8" cy="105.1" r="2.4"/>
-<circle class="odot" cx="391.9" cy="102.5" r="2.4"/>
-<circle class="odot" cx="361.4" cy="130.9" r="2.4"/>
-<circle class="odot" cx="371.0" cy="116.0" r="2.4"/>
-<circle class="odot" cx="348.2" cy="91.0" r="2.4"/>
-<circle class="odot" cx="393.8" cy="118.9" r="2.4"/>
-<circle class="odot" cx="386.8" cy="92.5" r="2.4"/>
-<circle class="odot" cx="398.2" cy="115.1" r="2.4"/>
-<circle class="odot" cx="377.8" cy="132.6" r="2.4"/>
-<circle class="odot" cx="393.4" cy="124.3" r="2.4"/>
-<circle class="odot" cx="355.0" cy="128.7" r="2.4"/>
-<circle class="odot" cx="351.7" cy="118.1" r="2.4"/>
-<circle class="odot" cx="372.0" cy="121.8" r="2.4"/>
-<circle class="odot" cx="377.2" cy="133.3" r="2.4"/>
-<circle class="odot" cx="400.8" cy="118.6" r="2.4"/>
-<circle class="odot" cx="387.8" cy="144.9" r="2.4"/>
-<circle class="odot" cx="408.9" cy="123.9" r="2.4"/>
-<circle class="odot" cx="385.0" cy="126.1" r="2.4"/>
-<circle class="odot" cx="380.4" cy="120.2" r="2.4"/>
-<circle class="odot" cx="385.5" cy="139.8" r="2.4"/>
-<circle class="odot" cx="368.2" cy="125.2" r="2.4"/>
-<circle class="odot" cx="369.5" cy="119.0" r="2.4"/>
-<circle class="odot" cx="348.6" cy="106.5" r="2.4"/>
-<circle class="odot" cx="341.2" cy="117.5" r="2.4"/>
-<circle class="odot" cx="381.7" cy="124.1" r="2.4"/>
-<circle class="odot" cx="373.9" cy="119.7" r="2.4"/>
-<circle class="odot" cx="365.2" cy="129.4" r="2.4"/>
-<circle class="odot" cx="381.4" cy="135.6" r="2.4"/>
-<circle class="odot" cx="369.6" cy="127.2" r="2.4"/>
-<circle class="odot" cx="401.2" cy="128.3" r="2.4"/>
-<circle class="odot" cx="381.2" cy="122.6" r="2.4"/>
-<circle class="odot" cx="346.9" cy="81.7" r="2.4"/>
-<circle class="odot" cx="371.7" cy="120.5" r="2.4"/>
-<circle class="odot" cx="367.1" cy="107.4" r="2.4"/>
-<circle class="odot" cx="382.3" cy="131.8" r="2.4"/>
-<circle class="odot" cx="389.2" cy="105.3" r="2.4"/>
-<circle class="odot" cx="385.1" cy="114.6" r="2.4"/>
-<circle class="odot" cx="381.9" cy="83.9" r="2.4"/>
-<circle class="odot" cx="370.1" cy="115.0" r="2.4"/>
-<circle class="odot" cx="389.2" cy="121.4" r="2.4"/>
-<circle class="odot" cx="349.5" cy="107.0" r="2.4"/>
-<circle class="odot" cx="390.0" cy="117.0" r="2.4"/>
-<circle class="odot" cx="367.0" cy="109.4" r="2.4"/>
-<circle class="odot" cx="367.6" cy="124.5" r="2.4"/>
-<circle class="odot" cx="382.2" cy="103.8" r="2.4"/>
-<circle class="odot" cx="404.2" cy="121.2" r="2.4"/>
-<circle class="odot" cx="383.8" cy="126.6" r="2.4"/>
-<circle class="odot" cx="393.1" cy="112.3" r="2.4"/>
-<circle class="odot" cx="362.7" cy="133.3" r="2.4"/>
-<circle class="odot" cx="362.6" cy="114.1" r="2.4"/>
-<circle class="odot" cx="354.4" cy="115.1" r="2.4"/>
-<circle class="odot" cx="378.7" cy="131.9" r="2.4"/>
-<circle class="odot" cx="356.7" cy="127.3" r="2.4"/>
-<circle class="odot" cx="365.3" cy="115.0" r="2.4"/>
-<circle class="odot" cx="366.8" cy="115.4" r="2.4"/>
-<circle class="odot" cx="372.5" cy="127.5" r="2.4"/>
-<circle class="odot" cx="397.2" cy="118.0" r="2.4"/>
-<circle class="odot" cx="368.7" cy="123.6" r="2.4"/>
-<circle class="odot" cx="369.7" cy="134.4" r="2.4"/>
-<circle class="odot" cx="363.3" cy="125.3" r="2.4"/>
-<circle class="odot" cx="382.0" cy="113.4" r="2.4"/>
-<circle class="odot" cx="405.1" cy="141.8" r="2.4"/>
-<circle class="odot" cx="390.9" cy="89.1" r="2.4"/>
-<circle class="odot" cx="397.4" cy="111.6" r="2.4"/>
-<circle class="odot" cx="376.6" cy="131.7" r="2.4"/>
-<circle class="odot" cx="380.5" cy="113.3" r="2.4"/>
-<circle class="odot" cx="396.2" cy="120.6" r="2.4"/>
-<circle class="odot" cx="403.1" cy="111.4" r="2.4"/>
-<circle class="odot" cx="385.2" cy="136.4" r="2.4"/>
-<circle class="odot" cx="390.7" cy="125.0" r="2.4"/>
-<circle class="odot" cx="384.9" cy="127.9" r="2.4"/>
-<circle class="odot" cx="375.2" cy="132.7" r="2.4"/>
-<circle class="odot" cx="381.1" cy="126.6" r="2.4"/>
-<circle class="odot" cx="384.3" cy="128.0" r="2.4"/>
-<circle class="odot" cx="388.8" cy="128.0" r="2.4"/>
-<circle class="odot" cx="389.1" cy="125.5" r="2.4"/>
-<circle class="odot" cx="407.9" cy="117.5" r="2.4"/>
-<circle class="odot" cx="392.5" cy="125.8" r="2.4"/>
-<circle class="odot" cx="403.4" cy="122.4" r="2.4"/>
-<circle class="odot" cx="395.2" cy="121.3" r="2.4"/>
-<circle class="odot" cx="404.3" cy="119.1" r="2.4"/>
-<circle class="odot" cx="394.5" cy="107.1" r="2.4"/>
-<circle class="odot" cx="359.2" cy="130.0" r="2.4"/>
-<circle class="odot" cx="377.5" cy="123.0" r="2.4"/>
-<circle class="odot" cx="376.6" cy="128.4" r="2.4"/>
-<circle class="odot" cx="356.5" cy="132.0" r="2.4"/>
-<circle class="odot" cx="371.5" cy="137.3" r="2.4"/>
-<circle class="odot" cx="386.1" cy="109.9" r="2.4"/>
-<circle class="odot" cx="406.5" cy="109.4" r="2.4"/>
-<circle class="odot" cx="371.5" cy="123.6" r="2.4"/>
-<circle class="odot" cx="413.8" cy="127.4" r="2.4"/>
-<circle class="odot" cx="375.2" cy="97.1" r="2.4"/>
-<circle class="odot" cx="376.1" cy="97.8" r="2.4"/>
-<circle class="odot" cx="387.0" cy="95.7" r="2.4"/>
-<circle class="odot" cx="366.1" cy="120.4" r="2.4"/>
-<circle class="odot" cx="361.8" cy="120.7" r="2.4"/>
-<circle class="odot" cx="366.9" cy="109.3" r="2.4"/>
-<circle class="odot" cx="379.1" cy="91.6" r="2.4"/>
-<circle class="odot" cx="367.4" cy="102.3" r="2.4"/>
-<circle class="odot" cx="391.4" cy="105.1" r="2.4"/>
-<circle class="odot" cx="362.9" cy="112.0" r="2.4"/>
-<circle class="odot" cx="373.6" cy="104.1" r="2.4"/>
-<circle class="odot" cx="367.4" cy="101.3" r="2.4"/>
-<circle class="odot" cx="366.9" cy="105.9" r="2.4"/>
-<circle class="odot" cx="383.2" cy="132.3" r="2.4"/>
-<circle class="odot" cx="375.9" cy="110.4" r="2.4"/>
-<circle class="odot" cx="353.7" cy="116.0" r="2.4"/>
-<circle class="odot" cx="393.6" cy="141.2" r="2.4"/>
-<circle class="odot" cx="390.2" cy="108.3" r="2.4"/>
-<circle class="odot" cx="380.5" cy="132.1" r="2.4"/>
-<circle class="odot" cx="373.6" cy="110.1" r="2.4"/>
-<circle class="odot" cx="351.0" cy="123.9" r="2.4"/>
-<circle class="odot" cx="351.1" cy="127.5" r="2.4"/>
-<circle class="odot" cx="397.2" cy="125.4" r="2.4"/>
-<circle class="odot" cx="403.1" cy="136.4" r="2.4"/>
-<circle class="odot" cx="410.9" cy="114.4" r="2.4"/>
-<circle class="odot" cx="423.6" cy="124.8" r="2.4"/>
-<circle class="odot" cx="401.6" cy="128.6" r="2.4"/>
-<circle class="odot" cx="418.9" cy="129.6" r="2.4"/>
-<circle class="odot" cx="411.0" cy="118.8" r="2.4"/>
-<circle class="odot" cx="390.8" cy="105.3" r="2.4"/>
-<circle class="odot" cx="397.3" cy="122.6" r="2.4"/>
-<circle class="odot" cx="386.6" cy="126.0" r="2.4"/>
-<circle class="odot" cx="393.3" cy="140.2" r="2.4"/>
-<circle class="odot" cx="398.6" cy="125.2" r="2.4"/>
-<circle class="odot" cx="414.2" cy="121.5" r="2.4"/>
-<circle class="odot" cx="413.9" cy="131.7" r="2.4"/>
-<circle class="odot" cx="442.1" cy="133.5" r="2.4"/>
-<circle class="odot" cx="406.0" cy="116.6" r="2.4"/>
-<circle class="odot" cx="457.2" cy="127.0" r="2.4"/>
-<circle class="odot" cx="403.2" cy="104.7" r="2.4"/>
-<circle class="odot" cx="423.6" cy="118.2" r="2.4"/>
-<circle class="odot" cx="438.1" cy="124.6" r="2.4"/>
-<circle class="odot" cx="421.3" cy="140.1" r="2.4"/>
-<circle class="odot" cx="417.8" cy="122.5" r="2.4"/>
-<circle class="odot" cx="384.7" cy="151.1" r="2.4"/>
-<circle class="odot" cx="400.3" cy="119.3" r="2.4"/>
-<circle class="odot" cx="420.0" cy="121.9" r="2.4"/>
-<circle class="odot" cx="438.9" cy="133.0" r="2.4"/>
-<circle class="odot" cx="466.1" cy="132.6" r="2.4"/>
-<circle class="odot" cx="417.4" cy="106.0" r="2.4"/>
-<circle class="odot" cx="411.2" cy="115.4" r="2.4"/>
-<circle class="odot" cx="442.8" cy="125.4" r="2.4"/>
-<circle class="odot" cx="439.7" cy="115.1" r="2.4"/>
-<circle class="odot" cx="476.2" cy="130.9" r="2.4"/>
-<circle class="odot" cx="443.0" cy="114.3" r="2.4"/>
-<circle class="odot" cx="434.6" cy="120.4" r="2.4"/>
-<circle class="odot" cx="392.6" cy="107.1" r="2.4"/>
-<circle class="odot" cx="437.5" cy="117.1" r="2.4"/>
-<circle class="odot" cx="407.3" cy="120.8" r="2.4"/>
-<circle class="odot" cx="419.9" cy="117.1" r="2.4"/>
-<circle class="odot" cx="471.5" cy="129.9" r="2.4"/>
-<circle class="odot" cx="437.7" cy="131.2" r="2.4"/>
-<circle class="odot" cx="439.5" cy="134.7" r="2.4"/>
-<circle class="odot" cx="444.3" cy="127.2" r="2.4"/>
-<circle class="odot" cx="439.2" cy="110.3" r="2.4"/>
-<circle class="odot" cx="405.6" cy="111.9" r="2.4"/>
-<circle class="odot" cx="419.2" cy="132.8" r="2.4"/>
-<circle class="odot" cx="455.9" cy="108.1" r="2.4"/>
-<circle class="odot" cx="413.3" cy="115.0" r="2.4"/>
-<circle class="odot" cx="405.3" cy="117.2" r="2.4"/>
-<circle class="odot" cx="484.7" cy="113.1" r="2.4"/>
-<circle class="odot" cx="480.0" cy="118.6" r="2.4"/>
-<circle class="odot" cx="439.0" cy="123.4" r="2.4"/>
-<circle class="odot" cx="425.5" cy="109.6" r="2.4"/>
-<circle class="odot" cx="427.9" cy="120.1" r="2.4"/>
-<circle class="odot" cx="454.3" cy="123.4" r="2.4"/>
-<circle class="odot" cx="443.4" cy="115.4" r="2.4"/>
-<circle class="odot" cx="466.8" cy="119.6" r="2.4"/>
-<circle class="odot" cx="444.7" cy="112.6" r="2.4"/>
-<circle class="odot" cx="435.3" cy="113.6" r="2.4"/>
-<circle class="odot" cx="466.5" cy="140.6" r="2.4"/>
-<circle class="odot" cx="444.7" cy="109.3" r="2.4"/>
-<circle class="odot" cx="447.0" cy="135.9" r="2.4"/>
-<circle class="odot" cx="407.3" cy="117.0" r="2.4"/>
-<circle class="odot" cx="462.8" cy="131.6" r="2.4"/>
-<circle class="odot" cx="455.0" cy="137.6" r="2.4"/>
-<circle class="odot" cx="463.4" cy="125.2" r="2.4"/>
-<circle class="odot" cx="435.8" cy="113.2" r="2.4"/>
-<circle class="odot" cx="483.5" cy="121.1" r="2.4"/>
-<circle class="odot" cx="457.4" cy="119.4" r="2.4"/>
-<circle class="odot" cx="436.0" cy="126.7" r="2.4"/>
-<circle class="odot" cx="410.0" cy="100.2" r="2.4"/>
-<circle class="odot" cx="451.5" cy="108.3" r="2.4"/>
-<circle class="odot" cx="442.7" cy="125.4" r="2.4"/>
-<circle class="odot" cx="463.6" cy="101.1" r="2.4"/>
-<circle class="odot" cx="476.6" cy="116.9" r="2.4"/>
-<circle class="odot" cx="441.0" cy="134.4" r="2.4"/>
-<circle class="odot" cx="490.3" cy="125.4" r="2.4"/>
-<circle class="odot" cx="463.7" cy="118.3" r="2.4"/>
-<circle class="odot" cx="452.1" cy="117.4" r="2.4"/>
-<circle class="odot" cx="447.8" cy="126.0" r="2.4"/>
-<circle class="odot" cx="481.1" cy="119.6" r="2.4"/>
-<circle class="odot" cx="467.2" cy="114.8" r="2.4"/>
-<circle class="odot" cx="474.6" cy="110.9" r="2.4"/>
-<circle class="odot" cx="461.7" cy="100.7" r="2.4"/>
-<circle class="odot" cx="454.7" cy="124.7" r="2.4"/>
-<circle class="odot" cx="436.9" cy="128.4" r="2.4"/>
-<circle class="odot" cx="445.9" cy="131.4" r="2.4"/>
-<circle class="odot" cx="400.9" cy="103.2" r="2.4"/>
-<circle class="odot" cx="455.5" cy="125.0" r="2.4"/>
-<circle class="odot" cx="425.7" cy="111.6" r="2.4"/>
-<circle class="odot" cx="429.7" cy="132.0" r="2.4"/>
-<circle class="odot" cx="432.8" cy="130.2" r="2.4"/>
-<circle class="odot" cx="433.3" cy="132.9" r="2.4"/>
-<circle class="odot" cx="427.4" cy="138.5" r="2.4"/>
-<circle class="odot" cx="438.8" cy="145.7" r="2.4"/>
-<circle class="odot" cx="429.9" cy="120.7" r="2.4"/>
-<circle class="odot" cx="411.6" cy="137.0" r="2.4"/>
-<circle class="odot" cx="435.6" cy="103.1" r="2.4"/>
-<circle class="odot" cx="439.3" cy="131.5" r="2.4"/>
-<circle class="odot" cx="413.1" cy="95.7" r="2.4"/>
-<circle class="odot" cx="425.2" cy="117.8" r="2.4"/>
-<circle class="odot" cx="432.6" cy="120.2" r="2.4"/>
-<circle class="odot" cx="421.4" cy="127.1" r="2.4"/>
-<circle class="odot" cx="441.0" cy="103.4" r="2.4"/>
-<circle class="odot" cx="447.5" cy="128.4" r="2.4"/>
-<circle class="odot" cx="432.6" cy="124.3" r="2.4"/>
-<circle class="odot" cx="421.5" cy="148.2" r="2.4"/>
-<circle class="odot" cx="415.2" cy="119.5" r="2.4"/>
-<circle class="odot" cx="428.3" cy="133.8" r="2.4"/>
-<circle class="odot" cx="452.6" cy="98.1" r="2.4"/>
-<circle class="odot" cx="437.1" cy="120.5" r="2.4"/>
-<circle class="odot" cx="448.5" cy="106.7" r="2.4"/>
-<circle class="odot" cx="421.6" cy="125.3" r="2.4"/>
-<circle class="odot" cx="429.6" cy="143.0" r="2.4"/>
-<circle class="odot" cx="426.7" cy="128.9" r="2.4"/>
-<circle class="odot" cx="425.6" cy="129.6" r="2.4"/>
-<circle class="odot" cx="440.9" cy="118.6" r="2.4"/>
-<circle class="odot" cx="412.7" cy="107.3" r="2.4"/>
-<circle class="odot" cx="435.9" cy="107.0" r="2.4"/>
-<circle class="odot" cx="406.5" cy="119.2" r="2.4"/>
-<circle class="odot" cx="415.8" cy="114.0" r="2.4"/>
-<circle class="odot" cx="434.0" cy="103.2" r="2.4"/>
-<circle class="odot" cx="437.3" cy="86.2" r="2.4"/>
-<circle class="odot" cx="437.5" cy="134.0" r="2.4"/>
-<circle class="odot" cx="458.9" cy="123.8" r="2.4"/>
-<circle class="odot" cx="418.4" cy="142.4" r="2.4"/>
-<circle class="odot" cx="428.9" cy="122.9" r="2.4"/>
-<circle class="odot" cx="432.6" cy="122.9" r="2.4"/>
-<circle class="odot" cx="420.4" cy="96.7" r="2.4"/>
-<circle class="odot" cx="426.2" cy="126.2" r="2.4"/>
-<circle class="odot" cx="419.5" cy="128.4" r="2.4"/>
-<circle class="odot" cx="438.2" cy="122.5" r="2.4"/>
-<circle class="odot" cx="444.0" cy="130.8" r="2.4"/>
-<circle class="odot" cx="420.0" cy="134.5" r="2.4"/>
-<circle class="odot" cx="439.6" cy="116.6" r="2.4"/>
-<circle class="odot" cx="427.8" cy="130.9" r="2.4"/>
-<circle class="odot" cx="420.3" cy="111.5" r="2.4"/>
-<circle class="odot" cx="436.4" cy="116.3" r="2.4"/>
-<circle class="odot" cx="441.9" cy="137.5" r="2.4"/>
-<circle class="odot" cx="438.7" cy="133.4" r="2.4"/>
-<circle class="odot" cx="437.9" cy="130.7" r="2.4"/>
-<circle class="odot" cx="400.9" cy="96.7" r="2.4"/>
-<circle class="odot" cx="406.9" cy="110.5" r="2.4"/>
-<circle class="odot" cx="423.3" cy="106.3" r="2.4"/>
-<circle class="odot" cx="382.7" cy="117.0" r="2.4"/>
-<circle class="odot" cx="474.1" cy="117.4" r="2.4"/>
-<circle class="odot" cx="421.0" cy="112.2" r="2.4"/>
-<circle class="odot" cx="411.8" cy="113.3" r="2.4"/>
-<circle class="odot" cx="448.8" cy="126.0" r="2.4"/>
-<circle class="odot" cx="392.9" cy="126.6" r="2.4"/>
-<circle class="odot" cx="419.4" cy="124.2" r="2.4"/>
-<circle class="odot" cx="436.0" cy="122.6" r="2.4"/>
-<circle class="odot" cx="393.0" cy="130.1" r="2.4"/>
-<circle class="odot" cx="442.6" cy="125.3" r="2.4"/>
-<circle class="odot" cx="390.6" cy="111.3" r="2.4"/>
-<circle class="odot" cx="384.4" cy="129.9" r="2.4"/>
-<circle class="odot" cx="394.4" cy="122.8" r="2.4"/>
-<circle class="odot" cx="384.0" cy="117.2" r="2.4"/>
-<circle class="odot" cx="405.9" cy="104.1" r="2.4"/>
-<circle class="odot" cx="467.3" cy="124.0" r="2.4"/>
-<circle class="odot" cx="434.2" cy="134.0" r="2.4"/>
-<circle class="odot" cx="416.8" cy="143.1" r="2.4"/>
-<circle class="odot" cx="436.0" cy="148.2" r="2.4"/>
-<circle class="odot" cx="434.4" cy="121.2" r="2.4"/>
-<circle class="odot" cx="443.0" cy="135.3" r="2.4"/>
-<circle class="odot" cx="403.3" cy="135.5" r="2.4"/>
-<circle class="odot" cx="461.3" cy="145.0" r="2.4"/>
-<circle class="odot" cx="401.7" cy="156.0" r="2.4"/>
-<circle class="odot" cx="403.4" cy="138.1" r="2.4"/>
-<circle class="odot" cx="430.3" cy="136.8" r="2.4"/>
-<circle class="odot" cx="453.2" cy="160.1" r="2.4"/>
-<circle class="odot" cx="405.1" cy="129.8" r="2.4"/>
-<circle class="odot" cx="404.2" cy="129.6" r="2.4"/>
-<circle class="odot" cx="404.2" cy="142.4" r="2.4"/>
-<circle class="odot" cx="436.6" cy="146.0" r="2.4"/>
-<circle class="odot" cx="408.8" cy="140.0" r="2.4"/>
-<circle class="odot" cx="407.8" cy="125.3" r="2.4"/>
-<circle class="odot" cx="441.7" cy="141.7" r="2.4"/>
-<circle class="odot" cx="449.2" cy="139.4" r="2.4"/>
-<circle class="odot" cx="449.9" cy="139.6" r="2.4"/>
-<circle class="odot" cx="399.9" cy="128.3" r="2.4"/>
-<circle class="odot" cx="442.0" cy="140.0" r="2.4"/>
-<circle class="odot" cx="395.7" cy="116.2" r="2.4"/>
-<circle class="odot" cx="432.7" cy="131.0" r="2.4"/>
-<circle class="odot" cx="443.8" cy="139.8" r="2.4"/>
-<circle class="odot" cx="437.8" cy="136.3" r="2.4"/>
-<circle class="odot" cx="436.5" cy="155.0" r="2.4"/>
-<circle class="odot" cx="439.1" cy="134.3" r="2.4"/>
-<circle class="odot" cx="426.2" cy="126.8" r="2.4"/>
-<circle class="odot" cx="404.1" cy="137.7" r="2.4"/>
-<circle class="odot" cx="405.8" cy="130.5" r="2.4"/>
-<circle class="odot" cx="447.9" cy="135.3" r="2.4"/>
-<circle class="odot" cx="399.8" cy="111.2" r="2.4"/>
-<circle class="odot" cx="451.6" cy="127.6" r="2.4"/>
-<circle class="odot" cx="443.0" cy="129.5" r="2.4"/>
-<circle class="odot" cx="441.3" cy="107.1" r="2.4"/>
-<circle class="odot" cx="472.5" cy="120.8" r="2.4"/>
-<circle class="odot" cx="405.9" cy="126.2" r="2.4"/>
-<circle class="odot" cx="429.5" cy="135.1" r="2.4"/>
-<circle class="odot" cx="476.4" cy="133.0" r="2.4"/>
-<circle class="odot" cx="444.9" cy="100.0" r="2.4"/>
-<circle class="odot" cx="453.6" cy="132.3" r="2.4"/>
-<circle class="odot" cx="445.9" cy="115.6" r="2.4"/>
-<circle class="odot" cx="432.8" cy="100.7" r="2.4"/>
-<circle class="odot" cx="410.7" cy="108.6" r="2.4"/>
-<circle class="odot" cx="432.1" cy="103.1" r="2.4"/>
-<circle class="odot" cx="466.3" cy="97.8" r="2.4"/>
-<circle class="odot" cx="435.1" cy="107.7" r="2.4"/>
-<circle class="odot" cx="458.1" cy="108.2" r="2.4"/>
-<circle class="odot" cx="444.2" cy="117.8" r="2.4"/>
-<circle class="odot" cx="459.8" cy="116.3" r="2.4"/>
-<circle class="odot" cx="445.0" cy="123.2" r="2.4"/>
-<circle class="odot" cx="467.3" cy="120.7" r="2.4"/>
-<circle class="odot" cx="405.3" cy="119.3" r="2.4"/>
-<circle class="odot" cx="447.6" cy="140.2" r="2.4"/>
-<circle class="odot" cx="460.5" cy="99.2" r="2.4"/>
-<circle class="odot" cx="461.6" cy="118.4" r="2.4"/>
-<circle class="odot" cx="423.7" cy="121.2" r="2.4"/>
-<circle class="odot" cx="473.9" cy="108.5" r="2.4"/>
-<circle class="odot" cx="480.9" cy="105.8" r="2.4"/>
-<circle class="odot" cx="456.3" cy="117.5" r="2.4"/>
-<circle class="odot" cx="452.6" cy="117.1" r="2.4"/>
-<circle class="odot" cx="441.7" cy="104.5" r="2.4"/>
-<circle class="odot" cx="469.3" cy="119.1" r="2.4"/>
-<circle class="odot" cx="446.7" cy="122.4" r="2.4"/>
-<circle class="odot" cx="451.3" cy="128.3" r="2.4"/>
-<circle class="odot" cx="450.5" cy="124.6" r="2.4"/>
-<circle class="odot" cx="468.4" cy="110.4" r="2.4"/>
-<circle class="odot" cx="476.2" cy="106.7" r="2.4"/>
-<circle class="odot" cx="476.2" cy="119.3" r="2.4"/>
-<circle class="odot" cx="449.3" cy="128.9" r="2.4"/>
-<circle class="odot" cx="438.8" cy="116.9" r="2.4"/>
-<circle class="odot" cx="470.9" cy="110.0" r="2.4"/>
-<circle class="odot" cx="448.6" cy="118.9" r="2.4"/>
-<circle class="odot" cx="424.3" cy="114.5" r="2.4"/>
-<circle class="odot" cx="458.6" cy="111.3" r="2.4"/>
-<circle class="odot" cx="444.5" cy="128.7" r="2.4"/>
-<circle class="odot" cx="447.2" cy="136.2" r="2.4"/>
-<circle class="odot" cx="498.5" cy="117.2" r="2.4"/>
-<circle class="odot" cx="464.2" cy="92.3" r="2.4"/>
-<circle class="odot" cx="437.7" cy="123.8" r="2.4"/>
-<circle class="odot" cx="452.6" cy="137.9" r="2.4"/>
-<circle class="odot" cx="463.4" cy="114.0" r="2.4"/>
-<circle class="odot" cx="409.6" cy="110.2" r="2.4"/>
-<circle class="odot" cx="407.7" cy="138.1" r="2.4"/>
-<circle class="odot" cx="438.4" cy="119.0" r="2.4"/>
-<circle class="odot" cx="417.0" cy="127.2" r="2.4"/>
-<circle class="odot" cx="425.4" cy="131.2" r="2.4"/>
-<circle class="odot" cx="447.0" cy="145.3" r="2.4"/>
-<circle class="odot" cx="450.8" cy="127.6" r="2.4"/>
-<circle class="odot" cx="446.1" cy="119.9" r="2.4"/>
-<circle class="odot" cx="483.2" cy="82.0" r="2.4"/>
-<circle class="odot" cx="474.1" cy="85.6" r="2.4"/>
-<circle class="odot" cx="484.8" cy="78.5" r="2.4"/>
-<circle class="odot" cx="474.6" cy="106.0" r="2.4"/>
-<circle class="odot" cx="503.7" cy="107.9" r="2.4"/>
-<circle class="odot" cx="444.2" cy="78.3" r="2.4"/>
-<circle class="odot" cx="483.6" cy="77.9" r="2.4"/>
-<circle class="odot" cx="423.4" cy="120.0" r="2.4"/>
-<circle class="odot" cx="458.1" cy="90.1" r="2.4"/>
-<circle class="odot" cx="414.2" cy="108.7" r="2.4"/>
-<circle class="odot" cx="469.0" cy="112.2" r="2.4"/>
-<circle class="odot" cx="493.4" cy="78.0" r="2.4"/>
-<circle class="odot" cx="490.8" cy="105.0" r="2.4"/>
-<circle class="odot" cx="452.5" cy="111.9" r="2.4"/>
-<circle class="odot" cx="458.6" cy="100.0" r="2.4"/>
-<circle class="odot" cx="444.3" cy="94.4" r="2.4"/>
-<circle class="odot" cx="455.7" cy="86.4" r="2.4"/>
-<circle class="odot" cx="429.1" cy="121.3" r="2.4"/>
-<circle class="odot" cx="503.6" cy="90.2" r="2.4"/>
-<circle class="odot" cx="445.4" cy="98.1" r="2.4"/>
-<circle class="odot" cx="439.2" cy="120.5" r="2.4"/>
-<circle class="odot" cx="496.3" cy="98.5" r="2.4"/>
-<circle class="odot" cx="525.6" cy="87.2" r="2.4"/>
-<circle class="odot" cx="475.3" cy="107.7" r="2.4"/>
-<circle class="odot" cx="426.8" cy="126.8" r="2.4"/>
-<circle class="odot" cx="441.6" cy="119.0" r="2.4"/>
-<circle class="odot" cx="450.2" cy="113.0" r="2.4"/>
-<circle class="odot" cx="451.1" cy="98.5" r="2.4"/>
-<circle class="odot" cx="480.4" cy="122.1" r="2.4"/>
-<circle class="odot" cx="506.3" cy="135.2" r="2.4"/>
-<circle class="odot" cx="492.2" cy="126.0" r="2.4"/>
-<circle class="odot" cx="461.5" cy="119.8" r="2.4"/>
-<circle class="odot" cx="508.9" cy="109.4" r="2.4"/>
-<circle class="odot" cx="509.5" cy="100.5" r="2.4"/>
-<circle class="odot" cx="458.0" cy="100.1" r="2.4"/>
-<circle class="odot" cx="490.5" cy="53.3" r="2.4"/>
-<circle class="odot" cx="459.6" cy="86.0" r="2.4"/>
-<circle class="odot" cx="474.8" cy="107.9" r="2.4"/>
-<circle class="odot" cx="470.3" cy="104.8" r="2.4"/>
-<circle class="odot" cx="437.9" cy="107.4" r="2.4"/>
-<circle class="odot" cx="459.4" cy="90.9" r="2.4"/>
-<circle class="odot" cx="488.7" cy="110.1" r="2.4"/>
-<circle class="odot" cx="463.3" cy="90.5" r="2.4"/>
-<circle class="odot" cx="464.3" cy="90.8" r="2.4"/>
-<circle class="odot" cx="453.0" cy="92.5" r="2.4"/>
-<circle class="odot" cx="495.3" cy="104.4" r="2.4"/>
-<circle class="odot" cx="438.2" cy="124.6" r="2.4"/>
-<circle class="odot" cx="472.6" cy="111.8" r="2.4"/>
-<circle class="odot" cx="456.5" cy="124.1" r="2.4"/>
-<circle class="odot" cx="493.4" cy="106.6" r="2.4"/>
-<circle class="odot" cx="451.4" cy="60.0" r="2.4"/>
-<circle class="odot" cx="429.9" cy="96.2" r="2.4"/>
-<circle class="odot" cx="461.0" cy="110.4" r="2.4"/>
-<circle class="odot" cx="443.7" cy="132.9" r="2.4"/>
-<circle class="odot" cx="492.4" cy="117.4" r="2.4"/>
-<circle class="odot" cx="464.6" cy="105.9" r="2.4"/>
-<circle class="odot" cx="452.0" cy="121.5" r="2.4"/>
-<circle class="odot" cx="451.7" cy="44.2" r="2.4"/>
-<circle class="odot" cx="470.6" cy="88.3" r="2.4"/>
-<circle class="odot" cx="453.6" cy="106.2" r="2.4"/>
-<circle class="odot" cx="476.5" cy="101.7" r="2.4"/>
-<circle class="odot" cx="451.2" cy="99.1" r="2.4"/>
-<circle class="odot" cx="442.6" cy="85.9" r="2.4"/>
-<circle class="odot" cx="467.7" cy="115.8" r="2.4"/>
-<circle class="odot" cx="427.3" cy="101.9" r="2.4"/>
-<circle class="odot" cx="453.2" cy="107.6" r="2.4"/>
-<circle class="odot" cx="487.7" cy="107.5" r="2.4"/>
-<circle class="odot" cx="445.0" cy="113.6" r="2.4"/>
-<circle class="odot" cx="494.4" cy="107.0" r="2.4"/>
-<circle class="odot" cx="459.1" cy="108.2" r="2.4"/>
-<circle class="odot" cx="464.3" cy="93.0" r="2.4"/>
-<circle class="odot" cx="457.3" cy="112.7" r="2.4"/>
-<circle class="odot" cx="465.8" cy="113.8" r="2.4"/>
-<circle class="odot" cx="463.1" cy="90.3" r="2.4"/>
-<circle class="odot" cx="466.2" cy="109.0" r="2.4"/>
-<circle class="odot" cx="426.5" cy="93.7" r="2.4"/>
-<circle class="odot" cx="398.3" cy="78.4" r="2.4"/>
-<circle class="odot" cx="432.2" cy="101.6" r="2.4"/>
-<circle class="odot" cx="434.9" cy="99.1" r="2.4"/>
-<circle class="odot" cx="483.8" cy="102.8" r="2.4"/>
-<circle class="odot" cx="458.0" cy="103.8" r="2.4"/>
-<circle class="odot" cx="452.2" cy="113.1" r="2.4"/>
-<circle class="odot" cx="428.3" cy="95.7" r="2.4"/>
-<circle class="odot" cx="442.0" cy="110.2" r="2.4"/>
-<circle class="odot" cx="467.5" cy="96.6" r="2.4"/>
-<circle class="odot" cx="491.2" cy="135.5" r="2.4"/>
-<circle class="odot" cx="475.6" cy="132.2" r="2.4"/>
-<circle class="odot" cx="471.3" cy="133.6" r="2.4"/>
-<circle class="odot" cx="457.0" cy="109.5" r="2.4"/>
-<circle class="odot" cx="480.7" cy="119.2" r="2.4"/>
-<circle class="odot" cx="436.7" cy="104.1" r="2.4"/>
-<circle class="odot" cx="485.0" cy="109.2" r="2.4"/>
-<circle class="odot" cx="484.9" cy="120.8" r="2.4"/>
-<circle class="odot" cx="444.0" cy="94.2" r="2.4"/>
-<circle class="odot" cx="469.7" cy="137.3" r="2.4"/>
-<circle class="odot" cx="439.1" cy="88.5" r="2.4"/>
-<circle class="odot" cx="498.3" cy="103.7" r="2.4"/>
-<circle class="odot" cx="474.0" cy="126.0" r="2.4"/>
-<circle class="odot" cx="480.1" cy="127.3" r="2.4"/>
-<circle class="odot" cx="486.1" cy="117.3" r="2.4"/>
-<circle class="odot" cx="437.9" cy="89.2" r="2.4"/>
-<circle class="odot" cx="500.9" cy="114.6" r="2.4"/>
-<circle class="odot" cx="461.9" cy="90.6" r="2.4"/>
-<circle class="odot" cx="493.1" cy="113.1" r="2.4"/>
-<circle class="odot" cx="438.9" cy="116.4" r="2.4"/>
-<circle class="odot" cx="464.4" cy="86.6" r="2.4"/>
-<circle class="odot" cx="470.6" cy="119.3" r="2.4"/>
-<circle class="odot" cx="479.3" cy="98.5" r="2.4"/>
-<circle class="odot" cx="420.9" cy="112.3" r="2.4"/>
-<circle class="odot" cx="402.8" cy="121.6" r="2.4"/>
-<circle class="odot" cx="439.0" cy="112.6" r="2.4"/>
-<circle class="odot" cx="439.1" cy="118.1" r="2.4"/>
-<circle class="odot" cx="492.1" cy="112.8" r="2.4"/>
-<circle class="odot" cx="460.2" cy="105.2" r="2.4"/>
-<circle class="odot" cx="454.0" cy="121.5" r="2.4"/>
-<circle class="odot" cx="471.2" cy="125.8" r="2.4"/>
-<circle class="odot" cx="426.9" cy="111.3" r="2.4"/>
-<circle class="odot" cx="431.1" cy="89.7" r="2.4"/>
-<circle class="odot" cx="448.5" cy="109.8" r="2.4"/>
-<circle class="odot" cx="425.8" cy="102.0" r="2.4"/>
-<circle class="odot" cx="476.3" cy="127.5" r="2.4"/>
-<circle class="odot" cx="461.5" cy="119.0" r="2.4"/>
-<circle class="odot" cx="471.1" cy="111.3" r="2.4"/>
-<circle class="odot" cx="443.4" cy="136.0" r="2.4"/>
-<circle class="odot" cx="446.9" cy="123.5" r="2.4"/>
-<circle class="odot" cx="474.0" cy="100.1" r="2.4"/>
-<circle class="odot" cx="499.9" cy="95.5" r="2.4"/>
-<circle class="odot" cx="492.1" cy="83.0" r="2.4"/>
-<circle class="odot" cx="459.2" cy="101.0" r="2.4"/>
-<circle class="odot" cx="432.6" cy="98.0" r="2.4"/>
-<circle class="odot" cx="441.5" cy="97.3" r="2.4"/>
-<circle class="odot" cx="442.9" cy="87.6" r="2.4"/>
-<circle class="odot" cx="446.4" cy="91.9" r="2.4"/>
-<circle class="odot" cx="442.1" cy="79.3" r="2.4"/>
-<circle class="odot" cx="435.2" cy="96.8" r="2.4"/>
-<circle class="odot" cx="470.9" cy="110.6" r="2.4"/>
-<circle class="odot" cx="435.7" cy="89.3" r="2.4"/>
-<circle class="odot" cx="456.8" cy="99.7" r="2.4"/>
-<circle class="odot" cx="440.9" cy="91.1" r="2.4"/>
-<circle class="odot" cx="427.6" cy="94.7" r="2.4"/>
-<circle class="odot" cx="454.6" cy="73.5" r="2.4"/>
-<circle class="odot" cx="491.0" cy="100.5" r="2.4"/>
-<circle class="odot" cx="471.3" cy="98.2" r="2.4"/>
-<circle class="odot" cx="463.7" cy="88.1" r="2.4"/>
-<circle class="odot" cx="433.4" cy="99.8" r="2.4"/>
-<circle class="odot" cx="466.8" cy="93.0" r="2.4"/>
-<circle class="odot" cx="473.4" cy="99.0" r="2.4"/>
-<circle class="odot" cx="436.0" cy="103.4" r="2.4"/>
-<circle class="odot" cx="446.1" cy="112.9" r="2.4"/>
-<circle class="odot" cx="434.8" cy="96.1" r="2.4"/>
-<circle class="odot" cx="467.1" cy="95.4" r="2.4"/>
-<circle class="odot" cx="468.6" cy="104.7" r="2.4"/>
-<circle class="odot" cx="449.8" cy="103.3" r="2.4"/>
-<circle class="odot" cx="437.4" cy="101.7" r="2.4"/>
-<circle class="odot" cx="488.3" cy="117.5" r="2.4"/>
-<circle class="odot" cx="465.9" cy="98.4" r="2.4"/>
-<circle class="odot" cx="450.5" cy="105.6" r="2.4"/>
-<circle class="odot" cx="471.1" cy="92.7" r="2.4"/>
-<circle class="odot" cx="489.3" cy="69.0" r="2.4"/>
-<circle class="odot" cx="443.7" cy="112.7" r="2.4"/>
-<circle class="odot" cx="490.8" cy="93.3" r="2.4"/>
-<circle class="odot" cx="427.8" cy="99.3" r="2.4"/>
-<circle class="odot" cx="463.9" cy="105.3" r="2.4"/>
-<circle class="odot" cx="481.4" cy="105.7" r="2.4"/>
-<circle class="odot" cx="452.5" cy="102.5" r="2.4"/>
-<circle class="odot" cx="461.9" cy="94.4" r="2.4"/>
-<circle class="odot" cx="465.1" cy="99.4" r="2.4"/>
-<circle class="odot" cx="458.8" cy="111.1" r="2.4"/>
-<circle class="odot" cx="465.8" cy="104.8" r="2.4"/>
-<circle class="odot" cx="474.1" cy="106.3" r="2.4"/>
-<circle class="odot" cx="466.8" cy="105.6" r="2.4"/>
-<circle class="odot" cx="470.9" cy="114.9" r="2.4"/>
-<circle class="odot" cx="462.0" cy="101.9" r="2.4"/>
-<circle class="odot" cx="450.8" cy="112.8" r="2.4"/>
-<circle class="odot" cx="476.1" cy="102.2" r="2.4"/>
-<circle class="odot" cx="471.1" cy="113.4" r="2.4"/>
-<circle class="odot" cx="483.0" cy="116.4" r="2.4"/>
-<circle class="odot" cx="476.1" cy="101.3" r="2.4"/>
-<circle class="odot" cx="445.1" cy="108.2" r="2.4"/>
-<circle class="odot" cx="475.6" cy="112.1" r="2.4"/>
-<circle class="odot" cx="485.3" cy="113.5" r="2.4"/>
-<circle class="odot" cx="455.9" cy="115.5" r="2.4"/>
-<circle class="odot" cx="355.3" cy="105.8" r="2.4"/>
-<circle class="odot" cx="362.7" cy="116.1" r="2.4"/>
-<circle class="odot" cx="374.1" cy="122.8" r="2.4"/>
-<circle class="odot" cx="367.4" cy="103.4" r="2.4"/>
-<circle class="odot" cx="400.4" cy="104.1" r="2.4"/>
-<circle class="odot" cx="371.1" cy="84.5" r="2.4"/>
-<circle class="odot" cx="366.5" cy="105.3" r="2.4"/>
-<circle class="odot" cx="330.3" cy="74.7" r="2.4"/>
-<circle class="odot" cx="380.8" cy="110.4" r="2.4"/>
-<circle class="odot" cx="368.8" cy="110.0" r="2.4"/>
-<circle class="odot" cx="383.9" cy="114.6" r="2.4"/>
-<circle class="odot" cx="361.6" cy="116.2" r="2.4"/>
-<circle class="odot" cx="381.6" cy="124.8" r="2.4"/>
-<circle class="odot" cx="390.6" cy="118.5" r="2.4"/>
-<circle class="odot" cx="381.3" cy="112.0" r="2.4"/>
-<circle class="odot" cx="344.2" cy="101.2" r="2.4"/>
-<circle class="odot" cx="414.1" cy="97.7" r="2.4"/>
-<circle class="odot" cx="353.5" cy="109.1" r="2.4"/>
-<circle class="odot" cx="390.2" cy="113.8" r="2.4"/>
-<circle class="odot" cx="374.0" cy="94.4" r="2.4"/>
-<circle class="odot" cx="376.3" cy="104.2" r="2.4"/>
-<circle class="odot" cx="387.9" cy="95.5" r="2.4"/>
-<circle class="odot" cx="364.8" cy="105.0" r="2.4"/>
-<circle class="odot" cx="371.2" cy="104.0" r="2.4"/>
-<circle class="odot" cx="387.6" cy="114.2" r="2.4"/>
-<circle class="odot" cx="407.3" cy="118.5" r="2.4"/>
-<circle class="odot" cx="402.9" cy="113.9" r="2.4"/>
-<circle class="odot" cx="368.5" cy="109.2" r="2.4"/>
-<circle class="odot" cx="377.8" cy="106.0" r="2.4"/>
-<circle class="odot" cx="362.5" cy="90.9" r="2.4"/>
-<circle class="odot" cx="403.8" cy="89.0" r="2.4"/>
-<circle class="odot" cx="391.9" cy="129.0" r="2.4"/>
-<circle class="odot" cx="361.6" cy="84.9" r="2.4"/>
-<circle class="odot" cx="394.9" cy="102.2" r="2.4"/>
-<circle class="odot" cx="411.2" cy="118.1" r="2.4"/>
-<circle class="odot" cx="355.7" cy="103.7" r="2.4"/>
-<circle class="odot" cx="361.8" cy="107.1" r="2.4"/>
-<circle class="odot" cx="387.2" cy="108.8" r="2.4"/>
-<circle class="odot" cx="386.1" cy="112.3" r="2.4"/>
-<circle class="odot" cx="393.8" cy="106.2" r="2.4"/>
-<circle class="odot" cx="422.8" cy="108.9" r="2.4"/>
-<circle class="odot" cx="375.0" cy="104.6" r="2.4"/>
-<circle class="odot" cx="388.7" cy="110.7" r="2.4"/>
-<circle class="odot" cx="376.2" cy="105.7" r="2.4"/>
-<circle class="odot" cx="356.2" cy="95.0" r="2.4"/>
-<circle class="odot" cx="368.8" cy="105.0" r="2.4"/>
-<circle class="odot" cx="375.7" cy="100.2" r="2.4"/>
-<circle class="odot" cx="417.2" cy="102.3" r="2.4"/>
-<circle class="odot" cx="388.5" cy="129.3" r="2.4"/>
-<circle class="odot" cx="406.9" cy="97.0" r="2.4"/>
-<circle class="odot" cx="342.8" cy="100.6" r="2.4"/>
-<circle class="odot" cx="391.8" cy="111.6" r="2.4"/>
-<circle class="odot" cx="390.9" cy="111.9" r="2.4"/>
-<circle class="odot" cx="357.7" cy="111.9" r="2.4"/>
-<circle class="odot" cx="387.5" cy="96.9" r="2.4"/>
-<circle class="odot" cx="384.3" cy="100.3" r="2.4"/>
-<circle class="odot" cx="396.7" cy="109.4" r="2.4"/>
-<circle class="odot" cx="388.0" cy="108.1" r="2.4"/>
-<circle class="odot" cx="400.0" cy="107.6" r="2.4"/>
-<circle class="odot" cx="366.7" cy="110.6" r="2.4"/>
-<circle class="odot" cx="388.7" cy="115.1" r="2.4"/>
-<circle class="odot" cx="402.2" cy="104.6" r="2.4"/>
-<circle class="odot" cx="376.4" cy="114.4" r="2.4"/>
-<circle class="odot" cx="399.9" cy="106.1" r="2.4"/>
-<circle class="odot" cx="381.2" cy="123.6" r="2.4"/>
-<circle class="odot" cx="391.0" cy="103.7" r="2.4"/>
-<circle class="odot" cx="395.6" cy="100.9" r="2.4"/>
-<circle class="odot" cx="368.4" cy="92.9" r="2.4"/>
-<circle class="odot" cx="392.1" cy="123.1" r="2.4"/>
-<circle class="odot" cx="392.4" cy="115.4" r="2.4"/>
-<circle class="odot" cx="360.0" cy="100.3" r="2.4"/>
-<circle class="odot" cx="370.6" cy="116.2" r="2.4"/>
-<circle class="odot" cx="397.6" cy="105.4" r="2.4"/>
-<circle class="odot" cx="362.8" cy="109.4" r="2.4"/>
-<circle class="odot" cx="378.5" cy="128.7" r="2.4"/>
-<circle class="odot" cx="371.2" cy="124.6" r="2.4"/>
-<circle class="odot" cx="375.0" cy="110.7" r="2.4"/>
-<circle class="odot" cx="388.0" cy="116.9" r="2.4"/>
-<circle class="odot" cx="383.0" cy="127.3" r="2.4"/>
-<circle class="odot" cx="356.5" cy="95.9" r="2.4"/>
-<circle class="odot" cx="377.3" cy="124.4" r="2.4"/>
-<circle class="odot" cx="375.9" cy="94.8" r="2.4"/>
-<circle class="odot" cx="388.6" cy="107.5" r="2.4"/>
-<circle class="odot" cx="366.6" cy="103.4" r="2.4"/>
-<circle class="odot" cx="390.6" cy="111.3" r="2.4"/>
-<circle class="odot" cx="371.1" cy="105.2" r="2.4"/>
-<circle class="odot" cx="372.2" cy="102.1" r="2.4"/>
-<circle class="odot" cx="360.7" cy="106.2" r="2.4"/>
-<circle class="odot" cx="407.0" cy="112.0" r="2.4"/>
-<circle class="odot" cx="394.1" cy="120.8" r="2.4"/>
-<circle class="odot" cx="379.3" cy="116.2" r="2.4"/>
-<circle class="odot" cx="371.0" cy="99.7" r="2.4"/>
-<circle class="odot" cx="386.0" cy="109.4" r="2.4"/>
-<circle class="odot" cx="353.5" cy="99.2" r="2.4"/>
-<circle class="odot" cx="396.3" cy="130.2" r="2.4"/>
-<circle class="odot" cx="368.0" cy="104.8" r="2.4"/>
-<circle class="odot" cx="391.9" cy="106.7" r="2.4"/>
-<circle class="odot" cx="386.0" cy="121.4" r="2.4"/>
-<circle class="odot" cx="384.9" cy="112.0" r="2.4"/>
-<circle class="odot" cx="388.0" cy="113.8" r="2.4"/>
-<circle class="odot" cx="377.7" cy="97.8" r="2.4"/>
-<circle class="odot" cx="348.0" cy="103.0" r="2.4"/>
-<circle class="odot" cx="354.9" cy="108.7" r="2.4"/>
-<circle class="odot" cx="393.4" cy="109.8" r="2.4"/>
-<circle class="odot" cx="373.9" cy="109.1" r="2.4"/>
-<circle class="odot" cx="402.5" cy="110.5" r="2.4"/>
-<circle class="odot" cx="372.7" cy="92.0" r="2.4"/>
-<circle class="odot" cx="384.3" cy="109.2" r="2.4"/>
-<circle class="odot" cx="407.0" cy="118.0" r="2.4"/>
-<circle class="odot" cx="375.6" cy="109.6" r="2.4"/>
-<circle class="odot" cx="374.9" cy="120.8" r="2.4"/>
-<circle class="odot" cx="382.4" cy="101.2" r="2.4"/>
-<circle class="odot" cx="371.9" cy="99.0" r="2.4"/>
-<circle class="odot" cx="389.4" cy="106.2" r="2.4"/>
-<circle class="odot" cx="369.8" cy="98.9" r="2.4"/>
-<circle class="odot" cx="392.8" cy="106.1" r="2.4"/>
-<circle class="odot" cx="389.7" cy="116.2" r="2.4"/>
-<circle class="odot" cx="378.0" cy="121.3" r="2.4"/>
-<circle class="odot" cx="376.8" cy="116.0" r="2.4"/>
-<circle class="odot" cx="386.1" cy="112.1" r="2.4"/>
-<circle class="odot" cx="371.0" cy="115.6" r="2.4"/>
-<circle class="odot" cx="378.7" cy="104.2" r="2.4"/>
-<circle class="odot" cx="395.3" cy="112.8" r="2.4"/>
-<circle class="odot" cx="373.4" cy="102.6" r="2.4"/>
-<circle class="odot" cx="377.5" cy="108.8" r="2.4"/>
-<circle class="odot" cx="384.1" cy="101.5" r="2.4"/>
-<circle class="odot" cx="400.8" cy="125.2" r="2.4"/>
-<circle class="odot" cx="387.8" cy="93.3" r="2.4"/>
-<circle class="odot" cx="387.0" cy="103.7" r="2.4"/>
-<circle class="odot" cx="433.8" cy="100.1" r="2.4"/>
-<circle class="odot" cx="401.3" cy="98.6" r="2.4"/>
-<circle class="odot" cx="403.1" cy="115.9" r="2.4"/>
-<circle class="odot" cx="435.0" cy="117.5" r="2.4"/>
-<circle class="odot" cx="392.3" cy="115.3" r="2.4"/>
-<circle class="odot" cx="405.7" cy="104.8" r="2.4"/>
-<circle class="odot" cx="385.0" cy="134.9" r="2.4"/>
-<circle class="odot" cx="361.8" cy="110.0" r="2.4"/>
-<circle class="odot" cx="405.8" cy="126.0" r="2.4"/>
-<circle class="odot" cx="385.6" cy="125.2" r="2.4"/>
-<circle class="odot" cx="383.3" cy="121.1" r="2.4"/>
-<circle class="odot" cx="358.7" cy="120.8" r="2.4"/>
-<circle class="odot" cx="383.3" cy="106.6" r="2.4"/>
-<circle class="odot" cx="394.6" cy="94.2" r="2.4"/>
-<circle class="odot" cx="420.2" cy="111.5" r="2.4"/>
-<circle class="odot" cx="388.7" cy="112.4" r="2.4"/>
-<circle class="odot" cx="378.3" cy="115.9" r="2.4"/>
-<circle class="odot" cx="363.0" cy="102.8" r="2.4"/>
-<circle class="odot" cx="389.5" cy="94.4" r="2.4"/>
-<circle class="odot" cx="392.0" cy="108.1" r="2.4"/>
-<circle class="odot" cx="381.6" cy="119.6" r="2.4"/>
-<circle class="odot" cx="398.6" cy="103.9" r="2.4"/>
-<circle class="odot" cx="361.7" cy="120.4" r="2.4"/>
-<circle class="odot" cx="370.5" cy="114.0" r="2.4"/>
-<circle class="odot" cx="381.0" cy="103.9" r="2.4"/>
-<circle class="odot" cx="389.3" cy="107.4" r="2.4"/>
-<circle class="odot" cx="372.5" cy="116.9" r="2.4"/>
-<circle class="odot" cx="391.5" cy="100.2" r="2.4"/>
-<circle class="odot" cx="389.9" cy="114.4" r="2.4"/>
-<circle class="odot" cx="396.6" cy="106.0" r="2.4"/>
-<circle class="odot" cx="375.0" cy="124.0" r="2.4"/>
-<circle class="odot" cx="387.4" cy="106.3" r="2.4"/>
-<circle class="odot" cx="399.9" cy="105.0" r="2.4"/>
-<circle class="odot" cx="376.0" cy="103.9" r="2.4"/>
-<circle class="odot" cx="397.8" cy="120.6" r="2.4"/>
-<circle class="odot" cx="372.1" cy="99.4" r="2.4"/>
-<circle class="odot" cx="403.3" cy="111.1" r="2.4"/>
-<circle class="odot" cx="397.0" cy="73.5" r="2.4"/>
-<circle class="odot" cx="403.1" cy="96.7" r="2.4"/>
-<circle class="odot" cx="390.3" cy="111.3" r="2.4"/>
-<circle class="odot" cx="381.1" cy="115.4" r="2.4"/>
-<circle class="odot" cx="390.6" cy="128.9" r="2.4"/>
-<circle class="odot" cx="410.2" cy="127.4" r="2.4"/>
-<circle class="odot" cx="380.6" cy="107.7" r="2.4"/>
-<circle class="odot" cx="383.0" cy="125.2" r="2.4"/>
-<circle class="odot" cx="387.0" cy="113.7" r="2.4"/>
-<circle class="odot" cx="406.0" cy="119.5" r="2.4"/>
-<circle class="odot" cx="373.8" cy="122.9" r="2.4"/>
-<circle class="odot" cx="403.1" cy="131.8" r="2.4"/>
-<circle class="odot" cx="426.0" cy="102.1" r="2.4"/>
-<circle class="odot" cx="406.4" cy="93.6" r="2.4"/>
-<circle class="odot" cx="406.4" cy="98.0" r="2.4"/>
-<circle class="odot" cx="386.1" cy="111.2" r="2.4"/>
-<circle class="odot" cx="406.9" cy="113.7" r="2.4"/>
-<circle class="odot" cx="419.0" cy="121.2" r="2.4"/>
-<circle class="odot" cx="391.0" cy="101.9" r="2.4"/>
-<circle class="odot" cx="426.1" cy="109.5" r="2.4"/>
-<circle class="odot" cx="402.4" cy="98.7" r="2.4"/>
-<circle class="odot" cx="418.6" cy="86.2" r="2.4"/>
-<circle class="odot" cx="383.8" cy="104.0" r="2.4"/>
-<circle class="odot" cx="388.0" cy="83.7" r="2.4"/>
-<circle class="odot" cx="408.5" cy="104.8" r="2.4"/>
-<circle class="odot" cx="410.9" cy="102.6" r="2.4"/>
-<circle class="odot" cx="408.9" cy="107.5" r="2.4"/>
-<circle class="odot" cx="398.2" cy="98.7" r="2.4"/>
-<circle class="odot" cx="430.7" cy="116.9" r="2.4"/>
-<circle class="odot" cx="414.8" cy="101.5" r="2.4"/>
-<circle class="odot" cx="402.7" cy="125.1" r="2.4"/>
-<circle class="odot" cx="401.0" cy="86.1" r="2.4"/>
-<circle class="odot" cx="418.0" cy="108.2" r="2.4"/>
-<circle class="odot" cx="366.2" cy="108.4" r="2.4"/>
-<circle class="odot" cx="390.5" cy="95.0" r="2.4"/>
-<circle class="odot" cx="428.1" cy="113.7" r="2.4"/>
-<circle class="odot" cx="373.1" cy="96.2" r="2.4"/>
-<circle class="odot" cx="409.7" cy="108.4" r="2.4"/>
-<circle class="odot" cx="399.2" cy="110.3" r="2.4"/>
-<circle class="odot" cx="398.5" cy="109.1" r="2.4"/>
-<circle class="odot" cx="396.9" cy="112.8" r="2.4"/>
-<circle class="odot" cx="400.6" cy="105.4" r="2.4"/>
-<circle class="odot" cx="423.1" cy="112.9" r="2.4"/>
-<circle class="odot" cx="399.7" cy="110.3" r="2.4"/>
-<circle class="odot" cx="403.6" cy="89.4" r="2.4"/>
-<circle class="odot" cx="427.3" cy="94.0" r="2.4"/>
-<circle class="odot" cx="401.8" cy="118.1" r="2.4"/>
-<circle class="odot" cx="391.9" cy="112.9" r="2.4"/>
-<circle class="odot" cx="415.5" cy="104.0" r="2.4"/>
-<circle class="odot" cx="393.2" cy="112.2" r="2.4"/>
-<circle class="odot" cx="395.1" cy="106.6" r="2.4"/>
-<circle class="odot" cx="465.4" cy="107.9" r="2.4"/>
-<circle class="odot" cx="439.9" cy="111.7" r="2.4"/>
-<circle class="odot" cx="425.0" cy="103.0" r="2.4"/>
-<circle class="odot" cx="464.4" cy="102.3" r="2.4"/>
-<circle class="odot" cx="454.8" cy="130.7" r="2.4"/>
-<circle class="odot" cx="466.7" cy="116.2" r="2.4"/>
-<circle class="odot" cx="423.4" cy="106.4" r="2.4"/>
-<circle class="odot" cx="424.5" cy="105.1" r="2.4"/>
-<circle class="odot" cx="451.1" cy="109.2" r="2.4"/>
-<circle class="odot" cx="436.9" cy="95.9" r="2.4"/>
-<circle class="odot" cx="447.2" cy="111.7" r="2.4"/>
-<circle class="odot" cx="478.6" cy="106.4" r="2.4"/>
-<circle class="odot" cx="442.3" cy="94.2" r="2.4"/>
-<circle class="odot" cx="445.5" cy="106.2" r="2.4"/>
-<circle class="odot" cx="436.3" cy="104.1" r="2.4"/>
-<circle class="odot" cx="396.4" cy="109.9" r="2.4"/>
-<circle class="odot" cx="424.1" cy="106.1" r="2.4"/>
-<circle class="odot" cx="429.7" cy="98.2" r="2.4"/>
-<circle class="odot" cx="494.0" cy="103.3" r="2.4"/>
-<circle class="odot" cx="444.7" cy="118.3" r="2.4"/>
-<circle class="odot" cx="429.3" cy="102.1" r="2.4"/>
-<circle class="odot" cx="443.8" cy="101.2" r="2.4"/>
-<circle class="odot" cx="448.0" cy="110.0" r="2.4"/>
-<circle class="odot" cx="427.7" cy="105.5" r="2.4"/>
-<circle class="odot" cx="417.1" cy="131.1" r="2.4"/>
-<circle class="odot" cx="408.7" cy="112.1" r="2.4"/>
-<circle class="odot" cx="425.2" cy="116.8" r="2.4"/>
-<circle class="odot" cx="422.4" cy="122.9" r="2.4"/>
-<circle class="odot" cx="417.6" cy="124.8" r="2.4"/>
-<circle class="odot" cx="445.6" cy="105.9" r="2.4"/>
-<circle class="odot" cx="449.3" cy="102.4" r="2.4"/>
-<circle class="odot" cx="443.8" cy="116.1" r="2.4"/>
-<circle class="odot" cx="464.3" cy="125.7" r="2.4"/>
-<circle class="odot" cx="471.3" cy="71.8" r="2.4"/>
-<circle class="odot" cx="461.6" cy="114.5" r="2.4"/>
-<circle class="odot" cx="432.8" cy="100.8" r="2.4"/>
-<circle class="odot" cx="463.4" cy="92.9" r="2.4"/>
-<circle class="odot" cx="424.1" cy="118.8" r="2.4"/>
-<circle class="odot" cx="458.5" cy="103.2" r="2.4"/>
-<circle class="odot" cx="457.3" cy="114.8" r="2.4"/>
-<circle class="odot" cx="382.8" cy="102.2" r="2.4"/>
-<circle class="odot" cx="384.4" cy="97.8" r="2.4"/>
-<circle class="odot" cx="383.6" cy="129.5" r="2.4"/>
-<circle class="odot" cx="419.2" cy="91.0" r="2.4"/>
-<circle class="odot" cx="380.1" cy="105.2" r="2.4"/>
-<circle class="odot" cx="413.6" cy="103.6" r="2.4"/>
-<circle class="odot" cx="413.4" cy="113.7" r="2.4"/>
-<circle class="odot" cx="400.1" cy="106.2" r="2.4"/>
-<circle class="odot" cx="417.8" cy="113.0" r="2.4"/>
-<circle class="odot" cx="413.9" cy="100.6" r="2.4"/>
-<circle class="odot" cx="385.7" cy="84.4" r="2.4"/>
-<circle class="odot" cx="360.2" cy="130.3" r="2.4"/>
-<circle class="odot" cx="407.7" cy="114.5" r="2.4"/>
-<circle class="odot" cx="378.6" cy="102.8" r="2.4"/>
-<circle class="odot" cx="372.2" cy="121.0" r="2.4"/>
-<circle class="odot" cx="388.8" cy="105.1" r="2.4"/>
-<circle class="odot" cx="370.1" cy="103.3" r="2.4"/>
-<circle class="odot" cx="409.3" cy="114.8" r="2.4"/>
-<circle class="odot" cx="408.4" cy="111.0" r="2.4"/>
-<circle class="odot" cx="403.1" cy="107.7" r="2.4"/>
-<circle class="odot" cx="400.9" cy="117.1" r="2.4"/>
-<circle class="ocent" cx="382.0" cy="272.0" r="5"/>
-<text class="olab" x="382.0" y="294" text-anchor="middle">eval centroid</text>
-<text class="oaxlab" x="690" y="294" text-anchor="end">projection on the probe direction w &#8594;</text>
-<text class="oaxlab rot" transform="translate(22,149) rotate(-90)" text-anchor="middle">everything orthogonal to w</text>
+        <div class="armhead">arm 2 <span>&middot; every red-team row and every
+        eval row, resolved onto the decision axis</span></div>
+        <div class="panel"><svg viewBox="0 0 720 398" class="chart" role="img" aria-label="every eval row, split by split, and every red-team row with the most off-distribution and most eval-like 10% coloured, displaced from the eval centroid and resolved onto the probe decision axis and its orthogonal complement">
+<line class="ogrid" x1="74" y1="286.0" x2="690" y2="286.0"/>
+<text class="otick" x="64" y="290.0" text-anchor="end">0</text>
+<line class="ogrid" x1="74" y1="235.0" x2="690" y2="235.0"/>
+<text class="otick" x="64" y="239.0" text-anchor="end">9</text>
+<line class="ogrid" x1="74" y1="183.9" x2="690" y2="183.9"/>
+<text class="otick" x="64" y="187.9" text-anchor="end">18</text>
+<line class="ogrid" x1="74" y1="132.9" x2="690" y2="132.9"/>
+<text class="otick" x="64" y="136.9" text-anchor="end">27</text>
+<line class="ogrid" x1="74" y1="81.8" x2="690" y2="81.8"/>
+<text class="otick" x="64" y="85.8" text-anchor="end">36</text>
+<line class="ogrid" x1="74" y1="30.8" x2="690" y2="30.8"/>
+<text class="otick" x="64" y="34.8" text-anchor="end">45</text>
+<line class="oaxis" x1="74" y1="286" x2="690" y2="286"/>
+<line class="oaxis dash" x1="382.0" y1="24" x2="382.0" y2="286"/>
+<circle class="odot rest" cx="434.8" cy="108.5" r="2.4"/>
+<circle class="odot rest" cx="385.6" cy="139.8" r="2.4"/>
+<circle class="odot rest" cx="387.2" cy="122.5" r="2.4"/>
+<circle class="odot rest" cx="406.2" cy="123.3" r="2.4"/>
+<circle class="odot rest" cx="377.6" cy="117.4" r="2.4"/>
+<circle class="odot rest" cx="408.0" cy="133.7" r="2.4"/>
+<circle class="odot rest" cx="368.2" cy="162.6" r="2.4"/>
+<circle class="odot rest" cx="361.8" cy="171.4" r="2.4"/>
+<circle class="odot rest" cx="399.5" cy="142.3" r="2.4"/>
+<circle class="odot rest" cx="399.7" cy="150.0" r="2.4"/>
+<circle class="odot rest" cx="399.7" cy="165.9" r="2.4"/>
+<circle class="odot rest" cx="402.0" cy="170.9" r="2.4"/>
+<circle class="odot rest" cx="391.9" cy="161.2" r="2.4"/>
+<circle class="odot rest" cx="408.7" cy="143.6" r="2.4"/>
+<circle class="odot rest" cx="390.9" cy="79.5" r="2.4"/>
+<circle class="odot rest" cx="395.6" cy="110.2" r="2.4"/>
+<circle class="odot rest" cx="376.9" cy="137.8" r="2.4"/>
+<circle class="odot rest" cx="389.3" cy="138.1" r="2.4"/>
+<circle class="odot rest" cx="399.1" cy="135.1" r="2.4"/>
+<circle class="odot rest" cx="420.4" cy="150.6" r="2.4"/>
+<circle class="odot rest" cx="404.9" cy="132.2" r="2.4"/>
+<circle class="odot rest" cx="390.9" cy="126.2" r="2.4"/>
+<circle class="odot rest" cx="369.4" cy="172.1" r="2.4"/>
+<circle class="odot rest" cx="406.9" cy="156.9" r="2.4"/>
+<circle class="odot rest" cx="392.0" cy="139.7" r="2.4"/>
+<circle class="odot rest" cx="346.6" cy="144.0" r="2.4"/>
+<circle class="odot rest" cx="381.7" cy="158.2" r="2.4"/>
+<circle class="odot rest" cx="413.7" cy="144.4" r="2.4"/>
+<circle class="odot rest" cx="407.5" cy="146.7" r="2.4"/>
+<circle class="odot rest" cx="388.9" cy="150.3" r="2.4"/>
+<circle class="odot rest" cx="412.1" cy="125.4" r="2.4"/>
+<circle class="odot rest" cx="378.6" cy="145.6" r="2.4"/>
+<circle class="odot rest" cx="358.3" cy="130.7" r="2.4"/>
+<circle class="odot rest" cx="398.5" cy="165.5" r="2.4"/>
+<circle class="odot rest" cx="384.5" cy="136.0" r="2.4"/>
+<circle class="odot rest" cx="372.5" cy="146.8" r="2.4"/>
+<circle class="odot rest" cx="361.4" cy="138.7" r="2.4"/>
+<circle class="odot rest" cx="382.0" cy="152.9" r="2.4"/>
+<circle class="odot rest" cx="417.9" cy="140.3" r="2.4"/>
+<circle class="odot rest" cx="382.4" cy="154.6" r="2.4"/>
+<circle class="odot rest" cx="377.1" cy="146.4" r="2.4"/>
+<circle class="odot rest" cx="385.0" cy="123.7" r="2.4"/>
+<circle class="odot rest" cx="376.0" cy="110.0" r="2.4"/>
+<circle class="odot rest" cx="371.0" cy="147.7" r="2.4"/>
+<circle class="odot rest" cx="386.6" cy="107.0" r="2.4"/>
+<circle class="odot rest" cx="376.9" cy="131.6" r="2.4"/>
+<circle class="odot rest" cx="385.8" cy="148.3" r="2.4"/>
+<circle class="odot rest" cx="372.7" cy="132.8" r="2.4"/>
+<circle class="odot rest" cx="395.9" cy="124.6" r="2.4"/>
+<circle class="odot rest" cx="373.3" cy="140.5" r="2.4"/>
+<circle class="odot rest" cx="367.2" cy="133.3" r="2.4"/>
+<circle class="odot rest" cx="387.7" cy="141.3" r="2.4"/>
+<circle class="odot rest" cx="372.2" cy="130.8" r="2.4"/>
+<circle class="odot rest" cx="385.3" cy="138.6" r="2.4"/>
+<circle class="odot rest" cx="384.1" cy="129.0" r="2.4"/>
+<circle class="odot rest" cx="375.7" cy="123.4" r="2.4"/>
+<circle class="odot rest" cx="380.9" cy="139.6" r="2.4"/>
+<circle class="odot rest" cx="359.5" cy="141.5" r="2.4"/>
+<circle class="odot rest" cx="388.1" cy="128.8" r="2.4"/>
+<circle class="odot rest" cx="351.0" cy="130.2" r="2.4"/>
+<circle class="odot rest" cx="392.1" cy="130.1" r="2.4"/>
+<circle class="odot rest" cx="390.8" cy="129.5" r="2.4"/>
+<circle class="odot rest" cx="391.9" cy="127.1" r="2.4"/>
+<circle class="odot rest" cx="361.4" cy="153.6" r="2.4"/>
+<circle class="odot rest" cx="371.0" cy="139.6" r="2.4"/>
+<circle class="odot rest" cx="348.2" cy="116.3" r="2.4"/>
+<circle class="odot rest" cx="393.8" cy="142.4" r="2.4"/>
+<circle class="odot rest" cx="386.8" cy="117.6" r="2.4"/>
+<circle class="odot rest" cx="398.2" cy="138.9" r="2.4"/>
+<circle class="odot rest" cx="377.8" cy="155.2" r="2.4"/>
+<circle class="odot rest" cx="393.4" cy="147.5" r="2.4"/>
+<circle class="odot rest" cx="355.0" cy="151.6" r="2.4"/>
+<circle class="odot rest" cx="351.7" cy="141.7" r="2.4"/>
+<circle class="odot rest" cx="372.0" cy="145.1" r="2.4"/>
+<circle class="odot rest" cx="377.2" cy="155.9" r="2.4"/>
+<circle class="odot rest" cx="400.8" cy="142.1" r="2.4"/>
+<circle class="odot rest" cx="387.8" cy="166.8" r="2.4"/>
+<circle class="odot rest" cx="408.9" cy="147.1" r="2.4"/>
+<circle class="odot rest" cx="385.0" cy="149.2" r="2.4"/>
+<circle class="odot rest" cx="380.4" cy="143.6" r="2.4"/>
+<circle class="odot rest" cx="385.5" cy="162.0" r="2.4"/>
+<circle class="odot rest" cx="368.2" cy="148.3" r="2.4"/>
+<circle class="odot rest" cx="369.5" cy="142.5" r="2.4"/>
+<circle class="odot rest" cx="348.6" cy="130.8" r="2.4"/>
+<circle class="odot rest" cx="341.2" cy="141.1" r="2.4"/>
+<circle class="odot rest" cx="381.7" cy="147.3" r="2.4"/>
+<circle class="odot rest" cx="373.9" cy="143.2" r="2.4"/>
+<circle class="odot rest" cx="365.2" cy="152.2" r="2.4"/>
+<circle class="odot rest" cx="381.4" cy="158.1" r="2.4"/>
+<circle class="odot rest" cx="369.6" cy="150.2" r="2.4"/>
+<circle class="odot rest" cx="401.2" cy="151.2" r="2.4"/>
+<circle class="odot rest" cx="381.2" cy="145.9" r="2.4"/>
+<circle class="odot rest" cx="371.7" cy="143.9" r="2.4"/>
+<circle class="odot rest" cx="367.1" cy="131.6" r="2.4"/>
+<circle class="odot rest" cx="382.3" cy="154.5" r="2.4"/>
+<circle class="odot rest" cx="389.2" cy="129.7" r="2.4"/>
+<circle class="odot rest" cx="385.1" cy="138.4" r="2.4"/>
+<circle class="odot rest" cx="381.9" cy="109.6" r="2.4"/>
+<circle class="odot rest" cx="370.1" cy="138.8" r="2.4"/>
+<circle class="odot rest" cx="389.2" cy="144.8" r="2.4"/>
+<circle class="odot rest" cx="349.5" cy="131.2" r="2.4"/>
+<circle class="odot rest" cx="390.0" cy="140.6" r="2.4"/>
+<circle class="odot rest" cx="367.0" cy="133.5" r="2.4"/>
+<circle class="odot rest" cx="367.6" cy="147.6" r="2.4"/>
+<circle class="odot rest" cx="382.2" cy="128.3" r="2.4"/>
+<circle class="odot rest" cx="404.2" cy="144.6" r="2.4"/>
+<circle class="odot rest" cx="383.8" cy="149.6" r="2.4"/>
+<circle class="odot rest" cx="393.1" cy="136.2" r="2.4"/>
+<circle class="odot rest" cx="362.7" cy="155.9" r="2.4"/>
+<circle class="odot rest" cx="362.6" cy="137.9" r="2.4"/>
+<circle class="odot rest" cx="354.4" cy="138.9" r="2.4"/>
+<circle class="odot rest" cx="378.7" cy="154.6" r="2.4"/>
+<circle class="odot rest" cx="356.7" cy="150.3" r="2.4"/>
+<circle class="odot rest" cx="365.3" cy="138.7" r="2.4"/>
+<circle class="odot rest" cx="366.8" cy="139.1" r="2.4"/>
+<circle class="odot rest" cx="372.5" cy="150.5" r="2.4"/>
+<circle class="odot rest" cx="397.2" cy="141.6" r="2.4"/>
+<circle class="odot rest" cx="368.7" cy="146.8" r="2.4"/>
+<circle class="odot rest" cx="369.7" cy="156.9" r="2.4"/>
+<circle class="odot rest" cx="363.3" cy="148.4" r="2.4"/>
+<circle class="odot rest" cx="382.0" cy="137.3" r="2.4"/>
+<circle class="odot rest" cx="405.1" cy="163.9" r="2.4"/>
+<circle class="odot rest" cx="390.9" cy="114.5" r="2.4"/>
+<circle class="odot rest" cx="397.4" cy="135.6" r="2.4"/>
+<circle class="odot rest" cx="380.5" cy="137.2" r="2.4"/>
+<circle class="odot rest" cx="396.2" cy="144.0" r="2.4"/>
+<circle class="odot rest" cx="403.1" cy="135.4" r="2.4"/>
+<circle class="odot rest" cx="385.2" cy="158.8" r="2.4"/>
+<circle class="odot rest" cx="390.7" cy="148.1" r="2.4"/>
+<circle class="odot rest" cx="384.9" cy="150.8" r="2.4"/>
+<circle class="odot rest" cx="375.2" cy="155.3" r="2.4"/>
+<circle class="odot rest" cx="381.1" cy="149.7" r="2.4"/>
+<circle class="odot rest" cx="384.3" cy="150.9" r="2.4"/>
+<circle class="odot rest" cx="389.1" cy="148.6" r="2.4"/>
+<circle class="odot rest" cx="407.9" cy="141.1" r="2.4"/>
+<circle class="odot rest" cx="392.5" cy="148.9" r="2.4"/>
+<circle class="odot rest" cx="403.4" cy="145.7" r="2.4"/>
+<circle class="odot rest" cx="395.2" cy="144.6" r="2.4"/>
+<circle class="odot rest" cx="404.3" cy="142.6" r="2.4"/>
+<circle class="odot rest" cx="394.5" cy="131.3" r="2.4"/>
+<circle class="odot rest" cx="377.5" cy="146.2" r="2.4"/>
+<circle class="odot rest" cx="376.6" cy="151.3" r="2.4"/>
+<circle class="odot rest" cx="356.5" cy="154.7" r="2.4"/>
+<circle class="odot rest" cx="371.5" cy="159.7" r="2.4"/>
+<circle class="odot rest" cx="386.1" cy="134.0" r="2.4"/>
+<circle class="odot rest" cx="406.5" cy="133.5" r="2.4"/>
+<circle class="odot rest" cx="371.5" cy="146.8" r="2.4"/>
+<circle class="odot rest" cx="413.8" cy="150.4" r="2.4"/>
+<circle class="odot rest" cx="361.8" cy="144.1" r="2.4"/>
+<circle class="odot rest" cx="367.4" cy="126.8" r="2.4"/>
+<circle class="odot rest" cx="373.6" cy="128.5" r="2.4"/>
+<circle class="odot rest" cx="367.4" cy="125.9" r="2.4"/>
+<circle class="odot rest" cx="366.9" cy="130.2" r="2.4"/>
+<circle class="odot rest" cx="383.2" cy="155.0" r="2.4"/>
+<circle class="odot rest" cx="353.7" cy="139.7" r="2.4"/>
+<circle class="odot rest" cx="393.6" cy="163.4" r="2.4"/>
+<circle class="odot rest" cx="390.2" cy="132.5" r="2.4"/>
+<circle class="odot rest" cx="380.5" cy="154.8" r="2.4"/>
+<circle class="odot rest" cx="351.1" cy="150.5" r="2.4"/>
+<circle class="odot rest" cx="397.2" cy="148.5" r="2.4"/>
+<circle class="odot rest" cx="403.1" cy="158.9" r="2.4"/>
+<circle class="odot rest" cx="410.9" cy="138.2" r="2.4"/>
+<circle class="odot rest" cx="423.6" cy="147.9" r="2.4"/>
+<circle class="odot rest" cx="401.6" cy="151.5" r="2.4"/>
+<circle class="odot rest" cx="418.9" cy="152.4" r="2.4"/>
+<circle class="odot rest" cx="390.8" cy="129.6" r="2.4"/>
+<circle class="odot rest" cx="397.3" cy="145.9" r="2.4"/>
+<circle class="odot rest" cx="386.6" cy="149.0" r="2.4"/>
+<circle class="odot rest" cx="393.3" cy="162.4" r="2.4"/>
+<circle class="odot rest" cx="414.2" cy="144.8" r="2.4"/>
+<circle class="odot rest" cx="413.9" cy="154.4" r="2.4"/>
+<circle class="odot rest" cx="442.1" cy="156.1" r="2.4"/>
+<circle class="odot rest" cx="406.0" cy="140.2" r="2.4"/>
+<circle class="odot rest" cx="457.2" cy="150.0" r="2.4"/>
+<circle class="odot rest" cx="403.2" cy="129.1" r="2.4"/>
+<circle class="odot rest" cx="423.6" cy="141.8" r="2.4"/>
+<circle class="odot rest" cx="421.3" cy="162.3" r="2.4"/>
+<circle class="odot rest" cx="417.8" cy="145.8" r="2.4"/>
+<circle class="odot rest" cx="384.7" cy="172.6" r="2.4"/>
+<circle class="odot rest" cx="400.3" cy="142.8" r="2.4"/>
+<circle class="odot rest" cx="420.0" cy="145.2" r="2.4"/>
+<circle class="odot rest" cx="438.9" cy="155.6" r="2.4"/>
+<circle class="odot rest" cx="466.1" cy="155.2" r="2.4"/>
+<circle class="odot rest" cx="411.2" cy="139.1" r="2.4"/>
+<circle class="odot rest" cx="442.8" cy="148.5" r="2.4"/>
+<circle class="odot rest" cx="439.7" cy="138.8" r="2.4"/>
+<circle class="odot rest" cx="443.0" cy="138.1" r="2.4"/>
+<circle class="odot rest" cx="434.6" cy="143.8" r="2.4"/>
+<circle class="odot rest" cx="437.5" cy="140.7" r="2.4"/>
+<circle class="odot rest" cx="471.5" cy="152.8" r="2.4"/>
+<circle class="odot rest" cx="444.3" cy="150.2" r="2.4"/>
+<circle class="odot rest" cx="439.2" cy="134.3" r="2.4"/>
+<circle class="odot rest" cx="455.9" cy="132.3" r="2.4"/>
+<circle class="odot rest" cx="413.3" cy="138.8" r="2.4"/>
+<circle class="odot rest" cx="405.3" cy="140.8" r="2.4"/>
+<circle class="odot rest" cx="484.7" cy="137.0" r="2.4"/>
+<circle class="odot rest" cx="480.0" cy="142.1" r="2.4"/>
+<circle class="odot rest" cx="439.0" cy="146.6" r="2.4"/>
+<circle class="odot rest" cx="454.3" cy="146.6" r="2.4"/>
+<circle class="odot rest" cx="466.8" cy="143.1" r="2.4"/>
+<circle class="odot rest" cx="444.7" cy="136.5" r="2.4"/>
+<circle class="odot rest" cx="435.3" cy="137.4" r="2.4"/>
+<circle class="odot rest" cx="466.5" cy="162.8" r="2.4"/>
+<circle class="odot rest" cx="444.7" cy="133.4" r="2.4"/>
+<circle class="odot rest" cx="447.0" cy="158.4" r="2.4"/>
+<circle class="odot rest" cx="407.3" cy="140.6" r="2.4"/>
+<circle class="odot rest" cx="462.8" cy="154.3" r="2.4"/>
+<circle class="odot rest" cx="463.4" cy="148.3" r="2.4"/>
+<circle class="odot rest" cx="435.8" cy="137.1" r="2.4"/>
+<circle class="odot rest" cx="483.5" cy="144.5" r="2.4"/>
+<circle class="odot rest" cx="457.4" cy="142.9" r="2.4"/>
+<circle class="odot rest" cx="436.0" cy="149.7" r="2.4"/>
+<circle class="odot rest" cx="451.5" cy="132.5" r="2.4"/>
+<circle class="odot rest" cx="442.7" cy="148.6" r="2.4"/>
+<circle class="odot rest" cx="463.6" cy="125.7" r="2.4"/>
+<circle class="odot rest" cx="490.3" cy="148.5" r="2.4"/>
+<circle class="odot rest" cx="463.7" cy="141.9" r="2.4"/>
+<circle class="odot rest" cx="452.1" cy="141.0" r="2.4"/>
+<circle class="odot rest" cx="481.1" cy="143.1" r="2.4"/>
+<circle class="odot rest" cx="467.2" cy="138.6" r="2.4"/>
+<circle class="odot rest" cx="474.6" cy="134.9" r="2.4"/>
+<circle class="odot rest" cx="454.7" cy="147.9" r="2.4"/>
+<circle class="odot rest" cx="436.9" cy="151.3" r="2.4"/>
+<circle class="odot rest" cx="445.9" cy="154.2" r="2.4"/>
+<circle class="odot rest" cx="400.9" cy="127.7" r="2.4"/>
+<circle class="odot rest" cx="425.7" cy="135.6" r="2.4"/>
+<circle class="odot rest" cx="429.7" cy="154.7" r="2.4"/>
+<circle class="odot rest" cx="432.8" cy="153.0" r="2.4"/>
+<circle class="odot rest" cx="433.3" cy="155.5" r="2.4"/>
+<circle class="odot rest" cx="427.4" cy="160.8" r="2.4"/>
+<circle class="odot rest" cx="438.8" cy="167.5" r="2.4"/>
+<circle class="odot rest" cx="429.9" cy="144.1" r="2.4"/>
+<circle class="odot rest" cx="411.6" cy="159.4" r="2.4"/>
+<circle class="odot rest" cx="435.6" cy="127.6" r="2.4"/>
+<circle class="odot rest" cx="439.3" cy="154.2" r="2.4"/>
+<circle class="odot rest" cx="413.1" cy="120.7" r="2.4"/>
+<circle class="odot rest" cx="425.2" cy="141.4" r="2.4"/>
+<circle class="odot rest" cx="432.6" cy="143.6" r="2.4"/>
+<circle class="odot rest" cx="421.4" cy="150.1" r="2.4"/>
+<circle class="odot rest" cx="441.0" cy="127.9" r="2.4"/>
+<circle class="odot rest" cx="447.5" cy="151.3" r="2.4"/>
+<circle class="odot rest" cx="432.6" cy="147.5" r="2.4"/>
+<circle class="odot rest" cx="421.5" cy="169.8" r="2.4"/>
+<circle class="odot rest" cx="415.2" cy="143.0" r="2.4"/>
+<circle class="odot rest" cx="428.3" cy="156.3" r="2.4"/>
+<circle class="odot rest" cx="452.6" cy="122.9" r="2.4"/>
+<circle class="odot rest" cx="437.1" cy="143.9" r="2.4"/>
+<circle class="odot rest" cx="448.5" cy="130.9" r="2.4"/>
+<circle class="odot rest" cx="421.6" cy="148.4" r="2.4"/>
+<circle class="odot rest" cx="429.6" cy="165.0" r="2.4"/>
+<circle class="odot rest" cx="426.7" cy="151.8" r="2.4"/>
+<circle class="odot rest" cx="425.6" cy="152.4" r="2.4"/>
+<circle class="odot rest" cx="440.9" cy="142.1" r="2.4"/>
+<circle class="odot rest" cx="412.7" cy="131.5" r="2.4"/>
+<circle class="odot rest" cx="435.9" cy="131.3" r="2.4"/>
+<circle class="odot rest" cx="406.5" cy="142.7" r="2.4"/>
+<circle class="odot rest" cx="415.8" cy="137.8" r="2.4"/>
+<circle class="odot rest" cx="434.0" cy="127.6" r="2.4"/>
+<circle class="odot rest" cx="437.3" cy="111.7" r="2.4"/>
+<circle class="odot rest" cx="437.5" cy="156.6" r="2.4"/>
+<circle class="odot rest" cx="418.4" cy="164.5" r="2.4"/>
+<circle class="odot rest" cx="428.9" cy="146.1" r="2.4"/>
+<circle class="odot rest" cx="432.6" cy="146.1" r="2.4"/>
+<circle class="odot rest" cx="420.4" cy="121.6" r="2.4"/>
+<circle class="odot rest" cx="426.2" cy="149.2" r="2.4"/>
+<circle class="odot rest" cx="419.5" cy="151.3" r="2.4"/>
+<circle class="odot rest" cx="444.0" cy="153.6" r="2.4"/>
+<circle class="odot rest" cx="420.0" cy="157.0" r="2.4"/>
+<circle class="odot rest" cx="439.6" cy="140.2" r="2.4"/>
+<circle class="odot rest" cx="427.8" cy="153.7" r="2.4"/>
+<circle class="odot rest" cx="420.3" cy="135.5" r="2.4"/>
+<circle class="odot rest" cx="441.9" cy="159.9" r="2.4"/>
+<circle class="odot rest" cx="438.7" cy="156.0" r="2.4"/>
+<circle class="odot rest" cx="437.9" cy="153.4" r="2.4"/>
+<circle class="odot rest" cx="400.9" cy="121.6" r="2.4"/>
+<circle class="odot rest" cx="406.9" cy="134.5" r="2.4"/>
+<circle class="odot rest" cx="423.3" cy="130.6" r="2.4"/>
+<circle class="odot rest" cx="382.7" cy="140.7" r="2.4"/>
+<circle class="odot rest" cx="474.1" cy="141.0" r="2.4"/>
+<circle class="odot rest" cx="421.0" cy="136.1" r="2.4"/>
+<circle class="odot rest" cx="411.8" cy="137.1" r="2.4"/>
+<circle class="odot rest" cx="448.8" cy="149.1" r="2.4"/>
+<circle class="odot rest" cx="392.9" cy="149.6" r="2.4"/>
+<circle class="odot rest" cx="419.4" cy="147.4" r="2.4"/>
+<circle class="odot rest" cx="436.0" cy="145.9" r="2.4"/>
+<circle class="odot rest" cx="393.0" cy="152.9" r="2.4"/>
+<circle class="odot rest" cx="442.6" cy="148.4" r="2.4"/>
+<circle class="odot rest" cx="390.6" cy="135.3" r="2.4"/>
+<circle class="odot rest" cx="384.4" cy="152.8" r="2.4"/>
+<circle class="odot rest" cx="394.4" cy="146.1" r="2.4"/>
+<circle class="odot rest" cx="405.9" cy="128.6" r="2.4"/>
+<circle class="odot rest" cx="467.3" cy="147.2" r="2.4"/>
+<circle class="odot rest" cx="434.2" cy="156.6" r="2.4"/>
+<circle class="odot rest" cx="416.8" cy="165.1" r="2.4"/>
+<circle class="odot rest" cx="434.4" cy="144.6" r="2.4"/>
+<circle class="odot rest" cx="443.0" cy="157.8" r="2.4"/>
+<circle class="odot rest" cx="403.3" cy="158.0" r="2.4"/>
+<circle class="odot rest" cx="461.3" cy="166.9" r="2.4"/>
+<circle class="odot rest" cx="403.4" cy="160.4" r="2.4"/>
+<circle class="odot rest" cx="405.1" cy="152.6" r="2.4"/>
+<circle class="odot rest" cx="404.2" cy="152.5" r="2.4"/>
+<circle class="odot rest" cx="404.2" cy="164.5" r="2.4"/>
+<circle class="odot rest" cx="436.6" cy="167.9" r="2.4"/>
+<circle class="odot rest" cx="408.8" cy="162.2" r="2.4"/>
+<circle class="odot rest" cx="407.8" cy="148.4" r="2.4"/>
+<circle class="odot rest" cx="441.7" cy="163.8" r="2.4"/>
+<circle class="odot rest" cx="449.9" cy="161.8" r="2.4"/>
+<circle class="odot rest" cx="399.9" cy="151.2" r="2.4"/>
+<circle class="odot rest" cx="432.7" cy="153.8" r="2.4"/>
+<circle class="odot rest" cx="437.8" cy="158.8" r="2.4"/>
+<circle class="odot rest" cx="436.5" cy="176.3" r="2.4"/>
+<circle class="odot rest" cx="439.1" cy="156.8" r="2.4"/>
+<circle class="odot rest" cx="426.2" cy="149.8" r="2.4"/>
+<circle class="odot rest" cx="404.1" cy="160.0" r="2.4"/>
+<circle class="odot rest" cx="405.8" cy="153.3" r="2.4"/>
+<circle class="odot rest" cx="447.9" cy="157.8" r="2.4"/>
+<circle class="odot rest" cx="399.8" cy="135.2" r="2.4"/>
+<circle class="odot rest" cx="451.6" cy="150.6" r="2.4"/>
+<circle class="odot rest" cx="443.0" cy="152.3" r="2.4"/>
+<circle class="odot rest" cx="441.3" cy="131.3" r="2.4"/>
+<circle class="odot rest" cx="472.5" cy="144.2" r="2.4"/>
+<circle class="odot rest" cx="405.9" cy="149.3" r="2.4"/>
+<circle class="odot rest" cx="429.5" cy="157.6" r="2.4"/>
+<circle class="odot rest" cx="444.9" cy="124.7" r="2.4"/>
+<circle class="odot rest" cx="453.6" cy="155.0" r="2.4"/>
+<circle class="odot rest" cx="445.9" cy="139.4" r="2.4"/>
+<circle class="odot rest" cx="432.8" cy="125.3" r="2.4"/>
+<circle class="odot rest" cx="410.7" cy="132.7" r="2.4"/>
+<circle class="odot rest" cx="432.1" cy="127.6" r="2.4"/>
+<circle class="odot rest" cx="466.3" cy="122.6" r="2.4"/>
+<circle class="odot rest" cx="435.1" cy="131.9" r="2.4"/>
+<circle class="odot rest" cx="458.1" cy="132.4" r="2.4"/>
+<circle class="odot rest" cx="444.2" cy="141.4" r="2.4"/>
+<circle class="odot rest" cx="459.8" cy="140.0" r="2.4"/>
+<circle class="odot rest" cx="445.0" cy="146.5" r="2.4"/>
+<circle class="odot rest" cx="467.3" cy="144.1" r="2.4"/>
+<circle class="odot rest" cx="405.3" cy="142.7" r="2.4"/>
+<circle class="odot rest" cx="447.6" cy="162.4" r="2.4"/>
+<circle class="odot rest" cx="460.5" cy="123.9" r="2.4"/>
+<circle class="odot rest" cx="461.6" cy="141.9" r="2.4"/>
+<circle class="odot rest" cx="423.7" cy="144.6" r="2.4"/>
+<circle class="odot rest" cx="473.9" cy="132.6" r="2.4"/>
+<circle class="odot rest" cx="480.9" cy="130.2" r="2.4"/>
+<circle class="odot rest" cx="452.6" cy="140.7" r="2.4"/>
+<circle class="odot rest" cx="441.7" cy="128.9" r="2.4"/>
+<circle class="odot rest" cx="446.7" cy="145.7" r="2.4"/>
+<circle class="odot rest" cx="450.5" cy="147.8" r="2.4"/>
+<circle class="odot rest" cx="476.2" cy="130.9" r="2.4"/>
+<circle class="odot rest" cx="476.2" cy="142.8" r="2.4"/>
+<circle class="odot rest" cx="438.8" cy="140.6" r="2.4"/>
+<circle class="odot rest" cx="470.9" cy="134.1" r="2.4"/>
+<circle class="odot rest" cx="448.6" cy="142.4" r="2.4"/>
+<circle class="odot rest" cx="458.6" cy="135.3" r="2.4"/>
+<circle class="odot rest" cx="444.5" cy="151.6" r="2.4"/>
+<circle class="odot rest" cx="447.2" cy="158.6" r="2.4"/>
+<circle class="odot rest" cx="498.5" cy="140.8" r="2.4"/>
+<circle class="odot rest" cx="464.2" cy="117.5" r="2.4"/>
+<circle class="odot rest" cx="437.7" cy="147.0" r="2.4"/>
+<circle class="odot rest" cx="452.6" cy="160.2" r="2.4"/>
+<circle class="odot rest" cx="463.4" cy="137.8" r="2.4"/>
+<circle class="odot rest" cx="409.6" cy="134.2" r="2.4"/>
+<circle class="odot rest" cx="407.7" cy="160.4" r="2.4"/>
+<circle class="odot rest" cx="438.4" cy="142.5" r="2.4"/>
+<circle class="odot rest" cx="417.0" cy="150.1" r="2.4"/>
+<circle class="odot rest" cx="425.4" cy="153.9" r="2.4"/>
+<circle class="odot rest" cx="447.0" cy="167.2" r="2.4"/>
+<circle class="odot rest" cx="450.8" cy="150.6" r="2.4"/>
+<circle class="odot rest" cx="446.1" cy="143.4" r="2.4"/>
+<circle class="odot rest" cx="484.8" cy="104.5" r="2.4"/>
+<circle class="odot rest" cx="444.2" cy="104.3" r="2.4"/>
+<circle class="odot rest" cx="469.0" cy="136.1" r="2.4"/>
+<circle class="odot rest" cx="458.6" cy="124.7" r="2.4"/>
+<circle class="odot rest" cx="455.7" cy="112.0" r="2.4"/>
+<circle class="odot rest" cx="445.4" cy="122.9" r="2.4"/>
+<circle class="odot rest" cx="496.3" cy="123.3" r="2.4"/>
+<circle class="odot rest" cx="525.6" cy="112.6" r="2.4"/>
+<circle class="odot rest" cx="475.3" cy="131.9" r="2.4"/>
+<circle class="odot rest" cx="451.1" cy="123.3" r="2.4"/>
+<circle class="odot rest" cx="506.3" cy="157.7" r="2.4"/>
+<circle class="odot rest" cx="492.2" cy="149.1" r="2.4"/>
+<circle class="odot rest" cx="508.9" cy="133.5" r="2.4"/>
+<circle class="odot rest" cx="458.0" cy="124.8" r="2.4"/>
+<circle class="odot rest" cx="490.5" cy="80.9" r="2.4"/>
+<circle class="odot rest" cx="459.6" cy="111.5" r="2.4"/>
+<circle class="odot rest" cx="474.8" cy="132.1" r="2.4"/>
+<circle class="odot rest" cx="470.3" cy="129.2" r="2.4"/>
+<circle class="odot rest" cx="437.9" cy="131.6" r="2.4"/>
+<circle class="odot rest" cx="488.7" cy="134.1" r="2.4"/>
+<circle class="odot rest" cx="464.3" cy="116.1" r="2.4"/>
+<circle class="odot rest" cx="453.0" cy="117.6" r="2.4"/>
+<circle class="odot rest" cx="438.2" cy="147.8" r="2.4"/>
+<circle class="odot rest" cx="472.6" cy="135.7" r="2.4"/>
+<circle class="odot rest" cx="493.4" cy="130.9" r="2.4"/>
+<circle class="odot rest" cx="429.9" cy="121.1" r="2.4"/>
+<circle class="odot rest" cx="443.7" cy="155.6" r="2.4"/>
+<circle class="odot rest" cx="492.4" cy="141.0" r="2.4"/>
+<circle class="odot rest" cx="464.6" cy="130.2" r="2.4"/>
+<circle class="odot rest" cx="452.0" cy="144.9" r="2.4"/>
+<circle class="odot rest" cx="470.6" cy="113.7" r="2.4"/>
+<circle class="odot rest" cx="453.6" cy="130.5" r="2.4"/>
+<circle class="odot rest" cx="476.5" cy="126.3" r="2.4"/>
+<circle class="odot rest" cx="451.2" cy="123.8" r="2.4"/>
+<circle class="odot rest" cx="442.6" cy="111.4" r="2.4"/>
+<circle class="odot rest" cx="467.7" cy="139.5" r="2.4"/>
+<circle class="odot rest" cx="427.3" cy="126.4" r="2.4"/>
+<circle class="odot rest" cx="453.2" cy="131.8" r="2.4"/>
+<circle class="odot rest" cx="487.7" cy="131.8" r="2.4"/>
+<circle class="odot rest" cx="445.0" cy="137.4" r="2.4"/>
+<circle class="odot rest" cx="494.4" cy="131.2" r="2.4"/>
+<circle class="odot rest" cx="459.1" cy="132.4" r="2.4"/>
+<circle class="odot rest" cx="464.3" cy="118.1" r="2.4"/>
+<circle class="odot rest" cx="465.8" cy="137.6" r="2.4"/>
+<circle class="odot rest" cx="463.1" cy="115.5" r="2.4"/>
+<circle class="odot rest" cx="466.2" cy="133.1" r="2.4"/>
+<circle class="odot rest" cx="432.2" cy="126.1" r="2.4"/>
+<circle class="odot rest" cx="434.9" cy="123.8" r="2.4"/>
+<circle class="odot rest" cx="483.8" cy="127.3" r="2.4"/>
+<circle class="odot rest" cx="458.0" cy="128.3" r="2.4"/>
+<circle class="odot rest" cx="452.2" cy="136.9" r="2.4"/>
+<circle class="odot rest" cx="442.0" cy="134.3" r="2.4"/>
+<circle class="odot rest" cx="467.5" cy="121.5" r="2.4"/>
+<circle class="odot rest" cx="471.3" cy="156.2" r="2.4"/>
+<circle class="odot rest" cx="457.0" cy="133.6" r="2.4"/>
+<circle class="odot rest" cx="480.7" cy="142.7" r="2.4"/>
+<circle class="odot rest" cx="436.7" cy="128.5" r="2.4"/>
+<circle class="odot rest" cx="485.0" cy="133.4" r="2.4"/>
+<circle class="odot rest" cx="444.0" cy="119.3" r="2.4"/>
+<circle class="odot rest" cx="439.1" cy="113.9" r="2.4"/>
+<circle class="odot rest" cx="498.3" cy="128.1" r="2.4"/>
+<circle class="odot rest" cx="474.0" cy="149.1" r="2.4"/>
+<circle class="odot rest" cx="480.1" cy="150.3" r="2.4"/>
+<circle class="odot rest" cx="486.1" cy="140.9" r="2.4"/>
+<circle class="odot rest" cx="437.9" cy="114.5" r="2.4"/>
+<circle class="odot rest" cx="500.9" cy="138.3" r="2.4"/>
+<circle class="odot rest" cx="461.9" cy="115.9" r="2.4"/>
+<circle class="odot rest" cx="493.1" cy="137.0" r="2.4"/>
+<circle class="odot rest" cx="438.9" cy="140.1" r="2.4"/>
+<circle class="odot rest" cx="464.4" cy="112.1" r="2.4"/>
+<circle class="odot rest" cx="470.6" cy="142.8" r="2.4"/>
+<circle class="odot rest" cx="479.3" cy="123.3" r="2.4"/>
+<circle class="odot rest" cx="420.9" cy="136.2" r="2.4"/>
+<circle class="odot rest" cx="402.8" cy="144.9" r="2.4"/>
+<circle class="odot rest" cx="439.0" cy="136.5" r="2.4"/>
+<circle class="odot rest" cx="439.1" cy="141.6" r="2.4"/>
+<circle class="odot rest" cx="492.1" cy="136.7" r="2.4"/>
+<circle class="odot rest" cx="460.2" cy="129.6" r="2.4"/>
+<circle class="odot rest" cx="454.0" cy="144.9" r="2.4"/>
+<circle class="odot rest" cx="471.2" cy="148.9" r="2.4"/>
+<circle class="odot rest" cx="426.9" cy="135.2" r="2.4"/>
+<circle class="odot rest" cx="431.1" cy="115.0" r="2.4"/>
+<circle class="odot rest" cx="448.5" cy="133.8" r="2.4"/>
+<circle class="odot rest" cx="425.8" cy="126.6" r="2.4"/>
+<circle class="odot rest" cx="476.3" cy="150.5" r="2.4"/>
+<circle class="odot rest" cx="461.5" cy="142.5" r="2.4"/>
+<circle class="odot rest" cx="471.1" cy="135.3" r="2.4"/>
+<circle class="odot rest" cx="443.4" cy="158.4" r="2.4"/>
+<circle class="odot rest" cx="446.9" cy="146.7" r="2.4"/>
+<circle class="odot rest" cx="474.0" cy="124.8" r="2.4"/>
+<circle class="odot rest" cx="499.9" cy="120.5" r="2.4"/>
+<circle class="odot rest" cx="459.2" cy="125.6" r="2.4"/>
+<circle class="odot rest" cx="432.6" cy="122.8" r="2.4"/>
+<circle class="odot rest" cx="441.5" cy="122.1" r="2.4"/>
+<circle class="odot rest" cx="442.9" cy="113.0" r="2.4"/>
+<circle class="odot rest" cx="446.4" cy="117.1" r="2.4"/>
+<circle class="odot rest" cx="442.1" cy="105.3" r="2.4"/>
+<circle class="odot rest" cx="435.2" cy="121.7" r="2.4"/>
+<circle class="odot rest" cx="470.9" cy="134.6" r="2.4"/>
+<circle class="odot rest" cx="435.7" cy="114.6" r="2.4"/>
+<circle class="odot rest" cx="456.8" cy="124.4" r="2.4"/>
+<circle class="odot rest" cx="440.9" cy="116.4" r="2.4"/>
+<circle class="odot rest" cx="427.6" cy="119.7" r="2.4"/>
+<circle class="odot rest" cx="454.6" cy="99.9" r="2.4"/>
+<circle class="odot rest" cx="491.0" cy="125.2" r="2.4"/>
+<circle class="odot rest" cx="471.3" cy="123.0" r="2.4"/>
+<circle class="odot rest" cx="463.7" cy="113.5" r="2.4"/>
+<circle class="odot rest" cx="433.4" cy="124.5" r="2.4"/>
+<circle class="odot rest" cx="466.8" cy="118.2" r="2.4"/>
+<circle class="odot rest" cx="473.4" cy="123.8" r="2.4"/>
+<circle class="odot rest" cx="436.0" cy="127.9" r="2.4"/>
+<circle class="odot rest" cx="446.1" cy="136.8" r="2.4"/>
+<circle class="odot rest" cx="434.8" cy="121.0" r="2.4"/>
+<circle class="odot rest" cx="467.1" cy="120.3" r="2.4"/>
+<circle class="odot rest" cx="468.6" cy="129.1" r="2.4"/>
+<circle class="odot rest" cx="449.8" cy="127.8" r="2.4"/>
+<circle class="odot rest" cx="437.4" cy="126.3" r="2.4"/>
+<circle class="odot rest" cx="488.3" cy="141.1" r="2.4"/>
+<circle class="odot rest" cx="465.9" cy="123.2" r="2.4"/>
+<circle class="odot rest" cx="450.5" cy="129.9" r="2.4"/>
+<circle class="odot rest" cx="471.1" cy="117.9" r="2.4"/>
+<circle class="odot rest" cx="489.3" cy="95.6" r="2.4"/>
+<circle class="odot rest" cx="443.7" cy="136.6" r="2.4"/>
+<circle class="odot rest" cx="427.8" cy="124.1" r="2.4"/>
+<circle class="odot rest" cx="463.9" cy="129.7" r="2.4"/>
+<circle class="odot rest" cx="481.4" cy="130.1" r="2.4"/>
+<circle class="odot rest" cx="452.5" cy="127.1" r="2.4"/>
+<circle class="odot rest" cx="461.9" cy="119.4" r="2.4"/>
+<circle class="odot rest" cx="465.1" cy="124.1" r="2.4"/>
+<circle class="odot rest" cx="458.8" cy="135.1" r="2.4"/>
+<circle class="odot rest" cx="465.8" cy="129.2" r="2.4"/>
+<circle class="odot rest" cx="474.1" cy="130.6" r="2.4"/>
+<circle class="odot rest" cx="470.9" cy="138.7" r="2.4"/>
+<circle class="odot rest" cx="462.0" cy="126.5" r="2.4"/>
+<circle class="odot rest" cx="450.8" cy="136.7" r="2.4"/>
+<circle class="odot rest" cx="476.1" cy="126.7" r="2.4"/>
+<circle class="odot rest" cx="471.1" cy="137.2" r="2.4"/>
+<circle class="odot rest" cx="483.0" cy="140.1" r="2.4"/>
+<circle class="odot rest" cx="476.1" cy="125.9" r="2.4"/>
+<circle class="odot rest" cx="445.1" cy="132.4" r="2.4"/>
+<circle class="odot rest" cx="475.6" cy="136.1" r="2.4"/>
+<circle class="odot rest" cx="485.3" cy="137.3" r="2.4"/>
+<circle class="odot rest" cx="455.9" cy="139.2" r="2.4"/>
+<circle class="odot rest" cx="355.3" cy="130.1" r="2.4"/>
+<circle class="odot rest" cx="362.7" cy="139.8" r="2.4"/>
+<circle class="odot rest" cx="374.1" cy="146.1" r="2.4"/>
+<circle class="odot rest" cx="367.4" cy="127.8" r="2.4"/>
+<circle class="odot rest" cx="400.4" cy="128.5" r="2.4"/>
+<circle class="odot rest" cx="371.1" cy="110.2" r="2.4"/>
+<circle class="odot rest" cx="366.5" cy="129.6" r="2.4"/>
+<circle class="odot rest" cx="380.8" cy="134.5" r="2.4"/>
+<circle class="odot rest" cx="368.8" cy="134.1" r="2.4"/>
+<circle class="odot rest" cx="383.9" cy="138.4" r="2.4"/>
+<circle class="odot rest" cx="361.6" cy="139.8" r="2.4"/>
+<circle class="odot rest" cx="381.6" cy="147.9" r="2.4"/>
+<circle class="odot rest" cx="390.6" cy="142.0" r="2.4"/>
+<circle class="odot rest" cx="381.3" cy="135.9" r="2.4"/>
+<circle class="odot rest" cx="344.2" cy="125.8" r="2.4"/>
+<circle class="odot rest" cx="414.1" cy="122.5" r="2.4"/>
+<circle class="odot rest" cx="353.5" cy="133.2" r="2.4"/>
+<circle class="odot rest" cx="374.0" cy="119.4" r="2.4"/>
+<circle class="odot rest" cx="376.3" cy="128.6" r="2.4"/>
+<circle class="odot rest" cx="387.6" cy="138.0" r="2.4"/>
+<circle class="odot rest" cx="368.5" cy="133.3" r="2.4"/>
+<circle class="odot rest" cx="377.8" cy="130.3" r="2.4"/>
+<circle class="odot rest" cx="403.8" cy="114.3" r="2.4"/>
+<circle class="odot rest" cx="391.9" cy="151.9" r="2.4"/>
+<circle class="odot rest" cx="361.6" cy="110.5" r="2.4"/>
+<circle class="odot rest" cx="394.9" cy="126.7" r="2.4"/>
+<circle class="odot rest" cx="411.2" cy="141.7" r="2.4"/>
+<circle class="odot rest" cx="355.7" cy="128.1" r="2.4"/>
+<circle class="odot rest" cx="386.1" cy="136.2" r="2.4"/>
+<circle class="odot rest" cx="422.8" cy="133.1" r="2.4"/>
+<circle class="odot rest" cx="375.0" cy="129.0" r="2.4"/>
+<circle class="odot rest" cx="388.7" cy="134.7" r="2.4"/>
+<circle class="odot rest" cx="376.2" cy="130.0" r="2.4"/>
+<circle class="odot rest" cx="356.2" cy="120.0" r="2.4"/>
+<circle class="odot rest" cx="368.8" cy="129.4" r="2.4"/>
+<circle class="odot rest" cx="375.7" cy="124.9" r="2.4"/>
+<circle class="odot rest" cx="417.2" cy="126.9" r="2.4"/>
+<circle class="odot rest" cx="406.9" cy="121.8" r="2.4"/>
+<circle class="odot rest" cx="342.8" cy="125.3" r="2.4"/>
+<circle class="odot rest" cx="391.8" cy="135.5" r="2.4"/>
+<circle class="odot rest" cx="390.9" cy="135.9" r="2.4"/>
+<circle class="odot rest" cx="357.7" cy="135.9" r="2.4"/>
+<circle class="odot rest" cx="384.3" cy="125.0" r="2.4"/>
+<circle class="odot rest" cx="396.7" cy="133.5" r="2.4"/>
+<circle class="odot rest" cx="388.0" cy="132.3" r="2.4"/>
+<circle class="odot rest" cx="388.7" cy="138.9" r="2.4"/>
+<circle class="odot rest" cx="402.2" cy="129.0" r="2.4"/>
+<circle class="odot rest" cx="376.4" cy="138.2" r="2.4"/>
+<circle class="odot rest" cx="381.2" cy="146.8" r="2.4"/>
+<circle class="odot rest" cx="391.0" cy="128.1" r="2.4"/>
+<circle class="odot rest" cx="395.6" cy="125.5" r="2.4"/>
+<circle class="odot rest" cx="392.1" cy="146.3" r="2.4"/>
+<circle class="odot rest" cx="392.4" cy="139.2" r="2.4"/>
+<circle class="odot rest" cx="360.0" cy="125.0" r="2.4"/>
+<circle class="odot rest" cx="370.6" cy="139.9" r="2.4"/>
+<circle class="odot rest" cx="362.8" cy="133.5" r="2.4"/>
+<circle class="odot rest" cx="378.5" cy="151.6" r="2.4"/>
+<circle class="odot rest" cx="371.2" cy="147.8" r="2.4"/>
+<circle class="odot rest" cx="375.0" cy="134.7" r="2.4"/>
+<circle class="odot rest" cx="388.0" cy="140.6" r="2.4"/>
+<circle class="odot rest" cx="383.0" cy="150.3" r="2.4"/>
+<circle class="odot rest" cx="356.5" cy="120.9" r="2.4"/>
+<circle class="odot rest" cx="377.3" cy="147.6" r="2.4"/>
+<circle class="odot rest" cx="375.9" cy="119.8" r="2.4"/>
+<circle class="odot rest" cx="388.6" cy="131.8" r="2.4"/>
+<circle class="odot rest" cx="366.6" cy="127.9" r="2.4"/>
+<circle class="odot rest" cx="390.6" cy="135.3" r="2.4"/>
+<circle class="odot rest" cx="371.1" cy="129.5" r="2.4"/>
+<circle class="odot rest" cx="372.2" cy="126.7" r="2.4"/>
+<circle class="odot rest" cx="360.7" cy="130.5" r="2.4"/>
+<circle class="odot rest" cx="407.0" cy="136.0" r="2.4"/>
+<circle class="odot rest" cx="394.1" cy="144.2" r="2.4"/>
+<circle class="odot rest" cx="379.3" cy="139.9" r="2.4"/>
+<circle class="odot rest" cx="371.0" cy="124.4" r="2.4"/>
+<circle class="odot rest" cx="386.0" cy="133.5" r="2.4"/>
+<circle class="odot rest" cx="353.5" cy="124.0" r="2.4"/>
+<circle class="odot rest" cx="396.3" cy="153.0" r="2.4"/>
+<circle class="odot rest" cx="368.0" cy="129.1" r="2.4"/>
+<circle class="odot rest" cx="391.9" cy="131.0" r="2.4"/>
+<circle class="odot rest" cx="386.0" cy="144.8" r="2.4"/>
+<circle class="odot rest" cx="384.9" cy="136.0" r="2.4"/>
+<circle class="odot rest" cx="388.0" cy="137.6" r="2.4"/>
+<circle class="odot rest" cx="377.7" cy="122.6" r="2.4"/>
+<circle class="odot rest" cx="348.0" cy="127.5" r="2.4"/>
+<circle class="odot rest" cx="354.9" cy="132.8" r="2.4"/>
+<circle class="odot rest" cx="393.4" cy="133.9" r="2.4"/>
+<circle class="odot rest" cx="373.9" cy="133.3" r="2.4"/>
+<circle class="odot rest" cx="402.5" cy="134.5" r="2.4"/>
+<circle class="odot rest" cx="372.7" cy="117.2" r="2.4"/>
+<circle class="odot rest" cx="384.3" cy="133.3" r="2.4"/>
+<circle class="odot rest" cx="375.6" cy="133.7" r="2.4"/>
+<circle class="odot rest" cx="374.9" cy="144.2" r="2.4"/>
+<circle class="odot rest" cx="382.4" cy="125.8" r="2.4"/>
+<circle class="odot rest" cx="371.9" cy="123.7" r="2.4"/>
+<circle class="odot rest" cx="389.4" cy="130.5" r="2.4"/>
+<circle class="odot rest" cx="369.8" cy="123.7" r="2.4"/>
+<circle class="odot rest" cx="389.7" cy="139.9" r="2.4"/>
+<circle class="odot rest" cx="378.0" cy="144.7" r="2.4"/>
+<circle class="odot rest" cx="376.8" cy="139.7" r="2.4"/>
+<circle class="odot rest" cx="386.1" cy="136.0" r="2.4"/>
+<circle class="odot rest" cx="371.0" cy="139.4" r="2.4"/>
+<circle class="odot rest" cx="395.3" cy="136.7" r="2.4"/>
+<circle class="odot rest" cx="373.4" cy="127.1" r="2.4"/>
+<circle class="odot rest" cx="377.5" cy="133.0" r="2.4"/>
+<circle class="odot rest" cx="384.1" cy="126.1" r="2.4"/>
+<circle class="odot rest" cx="400.8" cy="148.3" r="2.4"/>
+<circle class="odot rest" cx="387.8" cy="118.4" r="2.4"/>
+<circle class="odot rest" cx="387.0" cy="128.2" r="2.4"/>
+<circle class="odot rest" cx="433.8" cy="124.7" r="2.4"/>
+<circle class="odot rest" cx="401.3" cy="123.4" r="2.4"/>
+<circle class="odot rest" cx="403.1" cy="139.6" r="2.4"/>
+<circle class="odot rest" cx="435.0" cy="141.1" r="2.4"/>
+<circle class="odot rest" cx="392.3" cy="139.0" r="2.4"/>
+<circle class="odot rest" cx="405.7" cy="129.2" r="2.4"/>
+<circle class="odot rest" cx="385.0" cy="157.4" r="2.4"/>
+<circle class="odot rest" cx="361.8" cy="134.1" r="2.4"/>
+<circle class="odot rest" cx="405.8" cy="149.1" r="2.4"/>
+<circle class="odot rest" cx="385.6" cy="148.3" r="2.4"/>
+<circle class="odot rest" cx="383.3" cy="144.4" r="2.4"/>
+<circle class="odot rest" cx="358.7" cy="144.1" r="2.4"/>
+<circle class="odot rest" cx="394.6" cy="119.3" r="2.4"/>
+<circle class="odot rest" cx="420.2" cy="135.5" r="2.4"/>
+<circle class="odot rest" cx="388.7" cy="136.3" r="2.4"/>
+<circle class="odot rest" cx="378.3" cy="139.6" r="2.4"/>
+<circle class="odot rest" cx="389.5" cy="119.5" r="2.4"/>
+<circle class="odot rest" cx="392.0" cy="132.3" r="2.4"/>
+<circle class="odot rest" cx="381.6" cy="143.1" r="2.4"/>
+<circle class="odot rest" cx="398.6" cy="128.4" r="2.4"/>
+<circle class="odot rest" cx="370.5" cy="137.8" r="2.4"/>
+<circle class="odot rest" cx="372.5" cy="140.5" r="2.4"/>
+<circle class="odot rest" cx="391.5" cy="124.9" r="2.4"/>
+<circle class="odot rest" cx="389.9" cy="138.2" r="2.4"/>
+<circle class="odot rest" cx="396.6" cy="130.3" r="2.4"/>
+<circle class="odot rest" cx="375.0" cy="147.2" r="2.4"/>
+<circle class="odot rest" cx="387.4" cy="130.6" r="2.4"/>
+<circle class="odot rest" cx="399.9" cy="129.4" r="2.4"/>
+<circle class="odot rest" cx="397.8" cy="144.0" r="2.4"/>
+<circle class="odot rest" cx="372.1" cy="124.1" r="2.4"/>
+<circle class="odot rest" cx="403.1" cy="121.6" r="2.4"/>
+<circle class="odot rest" cx="381.1" cy="139.1" r="2.4"/>
+<circle class="odot rest" cx="390.6" cy="151.8" r="2.4"/>
+<circle class="odot rest" cx="410.2" cy="150.4" r="2.4"/>
+<circle class="odot rest" cx="380.6" cy="131.9" r="2.4"/>
+<circle class="odot rest" cx="383.0" cy="148.3" r="2.4"/>
+<circle class="odot rest" cx="387.0" cy="137.6" r="2.4"/>
+<circle class="odot rest" cx="406.0" cy="143.0" r="2.4"/>
+<circle class="odot rest" cx="373.8" cy="146.2" r="2.4"/>
+<circle class="odot rest" cx="403.1" cy="154.5" r="2.4"/>
+<circle class="odot rest" cx="426.0" cy="126.7" r="2.4"/>
+<circle class="odot rest" cx="406.4" cy="118.7" r="2.4"/>
+<circle class="odot rest" cx="406.4" cy="122.8" r="2.4"/>
+<circle class="odot rest" cx="386.1" cy="135.2" r="2.4"/>
+<circle class="odot rest" cx="406.9" cy="137.6" r="2.4"/>
+<circle class="odot rest" cx="391.0" cy="126.4" r="2.4"/>
+<circle class="odot rest" cx="426.1" cy="133.6" r="2.4"/>
+<circle class="odot rest" cx="402.4" cy="123.5" r="2.4"/>
+<circle class="odot rest" cx="418.6" cy="111.7" r="2.4"/>
+<circle class="odot rest" cx="383.8" cy="128.4" r="2.4"/>
+<circle class="odot rest" cx="388.0" cy="109.4" r="2.4"/>
+<circle class="odot rest" cx="408.5" cy="129.2" r="2.4"/>
+<circle class="odot rest" cx="410.9" cy="127.1" r="2.4"/>
+<circle class="odot rest" cx="408.9" cy="131.8" r="2.4"/>
+<circle class="odot rest" cx="398.2" cy="123.5" r="2.4"/>
+<circle class="odot rest" cx="430.7" cy="140.5" r="2.4"/>
+<circle class="odot rest" cx="414.8" cy="126.0" r="2.4"/>
+<circle class="odot rest" cx="402.7" cy="148.2" r="2.4"/>
+<circle class="odot rest" cx="401.0" cy="111.6" r="2.4"/>
+<circle class="odot rest" cx="418.0" cy="132.3" r="2.4"/>
+<circle class="odot rest" cx="366.2" cy="132.6" r="2.4"/>
+<circle class="odot rest" cx="390.5" cy="120.0" r="2.4"/>
+<circle class="odot rest" cx="428.1" cy="137.5" r="2.4"/>
+<circle class="odot rest" cx="373.1" cy="121.1" r="2.4"/>
+<circle class="odot rest" cx="399.2" cy="134.4" r="2.4"/>
+<circle class="odot rest" cx="396.9" cy="136.7" r="2.4"/>
+<circle class="odot rest" cx="423.1" cy="136.8" r="2.4"/>
+<circle class="odot rest" cx="399.7" cy="134.3" r="2.4"/>
+<circle class="odot rest" cx="403.6" cy="114.7" r="2.4"/>
+<circle class="odot rest" cx="427.3" cy="119.1" r="2.4"/>
+<circle class="odot rest" cx="401.8" cy="141.6" r="2.4"/>
+<circle class="odot rest" cx="415.5" cy="128.5" r="2.4"/>
+<circle class="odot rest" cx="393.2" cy="136.1" r="2.4"/>
+<circle class="odot rest" cx="395.1" cy="130.9" r="2.4"/>
+<circle class="odot rest" cx="465.4" cy="132.1" r="2.4"/>
+<circle class="odot rest" cx="425.0" cy="127.5" r="2.4"/>
+<circle class="odot rest" cx="464.4" cy="126.8" r="2.4"/>
+<circle class="odot rest" cx="454.8" cy="153.5" r="2.4"/>
+<circle class="odot rest" cx="466.7" cy="139.9" r="2.4"/>
+<circle class="odot rest" cx="447.2" cy="135.6" r="2.4"/>
+<circle class="odot rest" cx="445.5" cy="130.5" r="2.4"/>
+<circle class="odot rest" cx="424.1" cy="130.4" r="2.4"/>
+<circle class="odot rest" cx="429.7" cy="123.0" r="2.4"/>
+<circle class="odot rest" cx="494.0" cy="127.8" r="2.4"/>
+<circle class="odot rest" cx="444.7" cy="141.9" r="2.4"/>
+<circle class="odot rest" cx="443.8" cy="125.8" r="2.4"/>
+<circle class="odot rest" cx="448.0" cy="134.1" r="2.4"/>
+<circle class="odot rest" cx="427.7" cy="129.9" r="2.4"/>
+<circle class="odot rest" cx="417.1" cy="153.8" r="2.4"/>
+<circle class="odot rest" cx="422.4" cy="146.2" r="2.4"/>
+<circle class="odot rest" cx="417.6" cy="147.9" r="2.4"/>
+<circle class="odot rest" cx="445.6" cy="130.2" r="2.4"/>
+<circle class="odot rest" cx="449.3" cy="126.9" r="2.4"/>
+<circle class="odot rest" cx="443.8" cy="139.8" r="2.4"/>
+<circle class="odot rest" cx="464.3" cy="148.8" r="2.4"/>
+<circle class="odot rest" cx="471.3" cy="98.2" r="2.4"/>
+<circle class="odot rest" cx="432.8" cy="125.5" r="2.4"/>
+<circle class="odot rest" cx="463.4" cy="118.0" r="2.4"/>
+<circle class="odot rest" cx="424.1" cy="142.3" r="2.4"/>
+<circle class="odot rest" cx="458.5" cy="127.6" r="2.4"/>
+<circle class="odot rest" cx="384.4" cy="122.7" r="2.4"/>
+<circle class="odot rest" cx="419.2" cy="116.3" r="2.4"/>
+<circle class="odot rest" cx="380.1" cy="129.5" r="2.4"/>
+<circle class="odot rest" cx="413.6" cy="128.1" r="2.4"/>
+<circle class="odot rest" cx="417.8" cy="136.9" r="2.4"/>
+<circle class="odot rest" cx="413.9" cy="125.2" r="2.4"/>
+<circle class="odot rest" cx="385.7" cy="110.1" r="2.4"/>
+<circle class="odot rest" cx="360.2" cy="153.1" r="2.4"/>
+<circle class="odot rest" cx="407.7" cy="138.3" r="2.4"/>
+<circle class="odot rest" cx="378.6" cy="127.3" r="2.4"/>
+<circle class="odot rest" cx="372.2" cy="144.4" r="2.4"/>
+<circle class="odot rest" cx="388.8" cy="129.5" r="2.4"/>
+<circle class="odot rest" cx="370.1" cy="127.8" r="2.4"/>
+<circle class="odot rest" cx="409.3" cy="138.6" r="2.4"/>
+<circle class="odot rest" cx="408.4" cy="135.0" r="2.4"/>
+<circle class="odot rest" cx="403.1" cy="131.9" r="2.4"/>
+<circle class="odot rest" cx="400.9" cy="140.7" r="2.4"/>
+<circle class="ering s1" cx="391.0" cy="174.8" r="2.2"/>
+<circle class="ering s1" cx="384.1" cy="174.7" r="2.2"/>
+<circle class="ering s1" cx="386.5" cy="175.5" r="2.2"/>
+<circle class="ering s1" cx="393.4" cy="175.5" r="2.2"/>
+<circle class="ering s1" cx="379.7" cy="185.7" r="2.2"/>
+<circle class="ering s1" cx="373.0" cy="184.9" r="2.2"/>
+<circle class="ering s1" cx="384.6" cy="163.7" r="2.2"/>
+<circle class="ering s1" cx="379.7" cy="163.3" r="2.2"/>
+<circle class="ering s1" cx="382.0" cy="166.4" r="2.2"/>
+<circle class="ering s1" cx="387.7" cy="166.7" r="2.2"/>
+<circle class="ering s1" cx="364.9" cy="156.0" r="2.2"/>
+<circle class="ering s1" cx="376.3" cy="157.3" r="2.2"/>
+<circle class="ering s1" cx="382.4" cy="178.5" r="2.2"/>
+<circle class="ering s1" cx="376.2" cy="178.8" r="2.2"/>
+<circle class="ering s1" cx="397.3" cy="167.7" r="2.2"/>
+<circle class="ering s1" cx="387.1" cy="167.3" r="2.2"/>
+<circle class="ering s1" cx="398.0" cy="175.1" r="2.2"/>
+<circle class="ering s1" cx="391.0" cy="175.7" r="2.2"/>
+<circle class="ering s1" cx="405.0" cy="163.7" r="2.2"/>
+<circle class="ering s1" cx="401.5" cy="163.2" r="2.2"/>
+<circle class="ering s1" cx="367.7" cy="164.5" r="2.2"/>
+<circle class="ering s1" cx="375.9" cy="165.2" r="2.2"/>
+<circle class="ering s1" cx="376.6" cy="177.7" r="2.2"/>
+<circle class="ering s1" cx="380.1" cy="177.5" r="2.2"/>
+<circle class="ering s1" cx="385.1" cy="176.1" r="2.2"/>
+<circle class="ering s1" cx="380.0" cy="175.9" r="2.2"/>
+<circle class="ering s1" cx="392.0" cy="170.5" r="2.2"/>
+<circle class="ering s1" cx="384.4" cy="170.7" r="2.2"/>
+<circle class="ering s1" cx="385.8" cy="168.7" r="2.2"/>
+<circle class="ering s1" cx="382.9" cy="169.0" r="2.2"/>
+<circle class="ering s1" cx="363.7" cy="172.7" r="2.2"/>
+<circle class="ering s1" cx="360.0" cy="172.6" r="2.2"/>
+<circle class="ering s1" cx="389.5" cy="169.6" r="2.2"/>
+<circle class="ering s1" cx="384.7" cy="168.9" r="2.2"/>
+<circle class="ering s1" cx="411.4" cy="171.1" r="2.2"/>
+<circle class="ering s1" cx="403.1" cy="171.4" r="2.2"/>
+<circle class="ering s1" cx="386.7" cy="162.6" r="2.2"/>
+<circle class="ering s1" cx="377.3" cy="162.5" r="2.2"/>
+<circle class="ering s1" cx="378.5" cy="169.1" r="2.2"/>
+<circle class="ering s1" cx="373.2" cy="169.2" r="2.2"/>
+<circle class="ering s1" cx="412.7" cy="174.7" r="2.2"/>
+<circle class="ering s1" cx="406.9" cy="173.3" r="2.2"/>
+<circle class="ering s1" cx="386.4" cy="162.2" r="2.2"/>
+<circle class="ering s1" cx="382.9" cy="163.5" r="2.2"/>
+<circle class="ering s1" cx="391.3" cy="167.6" r="2.2"/>
+<circle class="ering s1" cx="386.6" cy="167.1" r="2.2"/>
+<circle class="ering s1" cx="412.4" cy="156.0" r="2.2"/>
+<circle class="ering s1" cx="401.0" cy="157.1" r="2.2"/>
+<circle class="ering s1" cx="399.5" cy="167.8" r="2.2"/>
+<circle class="ering s1" cx="388.0" cy="167.7" r="2.2"/>
+<circle class="ering s1" cx="383.9" cy="179.4" r="2.2"/>
+<circle class="ering s1" cx="374.3" cy="179.0" r="2.2"/>
+<circle class="ering s1" cx="404.0" cy="172.3" r="2.2"/>
+<circle class="ering s1" cx="395.1" cy="171.3" r="2.2"/>
+<circle class="ering s1" cx="419.1" cy="156.1" r="2.2"/>
+<circle class="ering s1" cx="418.8" cy="156.3" r="2.2"/>
+<circle class="ering s1" cx="397.4" cy="158.9" r="2.2"/>
+<circle class="ering s1" cx="394.6" cy="158.3" r="2.2"/>
+<circle class="ering s1" cx="377.0" cy="173.8" r="2.2"/>
+<circle class="ering s1" cx="386.0" cy="173.9" r="2.2"/>
+<circle class="ering s1" cx="387.7" cy="166.8" r="2.2"/>
+<circle class="ering s1" cx="383.1" cy="166.1" r="2.2"/>
+<circle class="ering s1" cx="370.4" cy="162.1" r="2.2"/>
+<circle class="ering s1" cx="384.0" cy="160.7" r="2.2"/>
+<circle class="ering s1" cx="375.5" cy="176.9" r="2.2"/>
+<circle class="ering s1" cx="373.2" cy="175.9" r="2.2"/>
+<circle class="ering s1" cx="396.4" cy="155.8" r="2.2"/>
+<circle class="ering s1" cx="397.8" cy="157.1" r="2.2"/>
+<circle class="ering s1" cx="393.9" cy="165.8" r="2.2"/>
+<circle class="ering s1" cx="384.2" cy="165.4" r="2.2"/>
+<circle class="ering s1" cx="426.5" cy="166.7" r="2.2"/>
+<circle class="ering s1" cx="422.5" cy="165.6" r="2.2"/>
+<circle class="ering s1" cx="396.8" cy="162.9" r="2.2"/>
+<circle class="ering s1" cx="389.7" cy="163.9" r="2.2"/>
+<circle class="ering s1" cx="409.4" cy="153.4" r="2.2"/>
+<circle class="ering s1" cx="402.9" cy="153.2" r="2.2"/>
+<circle class="ering s1" cx="394.1" cy="172.3" r="2.2"/>
+<circle class="ering s1" cx="386.1" cy="170.7" r="2.2"/>
+<circle class="ering s1" cx="402.4" cy="163.5" r="2.2"/>
+<circle class="ering s1" cx="399.7" cy="163.2" r="2.2"/>
+<circle class="ering s1" cx="379.5" cy="166.4" r="2.2"/>
+<circle class="ering s1" cx="372.8" cy="166.2" r="2.2"/>
+<circle class="ering s1" cx="377.4" cy="182.0" r="2.2"/>
+<circle class="ering s1" cx="372.2" cy="182.2" r="2.2"/>
+<circle class="ering s1" cx="404.8" cy="173.6" r="2.2"/>
+<circle class="ering s1" cx="392.9" cy="172.6" r="2.2"/>
+<circle class="ering s1" cx="420.2" cy="156.1" r="2.2"/>
+<circle class="ering s1" cx="416.1" cy="156.9" r="2.2"/>
+<circle class="ering s1" cx="410.9" cy="162.8" r="2.2"/>
+<circle class="ering s1" cx="409.0" cy="163.9" r="2.2"/>
+<circle class="ering s1" cx="409.9" cy="164.0" r="2.2"/>
+<circle class="ering s1" cx="404.5" cy="163.8" r="2.2"/>
+<circle class="ering s1" cx="430.2" cy="169.2" r="2.2"/>
+<circle class="ering s1" cx="423.4" cy="169.0" r="2.2"/>
+<circle class="ering s1" cx="414.4" cy="159.6" r="2.2"/>
+<circle class="ering s1" cx="407.8" cy="159.3" r="2.2"/>
+<circle class="ering s1" cx="413.1" cy="162.6" r="2.2"/>
+<circle class="ering s1" cx="412.7" cy="162.5" r="2.2"/>
+<circle class="ering s1" cx="384.4" cy="174.2" r="2.2"/>
+<circle class="ering s1" cx="382.7" cy="174.9" r="2.2"/>
+<circle class="ering s1" cx="393.0" cy="177.8" r="2.2"/>
+<circle class="ering s1" cx="389.3" cy="178.2" r="2.2"/>
+<circle class="ering s1" cx="388.2" cy="173.8" r="2.2"/>
+<circle class="ering s1" cx="389.5" cy="173.6" r="2.2"/>
+<circle class="ering s1" cx="380.7" cy="177.4" r="2.2"/>
+<circle class="ering s1" cx="374.9" cy="177.3" r="2.2"/>
+<circle class="ering s1" cx="393.6" cy="166.9" r="2.2"/>
+<circle class="ering s1" cx="383.8" cy="166.6" r="2.2"/>
+<circle class="ering s1" cx="379.1" cy="173.9" r="2.2"/>
+<circle class="ering s1" cx="375.0" cy="175.1" r="2.2"/>
+<circle class="ering s1" cx="421.9" cy="159.8" r="2.2"/>
+<circle class="ering s1" cx="417.0" cy="160.5" r="2.2"/>
+<circle class="ering s1" cx="411.3" cy="154.6" r="2.2"/>
+<circle class="ering s1" cx="407.9" cy="155.2" r="2.2"/>
+<circle class="ering s1" cx="393.2" cy="155.7" r="2.2"/>
+<circle class="ering s1" cx="390.6" cy="156.6" r="2.2"/>
+<circle class="ering s1" cx="391.2" cy="168.1" r="2.2"/>
+<circle class="ering s1" cx="398.4" cy="169.2" r="2.2"/>
+<circle class="ering s1" cx="363.3" cy="173.8" r="2.2"/>
+<circle class="ering s1" cx="355.6" cy="173.4" r="2.2"/>
+<circle class="ering s1" cx="383.3" cy="162.1" r="2.2"/>
+<circle class="ering s1" cx="392.7" cy="167.4" r="2.2"/>
+<circle class="ering s1" cx="377.9" cy="178.4" r="2.2"/>
+<circle class="ering s1" cx="368.8" cy="178.0" r="2.2"/>
+<circle class="ering s1" cx="413.3" cy="165.6" r="2.2"/>
+<circle class="ering s1" cx="410.7" cy="166.1" r="2.2"/>
+<circle class="ering s1" cx="396.2" cy="151.8" r="2.2"/>
+<circle class="ering s1" cx="393.5" cy="152.4" r="2.2"/>
+<circle class="ering s1" cx="404.5" cy="174.9" r="2.2"/>
+<circle class="ering s1" cx="398.0" cy="173.9" r="2.2"/>
+<circle class="ering s1" cx="411.3" cy="159.6" r="2.2"/>
+<circle class="ering s1" cx="405.6" cy="159.4" r="2.2"/>
+<circle class="ering s1" cx="389.7" cy="173.9" r="2.2"/>
+<circle class="ering s1" cx="383.6" cy="171.5" r="2.2"/>
+<circle class="ering s1" cx="419.9" cy="169.7" r="2.2"/>
+<circle class="ering s1" cx="415.3" cy="170.1" r="2.2"/>
+<circle class="ering s2" cx="415.8" cy="121.1" r="2.2"/>
+<circle class="ering s2" cx="438.3" cy="160.2" r="2.2"/>
+<circle class="ering s2" cx="412.3" cy="149.7" r="2.2"/>
+<circle class="ering s2" cx="415.1" cy="149.1" r="2.2"/>
+<circle class="ering s2" cx="363.0" cy="153.4" r="2.2"/>
+<circle class="ering s2" cx="372.2" cy="158.7" r="2.2"/>
+<circle class="ering s2" cx="405.7" cy="121.7" r="2.2"/>
+<circle class="ering s2" cx="450.9" cy="84.8" r="2.2"/>
+<circle class="ering s2" cx="395.2" cy="170.9" r="2.2"/>
+<circle class="ering s2" cx="407.9" cy="154.6" r="2.2"/>
+<circle class="ering s2" cx="445.1" cy="165.9" r="2.2"/>
+<circle class="ering s2" cx="457.7" cy="144.3" r="2.2"/>
+<circle class="ering s2" cx="396.9" cy="85.7" r="2.2"/>
+<circle class="ering s2" cx="436.0" cy="127.8" r="2.2"/>
+<circle class="ering s2" cx="389.9" cy="142.4" r="2.2"/>
+<circle class="ering s2" cx="472.1" cy="128.6" r="2.2"/>
+<circle class="ering s2" cx="446.5" cy="114.8" r="2.2"/>
+<circle class="ering s2" cx="417.4" cy="132.9" r="2.2"/>
+<circle class="ering s2" cx="433.9" cy="144.8" r="2.2"/>
+<circle class="ering s2" cx="424.1" cy="131.4" r="2.2"/>
+<circle class="ering s2" cx="496.0" cy="107.5" r="2.2"/>
+<circle class="ering s2" cx="414.9" cy="127.0" r="2.2"/>
+<circle class="ering s2" cx="412.2" cy="162.7" r="2.2"/>
+<circle class="ering s2" cx="439.0" cy="129.1" r="2.2"/>
+<circle class="ering s2" cx="429.8" cy="112.2" r="2.2"/>
+<circle class="ering s2" cx="400.5" cy="132.6" r="2.2"/>
+<circle class="ering s2" cx="371.9" cy="162.4" r="2.2"/>
+<circle class="ering s2" cx="475.1" cy="151.0" r="2.2"/>
+<circle class="ering s2" cx="404.8" cy="140.9" r="2.2"/>
+<circle class="ering s2" cx="401.1" cy="161.6" r="2.2"/>
+<circle class="ering s2" cx="408.0" cy="158.9" r="2.2"/>
+<circle class="ering s2" cx="437.2" cy="89.4" r="2.2"/>
+<circle class="ering s2" cx="405.8" cy="146.6" r="2.2"/>
+<circle class="ering s2" cx="359.4" cy="149.4" r="2.2"/>
+<circle class="ering s2" cx="483.2" cy="143.1" r="2.2"/>
+<circle class="ering s2" cx="374.7" cy="101.8" r="2.2"/>
+<circle class="ering s2" cx="469.3" cy="149.0" r="2.2"/>
+<circle class="ering s2" cx="456.4" cy="107.7" r="2.2"/>
+<circle class="ering s2" cx="418.4" cy="149.7" r="2.2"/>
+<circle class="ering s2" cx="343.0" cy="137.2" r="2.2"/>
+<circle class="ering s2" cx="420.8" cy="152.4" r="2.2"/>
+<circle class="ering s2" cx="331.2" cy="75.6" r="2.2"/>
+<circle class="ering s2" cx="364.0" cy="122.9" r="2.2"/>
+<circle class="ering s2" cx="460.1" cy="130.7" r="2.2"/>
+<circle class="ering s2" cx="399.9" cy="174.1" r="2.2"/>
+<circle class="ering s2" cx="388.9" cy="121.6" r="2.2"/>
+<circle class="ering s2" cx="412.4" cy="139.8" r="2.2"/>
+<circle class="ering s2" cx="402.9" cy="168.1" r="2.2"/>
+<circle class="ering s2" cx="383.3" cy="162.0" r="2.2"/>
+<circle class="ering s2" cx="381.1" cy="157.1" r="2.2"/>
+<circle class="ering s2" cx="433.3" cy="161.5" r="2.2"/>
+<circle class="ering s2" cx="381.6" cy="120.7" r="2.2"/>
+<circle class="ering s2" cx="443.3" cy="112.7" r="2.2"/>
+<circle class="ering s2" cx="446.3" cy="140.1" r="2.2"/>
+<circle class="ering s2" cx="409.4" cy="156.3" r="2.2"/>
+<circle class="ering s2" cx="435.5" cy="136.9" r="2.2"/>
+<circle class="ering s2" cx="407.1" cy="149.1" r="2.2"/>
+<circle class="ering s2" cx="379.8" cy="157.7" r="2.2"/>
+<circle class="ering s2" cx="420.6" cy="122.3" r="2.2"/>
+<circle class="ering s2" cx="341.8" cy="169.9" r="2.2"/>
+<circle class="ering s2" cx="454.0" cy="38.8" r="2.2"/>
+<circle class="ering s2" cx="340.6" cy="119.6" r="2.2"/>
+<circle class="ering s2" cx="357.0" cy="159.9" r="2.2"/>
+<circle class="ering s2" cx="369.1" cy="110.6" r="2.2"/>
+<circle class="ering s2" cx="404.5" cy="118.2" r="2.2"/>
+<circle class="ering s2" cx="478.3" cy="114.9" r="2.2"/>
+<circle class="ering s2" cx="355.7" cy="140.0" r="2.2"/>
+<circle class="ering s2" cx="394.8" cy="171.3" r="2.2"/>
+<circle class="ering s2" cx="419.1" cy="153.2" r="2.2"/>
+<circle class="ering s2" cx="495.2" cy="119.8" r="2.2"/>
+<circle class="ering s2" cx="384.5" cy="154.5" r="2.2"/>
+<circle class="ering s2" cx="365.4" cy="122.1" r="2.2"/>
+<circle class="ering s2" cx="385.0" cy="162.9" r="2.2"/>
+<circle class="ering s2" cx="415.3" cy="153.8" r="2.2"/>
+<circle class="ering s2" cx="405.3" cy="147.4" r="2.2"/>
+<circle class="ering s2" cx="424.2" cy="116.0" r="2.2"/>
+<circle class="ering s2" cx="369.6" cy="166.6" r="2.2"/>
+<circle class="ering s2" cx="338.5" cy="170.2" r="2.2"/>
+<circle class="ering s2" cx="384.8" cy="156.0" r="2.2"/>
+<circle class="ering s2" cx="395.3" cy="151.5" r="2.2"/>
+<circle class="ering s2" cx="479.5" cy="137.6" r="2.2"/>
+<circle class="ering s2" cx="372.3" cy="141.6" r="2.2"/>
+<circle class="ering s2" cx="452.2" cy="149.3" r="2.2"/>
+<circle class="ering s2" cx="419.2" cy="130.0" r="2.2"/>
+<circle class="ering s2" cx="342.4" cy="162.8" r="2.2"/>
+<circle class="ering s2" cx="350.7" cy="141.1" r="2.2"/>
+<circle class="ering s2" cx="438.4" cy="118.8" r="2.2"/>
+<circle class="ering s2" cx="421.3" cy="150.1" r="2.2"/>
+<circle class="ering s2" cx="357.4" cy="160.6" r="2.2"/>
+<circle class="ering s2" cx="318.0" cy="138.8" r="2.2"/>
+<circle class="ering s2" cx="393.6" cy="122.8" r="2.2"/>
+<circle class="ering s2" cx="386.0" cy="132.5" r="2.2"/>
+<circle class="ering s2" cx="420.4" cy="162.5" r="2.2"/>
+<circle class="ering s2" cx="413.3" cy="104.9" r="2.2"/>
+<circle class="ering s2" cx="377.7" cy="143.6" r="2.2"/>
+<circle class="ering s2" cx="389.0" cy="163.3" r="2.2"/>
+<circle class="ering s2" cx="424.4" cy="154.5" r="2.2"/>
+<circle class="ering s2" cx="337.2" cy="92.7" r="2.2"/>
+<circle class="ering s2" cx="390.7" cy="149.2" r="2.2"/>
+<circle class="ering s2" cx="400.4" cy="178.8" r="2.2"/>
+<circle class="ering s2" cx="445.3" cy="152.2" r="2.2"/>
+<circle class="ering s2" cx="371.3" cy="150.2" r="2.2"/>
+<circle class="ering s2" cx="376.5" cy="154.8" r="2.2"/>
+<circle class="ering s2" cx="391.0" cy="150.5" r="2.2"/>
+<circle class="ering s2" cx="398.9" cy="83.9" r="2.2"/>
+<circle class="ering s2" cx="440.8" cy="84.7" r="2.2"/>
+<circle class="ering s2" cx="456.1" cy="146.9" r="2.2"/>
+<circle class="ering s2" cx="379.4" cy="137.4" r="2.2"/>
+<circle class="ering s2" cx="480.3" cy="138.8" r="2.2"/>
+<circle class="ering s2" cx="398.1" cy="112.6" r="2.2"/>
+<circle class="ering s2" cx="496.5" cy="129.5" r="2.2"/>
+<circle class="ering s2" cx="384.2" cy="132.9" r="2.2"/>
+<circle class="ering s2" cx="326.8" cy="125.1" r="2.2"/>
+<circle class="ering s2" cx="434.8" cy="117.0" r="2.2"/>
+<circle class="ering s2" cx="427.4" cy="154.9" r="2.2"/>
+<circle class="ering s2" cx="392.7" cy="144.1" r="2.2"/>
+<circle class="ering s2" cx="438.5" cy="175.2" r="2.2"/>
+<circle class="ering s2" cx="376.9" cy="154.1" r="2.2"/>
+<circle class="ering s2" cx="319.7" cy="69.2" r="2.2"/>
+<circle class="ering s2" cx="411.3" cy="148.8" r="2.2"/>
+<circle class="ering s2" cx="441.5" cy="102.0" r="2.2"/>
+<circle class="ering s2" cx="376.8" cy="110.7" r="2.2"/>
+<circle class="ering s2" cx="411.0" cy="154.8" r="2.2"/>
+<circle class="ering s2" cx="388.3" cy="163.7" r="2.2"/>
+<circle class="ering s2" cx="385.1" cy="144.9" r="2.2"/>
+<circle class="ering s2" cx="482.8" cy="131.2" r="2.2"/>
+<circle class="ering s2" cx="388.7" cy="158.7" r="2.2"/>
+<circle class="ering s2" cx="395.3" cy="118.9" r="2.2"/>
+<circle class="ering s2" cx="426.1" cy="155.5" r="2.2"/>
+<circle class="ering s2" cx="417.5" cy="139.6" r="2.2"/>
+<circle class="ering s2" cx="358.8" cy="173.6" r="2.2"/>
+<circle class="ering s2" cx="363.5" cy="127.8" r="2.2"/>
+<circle class="ering s2" cx="387.3" cy="128.5" r="2.2"/>
+<circle class="ering s2" cx="444.4" cy="161.1" r="2.2"/>
+<circle class="ering s3" cx="419.8" cy="117.8" r="2.2"/>
+<circle class="ering s3" cx="338.0" cy="143.8" r="2.2"/>
+<circle class="ering s3" cx="400.2" cy="102.1" r="2.2"/>
+<circle class="ering s3" cx="338.3" cy="135.6" r="2.2"/>
+<circle class="ering s3" cx="391.1" cy="149.4" r="2.2"/>
+<circle class="ering s3" cx="325.8" cy="151.3" r="2.2"/>
+<circle class="ering s3" cx="380.8" cy="166.0" r="2.2"/>
+<circle class="ering s3" cx="376.6" cy="172.6" r="2.2"/>
+<circle class="ering s3" cx="383.7" cy="166.5" r="2.2"/>
+<circle class="ering s3" cx="377.3" cy="177.5" r="2.2"/>
+<circle class="ering s3" cx="398.1" cy="172.0" r="2.2"/>
+<circle class="ering s3" cx="397.5" cy="184.7" r="2.2"/>
+<circle class="ering s3" cx="399.1" cy="171.4" r="2.2"/>
+<circle class="ering s3" cx="397.8" cy="182.7" r="2.2"/>
+<circle class="ering s3" cx="374.1" cy="177.9" r="2.2"/>
+<circle class="ering s3" cx="324.3" cy="174.8" r="2.2"/>
+<circle class="ering s3" cx="374.4" cy="163.8" r="2.2"/>
+<circle class="ering s3" cx="369.7" cy="173.8" r="2.2"/>
+<circle class="ering s3" cx="373.6" cy="162.0" r="2.2"/>
+<circle class="ering s3" cx="372.5" cy="171.2" r="2.2"/>
+<circle class="ering s3" cx="353.1" cy="123.4" r="2.2"/>
+<circle class="ering s3" cx="324.5" cy="134.7" r="2.2"/>
+<circle class="ering s3" cx="464.5" cy="150.1" r="2.2"/>
+<circle class="ering s3" cx="354.6" cy="133.7" r="2.2"/>
+<circle class="ering s3" cx="364.0" cy="130.3" r="2.2"/>
+<circle class="ering s3" cx="326.0" cy="138.2" r="2.2"/>
+<circle class="ering s3" cx="423.6" cy="146.0" r="2.2"/>
+<circle class="ering s3" cx="370.6" cy="166.2" r="2.2"/>
+<circle class="ering s3" cx="438.1" cy="135.2" r="2.2"/>
+<circle class="ering s3" cx="357.8" cy="149.8" r="2.2"/>
+<circle class="ering s3" cx="407.8" cy="149.9" r="2.2"/>
+<circle class="ering s3" cx="323.1" cy="147.0" r="2.2"/>
+<circle class="ering s3" cx="470.1" cy="159.0" r="2.2"/>
+<circle class="ering s3" cx="372.6" cy="180.5" r="2.2"/>
+<circle class="ering s3" cx="432.0" cy="49.9" r="2.2"/>
+<circle class="ering s3" cx="374.6" cy="170.4" r="2.2"/>
+<circle class="ering s3" cx="359.5" cy="171.7" r="2.2"/>
+<circle class="ering s3" cx="345.9" cy="178.2" r="2.2"/>
+<circle class="ering s3" cx="372.0" cy="170.6" r="2.2"/>
+<circle class="ering s3" cx="351.2" cy="175.4" r="2.2"/>
+<circle class="ering s3" cx="454.0" cy="143.5" r="2.2"/>
+<circle class="ering s3" cx="345.5" cy="157.8" r="2.2"/>
+<circle class="ering s3" cx="395.2" cy="170.9" r="2.2"/>
+<circle class="ering s3" cx="349.4" cy="168.2" r="2.2"/>
+<circle class="ering s3" cx="435.5" cy="136.9" r="2.2"/>
+<circle class="ering s3" cx="326.6" cy="160.8" r="2.2"/>
+<circle class="ering s3" cx="448.6" cy="119.3" r="2.2"/>
+<circle class="ering s3" cx="330.2" cy="157.0" r="2.2"/>
+<circle class="ering s3" cx="410.4" cy="147.2" r="2.2"/>
+<circle class="ering s3" cx="331.1" cy="161.0" r="2.2"/>
+<circle class="ering s3" cx="371.1" cy="109.3" r="2.2"/>
+<circle class="ering s3" cx="352.8" cy="136.0" r="2.2"/>
+<circle class="ering s3" cx="367.0" cy="171.1" r="2.2"/>
+<circle class="ering s3" cx="366.5" cy="176.7" r="2.2"/>
+<circle class="ering s3" cx="367.7" cy="171.2" r="2.2"/>
+<circle class="ering s3" cx="364.8" cy="180.0" r="2.2"/>
+<circle class="ering s3" cx="494.0" cy="119.6" r="2.2"/>
+<circle class="ering s3" cx="368.9" cy="148.7" r="2.2"/>
+<circle class="ering s3" cx="411.3" cy="148.8" r="2.2"/>
+<circle class="ering s3" cx="335.9" cy="144.8" r="2.2"/>
+<circle class="ering s3" cx="496.0" cy="107.5" r="2.2"/>
+<circle class="ering s3" cx="355.9" cy="178.2" r="2.2"/>
+<circle class="ering s3" cx="391.0" cy="150.5" r="2.2"/>
+<circle class="ering s3" cx="323.3" cy="130.8" r="2.2"/>
+<circle class="ering s3" cx="366.3" cy="156.6" r="2.2"/>
+<circle class="ering s3" cx="363.8" cy="164.9" r="2.2"/>
+<circle class="ering s3" cx="385.7" cy="162.6" r="2.2"/>
+<circle class="ering s3" cx="362.3" cy="165.5" r="2.2"/>
+<circle class="ering s3" cx="421.6" cy="163.4" r="2.2"/>
+<circle class="ering s3" cx="344.0" cy="135.5" r="2.2"/>
+<circle class="ering s3" cx="412.2" cy="162.7" r="2.2"/>
+<circle class="ering s3" cx="331.6" cy="147.9" r="2.2"/>
+<circle class="ering s3" cx="429.8" cy="112.2" r="2.2"/>
+<circle class="ering s3" cx="362.0" cy="125.6" r="2.2"/>
+<circle class="ering s3" cx="449.5" cy="163.9" r="2.2"/>
+<circle class="ering s3" cx="364.6" cy="159.2" r="2.2"/>
+<circle class="ering s3" cx="452.5" cy="140.3" r="2.2"/>
+<circle class="ering s3" cx="350.1" cy="169.0" r="2.2"/>
+<circle class="ering s3" cx="502.6" cy="125.4" r="2.2"/>
+<circle class="ering s3" cx="354.6" cy="127.9" r="2.2"/>
+<circle class="ering s3" cx="431.5" cy="102.7" r="2.2"/>
+<circle class="ering s3" cx="339.6" cy="137.4" r="2.2"/>
+<circle class="ering s3" cx="410.3" cy="141.9" r="2.2"/>
+<circle class="ering s3" cx="343.9" cy="143.5" r="2.2"/>
+<circle class="ering s3" cx="442.4" cy="142.8" r="2.2"/>
+<circle class="ering s3" cx="334.3" cy="150.9" r="2.2"/>
+<circle class="ering s3" cx="367.5" cy="170.4" r="2.2"/>
+<circle class="ering s3" cx="336.6" cy="165.0" r="2.2"/>
+<circle class="ering s3" cx="401.1" cy="157.2" r="2.2"/>
+<circle class="ering s3" cx="398.5" cy="168.8" r="2.2"/>
+<circle class="ering s3" cx="403.6" cy="157.7" r="2.2"/>
+<circle class="ering s3" cx="398.5" cy="168.8" r="2.2"/>
+<circle class="ering s3" cx="518.4" cy="119.6" r="2.2"/>
+<circle class="ering s3" cx="325.7" cy="120.0" r="2.2"/>
+<circle class="ering s3" cx="366.2" cy="169.8" r="2.2"/>
+<circle class="ering s3" cx="365.9" cy="176.9" r="2.2"/>
+<circle class="ering s3" cx="366.2" cy="169.1" r="2.2"/>
+<circle class="ering s3" cx="362.7" cy="178.0" r="2.2"/>
+<circle class="ering s3" cx="408.0" cy="158.9" r="2.2"/>
+<circle class="ering s3" cx="315.4" cy="139.8" r="2.2"/>
+<circle class="ering s3" cx="464.3" cy="133.9" r="2.2"/>
+<circle class="ering s3" cx="333.4" cy="153.4" r="2.2"/>
+<circle class="ering s3" cx="483.2" cy="143.1" r="2.2"/>
+<circle class="ering s3" cx="371.2" cy="173.4" r="2.2"/>
+<circle class="ering s3" cx="469.3" cy="149.0" r="2.2"/>
+<circle class="ering s3" cx="334.5" cy="146.3" r="2.2"/>
+<circle class="ering s3" cx="476.3" cy="145.9" r="2.2"/>
+<circle class="ering s3" cx="338.6" cy="152.2" r="2.2"/>
+<circle class="ering s3" cx="440.7" cy="119.5" r="2.2"/>
+<circle class="ering s3" cx="356.0" cy="130.3" r="2.2"/>
+<circle class="ering s3" cx="422.9" cy="154.8" r="2.2"/>
+<circle class="ering s3" cx="337.4" cy="139.9" r="2.2"/>
+<circle class="ering s3" cx="418.4" cy="149.7" r="2.2"/>
+<circle class="ering s3" cx="336.1" cy="165.5" r="2.2"/>
+<circle class="ering s3" cx="400.4" cy="178.8" r="2.2"/>
+<circle class="ering s3" cx="334.7" cy="192.4" r="2.2"/>
+<circle class="ering s3" cx="445.5" cy="157.3" r="2.2"/>
+<circle class="ering s3" cx="340.2" cy="146.2" r="2.2"/>
+<circle class="ering s3" cx="421.3" cy="134.6" r="2.2"/>
+<circle class="ering s3" cx="344.4" cy="162.2" r="2.2"/>
+<circle class="ering s3" cx="420.8" cy="152.4" r="2.2"/>
+<circle class="ering s3" cx="354.9" cy="170.0" r="2.2"/>
+<circle class="ering s3" cx="452.6" cy="157.1" r="2.2"/>
+<circle class="ering s3" cx="361.0" cy="152.8" r="2.2"/>
+<circle class="ering s3" cx="461.0" cy="114.5" r="2.2"/>
+<circle class="ering s3" cx="344.8" cy="131.7" r="2.2"/>
+<circle class="ering s3" cx="393.2" cy="165.8" r="2.2"/>
+<circle class="ering s3" cx="322.6" cy="141.6" r="2.2"/>
+<circle class="ering s3" cx="475.1" cy="87.1" r="2.2"/>
+<circle class="ering s3" cx="328.4" cy="133.5" r="2.2"/>
+<circle class="ering s3" cx="359.3" cy="160.2" r="2.2"/>
+<circle class="ering s3" cx="354.0" cy="165.4" r="2.2"/>
+<circle class="ering s3" cx="351.8" cy="158.8" r="2.2"/>
+<circle class="ering s3" cx="353.8" cy="167.0" r="2.2"/>
+<circle class="ering s3" cx="404.8" cy="170.0" r="2.2"/>
+<circle class="ering s3" cx="349.5" cy="184.4" r="2.2"/>
+<circle class="ering s3" cx="399.9" cy="174.1" r="2.2"/>
+<circle class="ering s3" cx="355.7" cy="160.8" r="2.2"/>
+<circle class="ering s3" cx="360.2" cy="167.6" r="2.2"/>
+<circle class="ering s3" cx="360.9" cy="171.5" r="2.2"/>
+<circle class="ering s3" cx="367.1" cy="168.2" r="2.2"/>
+<circle class="ering s3" cx="361.5" cy="173.1" r="2.2"/>
+<circle class="ering s3" cx="417.5" cy="110.5" r="2.2"/>
+<circle class="ering s3" cx="378.4" cy="137.5" r="2.2"/>
+<circle class="ering s3" cx="382.2" cy="172.2" r="2.2"/>
+<circle class="ering s3" cx="346.2" cy="164.1" r="2.2"/>
+<circle class="ering s3" cx="418.4" cy="175.4" r="2.2"/>
+<circle class="ering s3" cx="353.7" cy="184.0" r="2.2"/>
+<circle class="ering s3" cx="393.8" cy="169.8" r="2.2"/>
+<circle class="ering s3" cx="343.6" cy="165.5" r="2.2"/>
+<circle class="ering s3" cx="393.7" cy="77.2" r="2.2"/>
+<circle class="ering s3" cx="360.4" cy="121.3" r="2.2"/>
+<circle class="ering s3" cx="418.8" cy="175.5" r="2.2"/>
+<circle class="ering s3" cx="389.2" cy="174.4" r="2.2"/>
+<circle class="ering s3" cx="475.2" cy="149.6" r="2.2"/>
+<circle class="ering s3" cx="335.6" cy="117.0" r="2.2"/>
+<circle class="ering s3" cx="404.9" cy="116.3" r="2.2"/>
+<circle class="ering s3" cx="330.0" cy="116.9" r="2.2"/>
+<circle class="ering s3" cx="446.0" cy="155.4" r="2.2"/>
+<circle class="ering s3" cx="324.8" cy="146.6" r="2.2"/>
+<circle class="ering s3" cx="369.8" cy="153.0" r="2.2"/>
+<circle class="ering s3" cx="365.5" cy="167.0" r="2.2"/>
+<circle class="ering s3" cx="381.5" cy="155.6" r="2.2"/>
+<circle class="ering s3" cx="366.8" cy="164.2" r="2.2"/>
+<circle class="ering s3" cx="391.1" cy="162.9" r="2.2"/>
+<circle class="ering s3" cx="353.1" cy="174.6" r="2.2"/>
+<circle class="ering s3" cx="433.3" cy="161.5" r="2.2"/>
+<circle class="ering s3" cx="356.4" cy="166.9" r="2.2"/>
+<circle class="ering s3" cx="443.3" cy="112.7" r="2.2"/>
+<circle class="ering s3" cx="352.3" cy="135.6" r="2.2"/>
+<circle class="ering s3" cx="407.1" cy="149.1" r="2.2"/>
+<circle class="ering s3" cx="332.8" cy="139.7" r="2.2"/>
+<circle class="ering s3" cx="412.1" cy="155.5" r="2.2"/>
+<circle class="ering s3" cx="334.3" cy="141.4" r="2.2"/>
+<circle class="ering s3" cx="442.3" cy="148.4" r="2.2"/>
+<circle class="ering s3" cx="321.2" cy="152.4" r="2.2"/>
+<circle class="ering s3" cx="462.7" cy="132.9" r="2.2"/>
+<circle class="ering s3" cx="333.7" cy="146.1" r="2.2"/>
+<circle class="ering s3" cx="412.4" cy="133.9" r="2.2"/>
+<circle class="ering s3" cx="345.6" cy="128.8" r="2.2"/>
+<circle class="ering s3" cx="454.4" cy="168.1" r="2.2"/>
+<circle class="ering s3" cx="360.3" cy="183.7" r="2.2"/>
+<circle class="ering s3" cx="420.6" cy="122.3" r="2.2"/>
+<circle class="ering s3" cx="337.2" cy="134.8" r="2.2"/>
+<circle class="ering s3" cx="467.2" cy="144.0" r="2.2"/>
+<circle class="ering s3" cx="342.4" cy="118.4" r="2.2"/>
+<circle class="ering s3" cx="511.2" cy="121.2" r="2.2"/>
+<circle class="ering s3" cx="380.1" cy="145.5" r="2.2"/>
+<circle class="ering s3" cx="409.3" cy="170.8" r="2.2"/>
+<circle class="ering s3" cx="345.3" cy="185.6" r="2.2"/>
+<circle class="ering s3" cx="357.0" cy="159.9" r="2.2"/>
+<circle class="ering s3" cx="362.7" cy="166.4" r="2.2"/>
+<circle class="ering s3" cx="402.4" cy="167.1" r="2.2"/>
+<circle class="ering s3" cx="326.7" cy="154.1" r="2.2"/>
+<circle class="ering s3" cx="420.7" cy="177.2" r="2.2"/>
+<circle class="ering s3" cx="336.6" cy="178.9" r="2.2"/>
+<circle class="ering s3" cx="404.2" cy="156.6" r="2.2"/>
+<circle class="ering s3" cx="327.0" cy="165.6" r="2.2"/>
+<circle class="ering s3" cx="389.3" cy="138.2" r="2.2"/>
+<circle class="ering s3" cx="332.5" cy="144.3" r="2.2"/>
+<circle class="ering s3" cx="448.6" cy="141.8" r="2.2"/>
+<circle class="ering s3" cx="353.6" cy="158.3" r="2.2"/>
+<circle class="ering s3" cx="439.3" cy="157.3" r="2.2"/>
+<circle class="ering s3" cx="393.9" cy="163.4" r="2.2"/>
+<circle class="ering s3" cx="419.1" cy="153.2" r="2.2"/>
+<circle class="ering s3" cx="331.9" cy="145.0" r="2.2"/>
+<circle class="ering s3" cx="407.2" cy="106.5" r="2.2"/>
+<circle class="ering s3" cx="347.1" cy="138.9" r="2.2"/>
+<circle class="ering s3" cx="368.2" cy="145.9" r="2.2"/>
+<circle class="ering s3" cx="366.7" cy="158.3" r="2.2"/>
+<circle class="ering s3" cx="365.4" cy="145.3" r="2.2"/>
+<circle class="ering s3" cx="367.0" cy="158.2" r="2.2"/>
+<circle class="ering s3" cx="413.5" cy="160.3" r="2.2"/>
+<circle class="ering s3" cx="343.1" cy="137.6" r="2.2"/>
+<circle class="ering s3" cx="384.5" cy="154.5" r="2.2"/>
+<circle class="ering s3" cx="341.1" cy="142.5" r="2.2"/>
+<circle class="ering s3" cx="495.3" cy="138.2" r="2.2"/>
+<circle class="ering s3" cx="370.5" cy="153.1" r="2.2"/>
+<circle class="ering s3" cx="380.4" cy="167.0" r="2.2"/>
+<circle class="ering s3" cx="353.0" cy="165.2" r="2.2"/>
+<circle class="ering s3" cx="429.0" cy="134.3" r="2.2"/>
+<circle class="ering s3" cx="361.3" cy="149.1" r="2.2"/>
+<circle class="ering s3" cx="428.7" cy="166.6" r="2.2"/>
+<circle class="ering s3" cx="349.0" cy="163.5" r="2.2"/>
+<circle class="ering s3" cx="433.2" cy="109.7" r="2.2"/>
+<circle class="ering s3" cx="378.1" cy="131.0" r="2.2"/>
+<circle class="ering s3" cx="443.7" cy="156.5" r="2.2"/>
+<circle class="ering s3" cx="372.8" cy="159.7" r="2.2"/>
+<circle class="ering s3" cx="385.0" cy="162.9" r="2.2"/>
+<circle class="ering s3" cx="353.9" cy="150.1" r="2.2"/>
+<circle class="ering s3" cx="422.8" cy="153.7" r="2.2"/>
+<circle class="ering s3" cx="354.0" cy="188.6" r="2.2"/>
+<circle class="ering s3" cx="468.2" cy="129.2" r="2.2"/>
+<circle class="ering s3" cx="338.5" cy="155.6" r="2.2"/>
+<circle class="ering s3" cx="426.9" cy="171.5" r="2.2"/>
+<circle class="ering s3" cx="338.0" cy="180.0" r="2.2"/>
+<circle class="ering s3" cx="411.5" cy="135.5" r="2.2"/>
+<circle class="ering s3" cx="328.7" cy="139.3" r="2.2"/>
+<circle class="ering s3" cx="404.2" cy="97.4" r="2.2"/>
+<circle class="ering s3" cx="375.0" cy="130.8" r="2.2"/>
+<circle class="ering s3" cx="369.6" cy="166.6" r="2.2"/>
+<circle class="ering s3" cx="348.3" cy="151.1" r="2.2"/>
+<circle class="ering s3" cx="384.8" cy="156.0" r="2.2"/>
+<circle class="ering s3" cx="351.4" cy="170.4" r="2.2"/>
+<circle class="ering s3" cx="479.5" cy="137.6" r="2.2"/>
+<circle class="ering s3" cx="363.4" cy="152.0" r="2.2"/>
+<circle class="ering s3" cx="335.9" cy="144.1" r="2.2"/>
+<circle class="ering s3" cx="327.5" cy="149.8" r="2.2"/>
+<circle class="ering s3" cx="452.2" cy="149.3" r="2.2"/>
+<circle class="ering s3" cx="318.9" cy="146.7" r="2.2"/>
+<circle class="ering s3" cx="403.1" cy="114.3" r="2.2"/>
+<circle class="ering s3" cx="356.9" cy="143.0" r="2.2"/>
+<circle class="ering s3" cx="404.8" cy="101.4" r="2.2"/>
+<circle class="ering s3" cx="362.5" cy="131.1" r="2.2"/>
+<circle class="ering s3" cx="421.9" cy="156.8" r="2.2"/>
+<circle class="ering s3" cx="374.9" cy="171.4" r="2.2"/>
+<circle class="ering s3" cx="434.5" cy="152.3" r="2.2"/>
+<circle class="ering s3" cx="329.7" cy="168.7" r="2.2"/>
+<circle class="ering s3" cx="409.4" cy="166.4" r="2.2"/>
+<circle class="ering s3" cx="327.5" cy="162.9" r="2.2"/>
+<circle class="ering s3" cx="462.9" cy="117.4" r="2.2"/>
+<circle class="ering s3" cx="361.4" cy="184.3" r="2.2"/>
+<circle class="ering s3" cx="444.2" cy="128.4" r="2.2"/>
+<circle class="ering s3" cx="355.2" cy="137.1" r="2.2"/>
+<circle class="ering s3" cx="438.4" cy="118.8" r="2.2"/>
+<circle class="ering s3" cx="331.2" cy="147.0" r="2.2"/>
+<circle class="ering s3" cx="440.6" cy="145.5" r="2.2"/>
+<circle class="ering s3" cx="310.0" cy="140.8" r="2.2"/>
+<circle class="ering s3" cx="390.6" cy="163.7" r="2.2"/>
+<circle class="ering s3" cx="361.6" cy="175.6" r="2.2"/>
+<circle class="ering s3" cx="394.8" cy="171.3" r="2.2"/>
+<circle class="ering s3" cx="340.9" cy="162.8" r="2.2"/>
+<circle class="ering s3" cx="363.2" cy="119.9" r="2.2"/>
+<circle class="ering s3" cx="334.3" cy="134.5" r="2.2"/>
+<circle class="ering s3" cx="433.4" cy="105.9" r="2.2"/>
+<circle class="ering s3" cx="344.5" cy="152.0" r="2.2"/>
+<circle class="ering s3" cx="406.7" cy="156.5" r="2.2"/>
+<circle class="ering s3" cx="357.7" cy="159.4" r="2.2"/>
+<circle class="ering s3" cx="357.4" cy="160.6" r="2.2"/>
+<circle class="ering s3" cx="336.1" cy="160.4" r="2.2"/>
+<circle class="ering s3" cx="345.8" cy="166.3" r="2.2"/>
+<circle class="ering s3" cx="344.0" cy="173.9" r="2.2"/>
+<circle class="ering s3" cx="345.8" cy="165.8" r="2.2"/>
+<circle class="ering s3" cx="344.0" cy="172.6" r="2.2"/>
+<circle class="ering s3" cx="456.9" cy="147.8" r="2.2"/>
+<circle class="ering s3" cx="324.5" cy="160.3" r="2.2"/>
+<circle class="ering s3" cx="387.4" cy="150.9" r="2.2"/>
+<circle class="ering s3" cx="324.5" cy="137.2" r="2.2"/>
+<circle class="ering s3" cx="393.6" cy="122.8" r="2.2"/>
+<circle class="ering s3" cx="354.9" cy="130.6" r="2.2"/>
+<circle class="ering s3" cx="390.4" cy="163.5" r="2.2"/>
+<circle class="ering s3" cx="387.8" cy="169.4" r="2.2"/>
+<circle class="ering s3" cx="385.2" cy="162.5" r="2.2"/>
+<circle class="ering s3" cx="386.5" cy="170.7" r="2.2"/>
+<circle class="ering s3" cx="365.0" cy="167.9" r="2.2"/>
+<circle class="ering s3" cx="364.9" cy="174.8" r="2.2"/>
+<circle class="ering s3" cx="360.6" cy="166.7" r="2.2"/>
+<circle class="ering s3" cx="363.8" cy="180.8" r="2.2"/>
+<circle class="ering s3" cx="419.7" cy="168.4" r="2.2"/>
+<circle class="ering s3" cx="393.0" cy="184.7" r="2.2"/>
+<circle class="ering s3" cx="383.5" cy="170.5" r="2.2"/>
+<circle class="ering s3" cx="373.4" cy="179.7" r="2.2"/>
+<circle class="ering s3" cx="375.7" cy="171.0" r="2.2"/>
+<circle class="ering s3" cx="373.3" cy="178.9" r="2.2"/>
+<circle class="ering s3" cx="424.4" cy="154.5" r="2.2"/>
+<circle class="ering s3" cx="343.2" cy="147.5" r="2.2"/>
+<circle class="ering s3" cx="435.5" cy="122.6" r="2.2"/>
+<circle class="ering s3" cx="357.3" cy="127.6" r="2.2"/>
+<circle class="ering s3" cx="445.3" cy="152.2" r="2.2"/>
+<circle class="ering s3" cx="376.9" cy="182.2" r="2.2"/>
+<circle class="ering s3" cx="375.8" cy="134.2" r="2.2"/>
+<circle class="ering s3" cx="348.8" cy="132.5" r="2.2"/>
+<circle class="ering s3" cx="398.9" cy="83.9" r="2.2"/>
+<circle class="ering s3" cx="338.9" cy="134.5" r="2.2"/>
+<circle class="ering s3" cx="399.8" cy="149.5" r="2.2"/>
+<circle class="ering s3" cx="328.0" cy="137.1" r="2.2"/>
+<circle class="ering s3" cx="399.7" cy="155.6" r="2.2"/>
+<circle class="ering s3" cx="389.8" cy="161.8" r="2.2"/>
+<circle class="ering s3" cx="400.2" cy="152.3" r="2.2"/>
+<circle class="ering s3" cx="398.2" cy="164.9" r="2.2"/>
+<circle class="ering s3" cx="456.1" cy="146.9" r="2.2"/>
+<circle class="ering s3" cx="315.7" cy="153.5" r="2.2"/>
+<circle class="ering s3" cx="427.4" cy="148.1" r="2.2"/>
+<circle class="ering s3" cx="319.0" cy="131.7" r="2.2"/>
+<circle class="ering s3" cx="450.7" cy="125.7" r="2.2"/>
+<circle class="ering s3" cx="381.4" cy="148.6" r="2.2"/>
+<circle class="ering s3" cx="377.3" cy="161.9" r="2.2"/>
+<circle class="ering s3" cx="318.7" cy="145.6" r="2.2"/>
+<circle class="ering s3" cx="438.4" cy="123.8" r="2.2"/>
+<circle class="ering s3" cx="318.7" cy="155.7" r="2.2"/>
+<circle class="ering s3" cx="376.7" cy="157.6" r="2.2"/>
+<circle class="ering s3" cx="320.1" cy="143.9" r="2.2"/>
+<circle class="ering s3" cx="377.6" cy="172.1" r="2.2"/>
+<circle class="ering s3" cx="329.0" cy="167.9" r="2.2"/>
+<circle class="ering s3" cx="480.3" cy="138.8" r="2.2"/>
+<circle class="ering s3" cx="343.0" cy="150.1" r="2.2"/>
+<circle class="ering s3" cx="450.5" cy="134.2" r="2.2"/>
+<circle class="ering s3" cx="333.5" cy="148.0" r="2.2"/>
+<circle class="ering s3" cx="425.3" cy="125.9" r="2.2"/>
+<circle class="ering s3" cx="335.8" cy="138.5" r="2.2"/>
+<circle class="ering s3" cx="326.8" cy="125.1" r="2.2"/>
+<circle class="ering s3" cx="324.8" cy="144.0" r="2.2"/>
+<circle class="ering s3" cx="404.2" cy="158.4" r="2.2"/>
+<circle class="ering s3" cx="338.1" cy="166.9" r="2.2"/>
+<circle class="ering s3" cx="521.3" cy="147.1" r="2.2"/>
+<circle class="ering s3" cx="348.1" cy="157.7" r="2.2"/>
+<circle class="ering s3" cx="426.3" cy="153.9" r="2.2"/>
+<circle class="ering s3" cx="322.3" cy="154.6" r="2.2"/>
+<circle class="ering s3" cx="425.2" cy="144.0" r="2.2"/>
+<circle class="ering s3" cx="300.3" cy="148.0" r="2.2"/>
+<circle class="ering s3" cx="438.5" cy="175.2" r="2.2"/>
+<circle class="ering s3" cx="330.2" cy="160.0" r="2.2"/>
+<circle class="ering s3" cx="423.3" cy="133.1" r="2.2"/>
+<circle class="ering s3" cx="329.9" cy="133.1" r="2.2"/>
+<circle class="ering s3" cx="386.0" cy="158.2" r="2.2"/>
+<circle class="ering s3" cx="323.0" cy="143.8" r="2.2"/>
+<circle class="ering s3" cx="470.0" cy="108.3" r="2.2"/>
+<circle class="ering s3" cx="357.0" cy="173.1" r="2.2"/>
+<circle class="ering s3" cx="483.8" cy="121.4" r="2.2"/>
+<circle class="ering s3" cx="331.3" cy="150.2" r="2.2"/>
+<circle class="ering s3" cx="353.2" cy="148.1" r="2.2"/>
+<circle class="ering s3" cx="330.7" cy="157.0" r="2.2"/>
+<circle class="ering s3" cx="439.3" cy="109.6" r="2.2"/>
+<circle class="ering s3" cx="352.1" cy="137.3" r="2.2"/>
+<circle class="ering s3" cx="441.2" cy="114.4" r="2.2"/>
+<circle class="ering s3" cx="309.6" cy="121.3" r="2.2"/>
+<circle class="ering s3" cx="441.5" cy="102.0" r="2.2"/>
+<circle class="ering s3" cx="294.7" cy="98.1" r="2.2"/>
+<circle class="ering s3" cx="411.0" cy="154.8" r="2.2"/>
+<circle class="ering s3" cx="321.6" cy="148.8" r="2.2"/>
+<circle class="ering s3" cx="359.0" cy="176.2" r="2.2"/>
+<circle class="ering s3" cx="355.1" cy="185.9" r="2.2"/>
+<circle class="ering s3" cx="372.7" cy="176.7" r="2.2"/>
+<circle class="ering s3" cx="356.3" cy="189.5" r="2.2"/>
+<circle class="ering s3" cx="411.2" cy="148.6" r="2.2"/>
+<circle class="ering s3" cx="333.8" cy="145.4" r="2.2"/>
+<circle class="ering s3" cx="456.1" cy="114.6" r="2.2"/>
+<circle class="ering s3" cx="324.0" cy="151.6" r="2.2"/>
+<circle class="ering s3" cx="400.7" cy="172.6" r="2.2"/>
+<circle class="ering s3" cx="391.9" cy="181.6" r="2.2"/>
+<circle class="ering s3" cx="392.2" cy="172.8" r="2.2"/>
+<circle class="ering s3" cx="396.3" cy="180.0" r="2.2"/>
+<circle class="ering s3" cx="358.8" cy="173.6" r="2.2"/>
+<circle class="ering s3" cx="342.2" cy="173.8" r="2.2"/>
+<circle class="ering s3" cx="425.6" cy="88.2" r="2.2"/>
+<circle class="ering s3" cx="333.1" cy="153.6" r="2.2"/>
+<circle class="ering s3" cx="433.8" cy="117.9" r="2.2"/>
+<circle class="ering s3" cx="348.4" cy="137.3" r="2.2"/>
+<circle class="ering s3" cx="363.2" cy="115.7" r="2.2"/>
+<circle class="ering s3" cx="359.4" cy="130.7" r="2.2"/>
+<circle class="ering s3" cx="402.1" cy="80.4" r="2.2"/>
+<circle class="ering s3" cx="343.4" cy="119.7" r="2.2"/>
+<circle class="ering s3" cx="475.5" cy="118.1" r="2.2"/>
+<circle class="ering s3" cx="330.4" cy="146.0" r="2.2"/>
+<circle class="ering s3" cx="377.6" cy="175.2" r="2.2"/>
+<circle class="ering s3" cx="373.6" cy="186.7" r="2.2"/>
+<circle class="ering s3" cx="374.8" cy="176.8" r="2.2"/>
+<circle class="ering s3" cx="372.3" cy="183.0" r="2.2"/>
+<circle class="ering s3" cx="425.1" cy="154.1" r="2.2"/>
+<circle class="ering s3" cx="321.4" cy="136.7" r="2.2"/>
+<circle class="ering s4" cx="335.3" cy="172.4" r="2.2"/>
+<circle class="ering s4" cx="347.0" cy="177.2" r="2.2"/>
+<circle class="ering s4" cx="351.7" cy="171.3" r="2.2"/>
+<circle class="ering s4" cx="381.4" cy="174.0" r="2.2"/>
+<circle class="ering s4" cx="354.1" cy="175.8" r="2.2"/>
+<circle class="ering s4" cx="358.4" cy="176.1" r="2.2"/>
+<circle class="ering s4" cx="361.2" cy="162.5" r="2.2"/>
+<circle class="ering s4" cx="356.1" cy="159.9" r="2.2"/>
+<circle class="ering s4" cx="326.1" cy="166.9" r="2.2"/>
+<circle class="ering s4" cx="345.9" cy="168.4" r="2.2"/>
+<circle class="ering s4" cx="362.9" cy="162.1" r="2.2"/>
+<circle class="ering s4" cx="357.4" cy="161.4" r="2.2"/>
+<circle class="ering s4" cx="335.8" cy="175.1" r="2.2"/>
+<circle class="ering s4" cx="321.1" cy="169.2" r="2.2"/>
+<circle class="ering s4" cx="333.5" cy="182.7" r="2.2"/>
+<circle class="ering s4" cx="338.2" cy="179.2" r="2.2"/>
+<circle class="ering s4" cx="361.1" cy="171.6" r="2.2"/>
+<circle class="ering s4" cx="361.5" cy="171.5" r="2.2"/>
+<circle class="ering s4" cx="372.1" cy="180.5" r="2.2"/>
+<circle class="ering s4" cx="364.8" cy="179.6" r="2.2"/>
+<circle class="ering s4" cx="346.6" cy="163.9" r="2.2"/>
+<circle class="ering s4" cx="346.8" cy="173.1" r="2.2"/>
+<circle class="ering s4" cx="374.4" cy="164.5" r="2.2"/>
+<circle class="ering s4" cx="376.4" cy="163.2" r="2.2"/>
+<circle class="ering s4" cx="360.4" cy="166.7" r="2.2"/>
+<circle class="ering s4" cx="360.9" cy="165.8" r="2.2"/>
+<circle class="ering s4" cx="372.3" cy="181.5" r="2.2"/>
+<circle class="ering s4" cx="355.8" cy="176.9" r="2.2"/>
+<circle class="ering s4" cx="349.5" cy="162.5" r="2.2"/>
+<circle class="ering s4" cx="364.2" cy="163.5" r="2.2"/>
+<circle class="ering s4" cx="351.6" cy="185.4" r="2.2"/>
+<circle class="ering s4" cx="348.0" cy="175.0" r="2.2"/>
+<circle class="ering s4" cx="351.8" cy="157.5" r="2.2"/>
+<circle class="ering s4" cx="349.1" cy="154.9" r="2.2"/>
+<circle class="ering s4" cx="359.3" cy="181.9" r="2.2"/>
+<circle class="ering s4" cx="346.4" cy="175.8" r="2.2"/>
+<circle class="ering s4" cx="401.3" cy="165.1" r="2.2"/>
+<circle class="ering s4" cx="399.7" cy="159.8" r="2.2"/>
+<circle class="ering s4" cx="379.2" cy="185.2" r="2.2"/>
+<circle class="ering s4" cx="364.9" cy="180.5" r="2.2"/>
+<circle class="ering s4" cx="366.8" cy="190.3" r="2.2"/>
+<circle class="ering s4" cx="397.1" cy="189.4" r="2.2"/>
+<circle class="ering s4" cx="366.6" cy="181.9" r="2.2"/>
+<circle class="ering s4" cx="353.4" cy="175.0" r="2.2"/>
+<circle class="ering s4" cx="391.6" cy="175.5" r="2.2"/>
+<circle class="ering s4" cx="376.7" cy="180.6" r="2.2"/>
+<circle class="ering s4" cx="355.6" cy="170.2" r="2.2"/>
+<circle class="ering s4" cx="377.8" cy="175.5" r="2.2"/>
+<circle class="ering s4" cx="377.7" cy="181.8" r="2.2"/>
+<circle class="ering s4" cx="375.4" cy="175.3" r="2.2"/>
+<circle class="ering s4" cx="377.7" cy="172.5" r="2.2"/>
+<circle class="ering s4" cx="369.8" cy="172.4" r="2.2"/>
+<circle class="ering s4" cx="373.2" cy="172.1" r="2.2"/>
+<circle class="ering s4" cx="381.7" cy="170.0" r="2.2"/>
+<circle class="ering s4" cx="359.7" cy="161.3" r="2.2"/>
+<circle class="ering s4" cx="352.7" cy="157.6" r="2.2"/>
+<circle class="ering s4" cx="365.1" cy="181.6" r="2.2"/>
+<circle class="ering s4" cx="359.1" cy="176.5" r="2.2"/>
+<circle class="ering s4" cx="342.4" cy="177.2" r="2.2"/>
+<circle class="ering s4" cx="341.0" cy="168.7" r="2.2"/>
+<circle class="ering s4" cx="353.1" cy="170.2" r="2.2"/>
+<circle class="ering s4" cx="352.6" cy="169.1" r="2.2"/>
+<circle class="ering s4" cx="388.7" cy="168.2" r="2.2"/>
+<circle class="ering s4" cx="379.7" cy="165.8" r="2.2"/>
+<circle class="ering s4" cx="371.1" cy="167.4" r="2.2"/>
+<circle class="ering s4" cx="364.9" cy="165.6" r="2.2"/>
+<circle class="ering s4" cx="340.0" cy="162.4" r="2.2"/>
+<circle class="ering s4" cx="343.3" cy="160.3" r="2.2"/>
+<circle class="ering s4" cx="345.7" cy="170.7" r="2.2"/>
+<circle class="ering s4" cx="354.0" cy="172.3" r="2.2"/>
+<circle class="ering s4" cx="373.8" cy="175.7" r="2.2"/>
+<circle class="ering s4" cx="381.4" cy="175.8" r="2.2"/>
+<circle class="ering s4" cx="356.0" cy="161.6" r="2.2"/>
+<circle class="ering s4" cx="347.4" cy="158.9" r="2.2"/>
+<circle class="ering s4" cx="354.8" cy="160.2" r="2.2"/>
+<circle class="ering s4" cx="344.5" cy="155.5" r="2.2"/>
+<circle class="ering s4" cx="333.3" cy="185.3" r="2.2"/>
+<circle class="ering s4" cx="329.6" cy="180.4" r="2.2"/>
+<circle class="ering s4" cx="339.3" cy="156.0" r="2.2"/>
+<circle class="ering s4" cx="350.1" cy="153.8" r="2.2"/>
+<circle class="ering s4" cx="365.3" cy="156.3" r="2.2"/>
+<circle class="ering s4" cx="367.5" cy="152.1" r="2.2"/>
+<circle class="ering s4" cx="351.7" cy="170.1" r="2.2"/>
+<circle class="ering s4" cx="329.3" cy="163.3" r="2.2"/>
+<circle class="ering s4" cx="360.0" cy="173.5" r="2.2"/>
+<circle class="ering s4" cx="376.8" cy="175.2" r="2.2"/>
+<circle class="ering s4" cx="355.6" cy="169.5" r="2.2"/>
+<circle class="ering s4" cx="373.0" cy="175.0" r="2.2"/>
+<circle class="ering s4" cx="384.9" cy="171.9" r="2.2"/>
+<circle class="ering s4" cx="381.2" cy="172.3" r="2.2"/>
+<circle class="ering s4" cx="382.6" cy="180.9" r="2.2"/>
+<circle class="ering s4" cx="363.7" cy="180.0" r="2.2"/>
+<circle class="ering s4" cx="357.4" cy="171.8" r="2.2"/>
+<circle class="ering s4" cx="342.7" cy="168.0" r="2.2"/>
+<circle class="ering s4" cx="326.4" cy="186.6" r="2.2"/>
+<circle class="ering s4" cx="325.9" cy="175.5" r="2.2"/>
+<circle class="ering s4" cx="339.1" cy="180.8" r="2.2"/>
+<circle class="ering s4" cx="384.9" cy="186.7" r="2.2"/>
+<circle class="ering s4" cx="360.6" cy="171.7" r="2.2"/>
+<circle class="ering s4" cx="363.3" cy="170.0" r="2.2"/>
+<circle class="ering s4" cx="349.3" cy="165.4" r="2.2"/>
+<circle class="ering s4" cx="333.3" cy="162.6" r="2.2"/>
+<circle class="ering s4" cx="384.8" cy="158.2" r="2.2"/>
+<circle class="ering s4" cx="378.1" cy="152.3" r="2.2"/>
+<circle class="ering s4" cx="328.6" cy="169.3" r="2.2"/>
+<circle class="ering s4" cx="326.0" cy="162.6" r="2.2"/>
+<circle class="ering s4" cx="368.2" cy="183.8" r="2.2"/>
+<circle class="ering s4" cx="360.5" cy="183.9" r="2.2"/>
+<circle class="ering s4" cx="379.7" cy="160.2" r="2.2"/>
+<circle class="ering s4" cx="381.1" cy="155.9" r="2.2"/>
+<circle class="ering s4" cx="376.6" cy="178.1" r="2.2"/>
+<circle class="ering s4" cx="373.1" cy="178.2" r="2.2"/>
+<circle class="ering s4" cx="349.6" cy="158.6" r="2.2"/>
+<circle class="ering s4" cx="359.0" cy="155.6" r="2.2"/>
+<circle class="ering s4" cx="361.3" cy="165.2" r="2.2"/>
+<circle class="ering s4" cx="343.8" cy="161.5" r="2.2"/>
+<circle class="ering s4" cx="337.6" cy="170.9" r="2.2"/>
+<circle class="ering s4" cx="366.8" cy="175.7" r="2.2"/>
+<circle class="ering s4" cx="377.4" cy="188.1" r="2.2"/>
+<circle class="ering s4" cx="371.0" cy="186.6" r="2.2"/>
+<circle class="ering s4" cx="373.6" cy="171.4" r="2.2"/>
+<circle class="ering s4" cx="380.3" cy="174.4" r="2.2"/>
+<circle class="ering s4" cx="369.5" cy="176.6" r="2.2"/>
+<circle class="ering s4" cx="357.3" cy="173.4" r="2.2"/>
+<circle class="ering s4" cx="396.3" cy="170.8" r="2.2"/>
+<circle class="ering s4" cx="372.2" cy="167.1" r="2.2"/>
+<circle class="ering s4" cx="362.5" cy="170.3" r="2.2"/>
+<circle class="ering s4" cx="377.5" cy="167.9" r="2.2"/>
+<circle class="ering s4" cx="381.5" cy="165.8" r="2.2"/>
+<circle class="ering s4" cx="372.5" cy="160.5" r="2.2"/>
+<circle class="ering s4" cx="390.0" cy="158.9" r="2.2"/>
+<circle class="ering s4" cx="374.8" cy="159.6" r="2.2"/>
+<circle class="ering s4" cx="338.7" cy="168.9" r="2.2"/>
+<circle class="ering s4" cx="339.5" cy="161.5" r="2.2"/>
+<circle class="ering s4" cx="366.5" cy="179.4" r="2.2"/>
+<circle class="ering s4" cx="362.0" cy="177.4" r="2.2"/>
+<circle class="ering s4" cx="374.6" cy="179.1" r="2.2"/>
+<circle class="ering s4" cx="371.9" cy="184.0" r="2.2"/>
+<circle class="ering s4" cx="371.8" cy="182.8" r="2.2"/>
+<circle class="ering s4" cx="376.1" cy="183.4" r="2.2"/>
+<circle class="ering s4" cx="363.5" cy="188.3" r="2.2"/>
+<circle class="ering s4" cx="345.3" cy="181.3" r="2.2"/>
+<circle class="ering s4" cx="299.0" cy="149.2" r="2.2"/>
+<circle class="ering s4" cx="291.7" cy="142.5" r="2.2"/>
+<circle class="ering s4" cx="326.2" cy="170.0" r="2.2"/>
+<circle class="ering s4" cx="327.6" cy="175.7" r="2.2"/>
+<circle class="ering s4" cx="343.9" cy="176.1" r="2.2"/>
+<circle class="ering s4" cx="345.4" cy="172.1" r="2.2"/>
+<circle class="ering s4" cx="378.0" cy="151.6" r="2.2"/>
+<circle class="ering s4" cx="368.2" cy="146.5" r="2.2"/>
+<circle class="ering s4" cx="359.6" cy="168.1" r="2.2"/>
+<circle class="ering s4" cx="356.2" cy="160.2" r="2.2"/>
+<circle class="ering s4" cx="329.2" cy="171.0" r="2.2"/>
+<circle class="ering s4" cx="341.5" cy="176.9" r="2.2"/>
+<circle class="ering s4" cx="349.3" cy="169.3" r="2.2"/>
+<circle class="ering s4" cx="333.5" cy="172.4" r="2.2"/>
+<circle class="ering s4" cx="393.3" cy="168.7" r="2.2"/>
+<circle class="ering s4" cx="390.5" cy="165.7" r="2.2"/>
+<circle class="ering s4" cx="351.2" cy="149.1" r="2.2"/>
+<circle class="ering s4" cx="335.5" cy="150.1" r="2.2"/>
+<circle class="ering s4" cx="387.7" cy="175.0" r="2.2"/>
+<circle class="ering s4" cx="376.7" cy="171.4" r="2.2"/>
+<circle class="ering s4" cx="359.3" cy="172.7" r="2.2"/>
+<circle class="ering s4" cx="356.3" cy="170.0" r="2.2"/>
+<circle class="ering s4" cx="352.4" cy="172.9" r="2.2"/>
+<circle class="ering s4" cx="359.8" cy="167.3" r="2.2"/>
+<circle class="ering s4" cx="380.3" cy="178.2" r="2.2"/>
+<circle class="ering s4" cx="393.8" cy="174.3" r="2.2"/>
+<circle class="ering s4" cx="361.4" cy="182.7" r="2.2"/>
+<circle class="ering s4" cx="359.9" cy="173.8" r="2.2"/>
+<circle class="ering s4" cx="363.3" cy="172.8" r="2.2"/>
+<circle class="ering s4" cx="354.8" cy="168.2" r="2.2"/>
+<circle class="ering s4" cx="360.5" cy="165.8" r="2.2"/>
+<circle class="ering s4" cx="356.5" cy="167.4" r="2.2"/>
+<circle class="ering s4" cx="362.4" cy="175.1" r="2.2"/>
+<circle class="ering s4" cx="378.0" cy="173.2" r="2.2"/>
+<circle class="ering s4" cx="372.7" cy="178.9" r="2.2"/>
+<circle class="ering s4" cx="367.3" cy="176.8" r="2.2"/>
+<circle class="ering s4" cx="340.8" cy="165.2" r="2.2"/>
+<circle class="ering s4" cx="323.4" cy="162.2" r="2.2"/>
+<circle class="ering s4" cx="386.7" cy="182.4" r="2.2"/>
+<circle class="ering s4" cx="368.7" cy="176.6" r="2.2"/>
+<circle class="ering s4" cx="361.5" cy="172.3" r="2.2"/>
+<circle class="ering s4" cx="380.9" cy="173.8" r="2.2"/>
+<circle class="ering s4" cx="344.1" cy="164.0" r="2.2"/>
+<circle class="ering s4" cx="346.4" cy="156.0" r="2.2"/>
+<circle class="ering s4" cx="383.8" cy="179.6" r="2.2"/>
+<circle class="ering s4" cx="377.1" cy="180.6" r="2.2"/>
+<circle class="ering s4" cx="368.8" cy="148.8" r="2.2"/>
+<circle class="ering s4" cx="372.3" cy="148.4" r="2.2"/>
+<circle class="ering s4" cx="353.6" cy="178.4" r="2.2"/>
+<circle class="ering s4" cx="330.8" cy="171.0" r="2.2"/>
+<circle class="ering s4" cx="331.3" cy="181.4" r="2.2"/>
+<circle class="ering s4" cx="337.9" cy="183.9" r="2.2"/>
+<circle class="ering s4" cx="355.1" cy="175.3" r="2.2"/>
+<circle class="ering s4" cx="364.9" cy="171.1" r="2.2"/>
+<circle class="odot like" cx="380.8" cy="139.7" r="2.9"/>
+<circle class="odot like" cx="407.6" cy="121.4" r="2.9"/>
+<circle class="odot like" cx="382.4" cy="135.0" r="2.9"/>
+<circle class="odot like" cx="390.0" cy="138.9" r="2.9"/>
+<circle class="odot like" cx="405.4" cy="111.7" r="2.9"/>
+<circle class="odot like" cx="364.5" cy="181.1" r="2.9"/>
+<circle class="odot like" cx="407.3" cy="91.3" r="2.9"/>
+<circle class="odot like" cx="343.0" cy="124.9" r="2.9"/>
+<circle class="odot like" cx="351.3" cy="176.9" r="2.9"/>
+<circle class="odot like" cx="345.8" cy="167.5" r="2.9"/>
+<circle class="odot like" cx="376.4" cy="152.1" r="2.9"/>
+<circle class="odot like" cx="400.3" cy="135.0" r="2.9"/>
+<circle class="odot like" cx="347.0" cy="142.9" r="2.9"/>
+<circle class="odot like" cx="387.9" cy="188.1" r="2.9"/>
+<circle class="odot like" cx="401.8" cy="138.1" r="2.9"/>
+<circle class="odot like" cx="351.9" cy="156.1" r="2.9"/>
+<circle class="odot like" cx="380.1" cy="151.3" r="2.9"/>
+<circle class="odot like" cx="372.0" cy="162.6" r="2.9"/>
+<circle class="odot like" cx="413.9" cy="153.9" r="2.9"/>
+<circle class="odot like" cx="396.2" cy="170.4" r="2.9"/>
+<circle class="odot like" cx="369.4" cy="178.1" r="2.9"/>
+<circle class="odot like" cx="390.7" cy="121.1" r="2.9"/>
+<circle class="odot like" cx="413.7" cy="139.3" r="2.9"/>
+<circle class="odot like" cx="357.9" cy="146.5" r="2.9"/>
+<circle class="odot like" cx="374.4" cy="179.5" r="2.9"/>
+<circle class="odot like" cx="367.9" cy="102.7" r="2.9"/>
+<circle class="odot like" cx="382.7" cy="145.5" r="2.9"/>
+<circle class="odot like" cx="403.4" cy="76.5" r="2.9"/>
+<circle class="odot off" cx="376.2" cy="144.3" r="2.9"/>
+<circle class="odot off" cx="370.0" cy="124.5" r="2.9"/>
+<circle class="odot off" cx="354.4" cy="111.2" r="2.9"/>
+<circle class="odot off" cx="364.8" cy="121.8" r="2.9"/>
+<circle class="odot like" cx="379.6" cy="155.9" r="2.9"/>
+<circle class="odot like" cx="350.8" cy="150.8" r="2.9"/>
+<circle class="odot like" cx="361.1" cy="133.4" r="2.9"/>
+<circle class="odot like" cx="366.5" cy="146.4" r="2.9"/>
+<circle class="odot like" cx="346.9" cy="107.5" r="2.9"/>
+<circle class="odot like" cx="376.6" cy="154.4" r="2.9"/>
+<circle class="odot like" cx="388.8" cy="151.0" r="2.9"/>
+<circle class="odot like" cx="359.2" cy="152.8" r="2.9"/>
+<circle class="odot off" cx="375.2" cy="122.0" r="2.9"/>
+<circle class="odot off" cx="376.1" cy="122.6" r="2.9"/>
+<circle class="odot off" cx="387.0" cy="120.6" r="2.9"/>
+<circle class="odot off" cx="366.1" cy="143.8" r="2.9"/>
+<circle class="odot off" cx="366.9" cy="133.4" r="2.9"/>
+<circle class="odot off" cx="379.1" cy="116.8" r="2.9"/>
+<circle class="odot off" cx="391.4" cy="129.5" r="2.9"/>
+<circle class="odot off" cx="362.9" cy="136.0" r="2.9"/>
+<circle class="odot off" cx="375.9" cy="134.4" r="2.9"/>
+<circle class="odot off" cx="373.6" cy="134.1" r="2.9"/>
+<circle class="odot off" cx="351.0" cy="147.1" r="2.9"/>
+<circle class="odot off" cx="411.0" cy="142.3" r="2.9"/>
+<circle class="odot off" cx="398.6" cy="148.4" r="2.9"/>
+<circle class="odot like" cx="438.1" cy="147.7" r="2.9"/>
+<circle class="odot off" cx="417.4" cy="130.3" r="2.9"/>
+<circle class="odot off" cx="476.2" cy="153.7" r="2.9"/>
+<circle class="odot off" cx="392.6" cy="131.3" r="2.9"/>
+<circle class="odot off" cx="407.3" cy="144.2" r="2.9"/>
+<circle class="odot off" cx="419.9" cy="140.8" r="2.9"/>
+<circle class="odot off" cx="437.7" cy="153.9" r="2.9"/>
+<circle class="odot off" cx="439.5" cy="157.3" r="2.9"/>
+<circle class="odot off" cx="405.6" cy="135.8" r="2.9"/>
+<circle class="odot off" cx="419.2" cy="155.5" r="2.9"/>
+<circle class="odot off" cx="425.5" cy="133.7" r="2.9"/>
+<circle class="odot off" cx="427.9" cy="143.6" r="2.9"/>
+<circle class="odot off" cx="443.4" cy="139.1" r="2.9"/>
+<circle class="odot like" cx="455.0" cy="160.0" r="2.9"/>
+<circle class="odot off" cx="410.0" cy="124.9" r="2.9"/>
+<circle class="odot off" cx="476.6" cy="140.5" r="2.9"/>
+<circle class="odot off" cx="441.0" cy="156.9" r="2.9"/>
+<circle class="odot off" cx="447.8" cy="149.1" r="2.9"/>
+<circle class="odot off" cx="461.7" cy="125.3" r="2.9"/>
+<circle class="odot off" cx="455.5" cy="148.1" r="2.9"/>
+<circle class="odot off" cx="458.9" cy="147.0" r="2.9"/>
+<circle class="odot off" cx="438.2" cy="145.8" r="2.9"/>
+<circle class="odot off" cx="436.4" cy="139.9" r="2.9"/>
+<circle class="odot off" cx="384.0" cy="140.8" r="2.9"/>
+<circle class="odot like" cx="436.0" cy="169.9" r="2.9"/>
+<circle class="odot like" cx="401.7" cy="177.2" r="2.9"/>
+<circle class="odot like" cx="430.3" cy="159.2" r="2.9"/>
+<circle class="odot like" cx="453.2" cy="181.1" r="2.9"/>
+<circle class="odot like" cx="449.2" cy="161.6" r="2.9"/>
+<circle class="odot like" cx="442.0" cy="162.2" r="2.9"/>
+<circle class="odot like" cx="395.7" cy="139.8" r="2.9"/>
+<circle class="odot like" cx="443.8" cy="162.1" r="2.9"/>
+<circle class="odot off" cx="476.4" cy="155.6" r="2.9"/>
+<circle class="odot off" cx="456.3" cy="141.1" r="2.9"/>
+<circle class="odot off" cx="469.3" cy="142.6" r="2.9"/>
+<circle class="odot off" cx="451.3" cy="151.2" r="2.9"/>
+<circle class="odot off" cx="468.4" cy="134.4" r="2.9"/>
+<circle class="odot off" cx="449.3" cy="151.8" r="2.9"/>
+<circle class="odot off" cx="424.3" cy="138.3" r="2.9"/>
+<circle class="odot like" cx="483.2" cy="107.8" r="2.9"/>
+<circle class="odot like" cx="474.1" cy="111.2" r="2.9"/>
+<circle class="odot like" cx="474.6" cy="130.3" r="2.9"/>
+<circle class="odot like" cx="503.7" cy="132.1" r="2.9"/>
+<circle class="odot like" cx="483.6" cy="104.0" r="2.9"/>
+<circle class="odot like" cx="423.4" cy="143.4" r="2.9"/>
+<circle class="odot like" cx="458.1" cy="115.4" r="2.9"/>
+<circle class="odot like" cx="414.2" cy="132.8" r="2.9"/>
+<circle class="odot like" cx="493.4" cy="104.1" r="2.9"/>
+<circle class="odot like" cx="490.8" cy="129.4" r="2.9"/>
+<circle class="odot like" cx="452.5" cy="135.9" r="2.9"/>
+<circle class="odot like" cx="444.3" cy="119.4" r="2.9"/>
+<circle class="odot like" cx="429.1" cy="144.7" r="2.9"/>
+<circle class="odot like" cx="503.6" cy="115.5" r="2.9"/>
+<circle class="odot like" cx="439.2" cy="143.9" r="2.9"/>
+<circle class="odot like" cx="426.8" cy="149.9" r="2.9"/>
+<circle class="odot like" cx="441.6" cy="142.5" r="2.9"/>
+<circle class="odot like" cx="450.2" cy="136.8" r="2.9"/>
+<circle class="odot like" cx="480.4" cy="145.4" r="2.9"/>
+<circle class="odot like" cx="461.5" cy="143.3" r="2.9"/>
+<circle class="odot like" cx="509.5" cy="125.1" r="2.9"/>
+<circle class="odot like" cx="459.4" cy="116.1" r="2.9"/>
+<circle class="odot like" cx="463.3" cy="115.7" r="2.9"/>
+<circle class="odot like" cx="495.3" cy="128.8" r="2.9"/>
+<circle class="odot like" cx="456.5" cy="147.3" r="2.9"/>
+<circle class="odot like" cx="451.4" cy="87.1" r="2.9"/>
+<circle class="odot like" cx="461.0" cy="134.4" r="2.9"/>
+<circle class="odot like" cx="451.7" cy="72.4" r="2.9"/>
+<circle class="odot off" cx="457.3" cy="136.6" r="2.9"/>
+<circle class="odot off" cx="426.5" cy="118.8" r="2.9"/>
+<circle class="odot off" cx="398.3" cy="104.4" r="2.9"/>
+<circle class="odot off" cx="428.3" cy="120.6" r="2.9"/>
+<circle class="odot like" cx="491.2" cy="157.9" r="2.9"/>
+<circle class="odot like" cx="475.6" cy="154.9" r="2.9"/>
+<circle class="odot like" cx="484.9" cy="144.2" r="2.9"/>
+<circle class="odot like" cx="469.7" cy="159.6" r="2.9"/>
+<circle class="odot like" cx="492.1" cy="108.8" r="2.9"/>
+<circle class="odot like" cx="490.8" cy="118.4" r="2.9"/>
+<circle class="odot like" cx="466.8" cy="129.9" r="2.9"/>
+<circle class="odot like" cx="330.3" cy="101.0" r="2.9"/>
+<circle class="odot off" cx="390.2" cy="137.6" r="2.9"/>
+<circle class="odot off" cx="387.9" cy="120.5" r="2.9"/>
+<circle class="odot off" cx="364.8" cy="129.4" r="2.9"/>
+<circle class="odot off" cx="371.2" cy="128.4" r="2.9"/>
+<circle class="odot off" cx="407.3" cy="142.1" r="2.9"/>
+<circle class="odot off" cx="402.9" cy="137.7" r="2.9"/>
+<circle class="odot off" cx="362.5" cy="116.2" r="2.9"/>
+<circle class="odot off" cx="361.8" cy="131.3" r="2.9"/>
+<circle class="odot off" cx="387.2" cy="133.0" r="2.9"/>
+<circle class="odot off" cx="393.8" cy="130.5" r="2.9"/>
+<circle class="odot like" cx="388.5" cy="152.1" r="2.9"/>
+<circle class="odot off" cx="387.5" cy="121.7" r="2.9"/>
+<circle class="odot off" cx="400.0" cy="131.8" r="2.9"/>
+<circle class="odot off" cx="366.7" cy="134.6" r="2.9"/>
+<circle class="odot off" cx="399.9" cy="130.4" r="2.9"/>
+<circle class="odot off" cx="368.4" cy="118.0" r="2.9"/>
+<circle class="odot off" cx="397.6" cy="129.7" r="2.9"/>
+<circle class="odot off" cx="407.0" cy="141.6" r="2.9"/>
+<circle class="odot off" cx="392.8" cy="130.4" r="2.9"/>
+<circle class="odot off" cx="378.7" cy="128.6" r="2.9"/>
+<circle class="odot off" cx="383.3" cy="130.9" r="2.9"/>
+<circle class="odot like" cx="363.0" cy="127.3" r="2.9"/>
+<circle class="odot like" cx="361.7" cy="143.8" r="2.9"/>
+<circle class="odot like" cx="381.0" cy="128.4" r="2.9"/>
+<circle class="odot like" cx="389.3" cy="131.6" r="2.9"/>
+<circle class="odot like" cx="376.0" cy="128.4" r="2.9"/>
+<circle class="odot like" cx="403.3" cy="135.1" r="2.9"/>
+<circle class="odot like" cx="397.0" cy="99.9" r="2.9"/>
+<circle class="odot like" cx="390.3" cy="135.3" r="2.9"/>
+<circle class="odot off" cx="419.0" cy="144.6" r="2.9"/>
+<circle class="odot off" cx="409.7" cy="132.6" r="2.9"/>
+<circle class="odot off" cx="398.5" cy="133.2" r="2.9"/>
+<circle class="odot off" cx="400.6" cy="129.7" r="2.9"/>
+<circle class="odot off" cx="391.9" cy="136.8" r="2.9"/>
+<circle class="odot like" cx="439.9" cy="135.7" r="2.9"/>
+<circle class="odot off" cx="423.4" cy="130.7" r="2.9"/>
+<circle class="odot off" cx="424.5" cy="129.5" r="2.9"/>
+<circle class="odot off" cx="451.1" cy="133.3" r="2.9"/>
+<circle class="odot off" cx="436.9" cy="120.8" r="2.9"/>
+<circle class="odot off" cx="478.6" cy="130.7" r="2.9"/>
+<circle class="odot off" cx="442.3" cy="119.2" r="2.9"/>
+<circle class="odot off" cx="436.3" cy="128.5" r="2.9"/>
+<circle class="odot off" cx="396.4" cy="134.0" r="2.9"/>
+<circle class="odot off" cx="429.3" cy="126.7" r="2.9"/>
+<circle class="odot off" cx="408.7" cy="136.0" r="2.9"/>
+<circle class="odot off" cx="425.2" cy="140.4" r="2.9"/>
+<circle class="odot off" cx="461.6" cy="138.3" r="2.9"/>
+<circle class="odot off" cx="457.3" cy="138.6" r="2.9"/>
+<circle class="odot off" cx="382.8" cy="126.8" r="2.9"/>
+<circle class="odot off" cx="383.6" cy="152.3" r="2.9"/>
+<circle class="odot off" cx="413.4" cy="137.5" r="2.9"/>
+<circle class="odot off" cx="400.1" cy="130.5" r="2.9"/>
+<circle class="ocent" cx="382.0" cy="286.0" r="5"/>
+<text class="olab" x="382.0" y="306" text-anchor="middle">eval centroid</text>
+<text class="oaxlab" x="690" y="306" text-anchor="end">projection on the probe direction w &#8594;</text>
+<text class="oaxlab rot" transform="translate(20,155) rotate(-90)" text-anchor="middle">everything orthogonal to w</text>
+<text class="okeyhead" x="74.0" y="343.6">red-team</text>
+<circle class="odot off" cx="150.0" cy="340.0" r="3.4"/>
+<text class="okey" x="160.0" y="343.6">most off-distribution 92</text>
+<circle class="odot like" cx="332.0" cy="340.0" r="3.4"/>
+<text class="okey" x="342.0" y="343.6">most eval-like 92</text>
+<circle class="odot rest" cx="514.0" cy="340.0" r="3.4"/>
+<text class="okey" x="524.0" y="343.6">the rest 736</text>
+<text class="okeyhead" x="74.0" y="373.6">eval</text>
+<circle class="ering s1" cx="144.0" cy="370.0" r="3.4"/>
+<text class="okey" x="154.0" y="373.6">ai_dilemmas 136</text>
+<circle class="ering s2" cx="276.0" cy="370.0" r="3.4"/>
+<text class="okey" x="286.0" y="373.6">ant_hh 134</text>
+<circle class="ering s3" cx="408.0" cy="370.0" r="3.4"/>
+<text class="okey" x="418.0" y="373.6">balanced_refusal 400</text>
+<circle class="ering s4" cx="540.0" cy="370.0" r="3.4"/>
+<text class="okey" x="550.0" y="373.6">daily_dilemmas 196</text>
 </svg></div>
         <p class="cap">Horizontal: projection on the unit direction <code>w</code>, averaged over
         the run&#8217;s 10 ensemble members (pairwise cosine
         0.87). Vertical: the magnitude of the
-        residual. The cloud is tall and narrow because the mean absolute projection on
+        residual. Both clouds are tall and narrow because the mean absolute projection on
         <code>w</code> is 0.78 for red-team rows against
         0.59 for eval rows &#8212; essentially the same
         &#8212; while the total displacement is many times larger.</p>
+        <p class="cap">All 866 eval rows are drawn too, one colour per split. Two things
+        they fix that the centroid marker alone does not. The centroid is the <em>origin of
+        these coordinates</em>, not a place any row sits: in 5,376 dimensions the
+        average eval row is 22.9 from the eval mean. And the vertical axis is a
+        magnitude, not a direction &#8212; the two corpora overlap on it (26.2 mean
+        residual for red-team against 22.9 for eval) while staying separable in the
+        full space at AUROC 1.0000. They are
+        displaced by similar <em>amounts</em>; what differs is the direction, and one number
+        cannot show 5,375 of them.</p>
+        <p class="cap">Coloured in are the two ends of the axis Q3 removes along &#8212; the
+        10% of contrastive pairs the text discriminator scores as most off-distribution
+        and the 10% it scores as most eval-like, which is exactly what
+        <code>drop_most_offdist_10pct</code> and
+        <code>drop_most_evallike_10pct</code> drop. They land on top of each other
+        here. Mean projection on <code>w</code> is 0.68 against
+        0.92, mean residual 26.7 against
+        26.1 &#8212; the ordering that separates them on the page is
+        distance to the eval set (28.9 against
+        27.6 mean kNN), and that is not the direction the probe
+        reads.</p>
+        <p>The eval rows also set the scale for the headline number. They are
+        <strong>99.95%</strong> orthogonal to <code>w</code> themselves,
+        against 99.93% for the red-team rows: near-total
+        orthogonality is what this geometry hands <em>any</em> row, not something the red-team
+        data is unusual for having. The claim that survives is about direction, not about the
+        red-team set being peculiar in holding it &#8212; which is the sense in which it is
+        orthogonal by construction.</p>
         <p>Novelty orthogonal to <code>w</code> <strong>cannot move an eval score directly</strong>.
         It has no component along the axis the probe reads. It can only act by rotating
         <code>w</code> at the next refit &#8212; which is exactly why the removal conditions in Q3
@@ -1348,7 +2275,7 @@ a { color:var(--eval); }
     <div class="qnum">&#8212;</div>
     <div>
       <h2>Everything, side by side</h2>
-      <div class="qbody"><div class="panel"><table class="key"><thead><tr><th>measure</th><th>arm 1 &middot; gpt-oss-120b</th><th>arm 2 &middot; deepseek-v4-pro</th></tr></thead><tbody><tr><td>separable from eval on text alone</td><td class="n">0.9983</td><td class="n">0.9981</td></tr><tr><td>separable from eval in activation space</td><td class="n">0.9999</td><td class="n">1.0000</td></tr><tr><td>past eval&#8217;s own p95 self-kNN radius</td><td class="n">35.5%</td><td class="n">52.2%</td></tr><tr><td>rows containing a refusal &nbsp;<span class='ref'>eval 13.3%</span></td><td class="n">1.0%</td><td class="n">2.6%</td></tr><tr><td>labelled opposite to the eval convention</td><td class="n">0</td><td class="n">7</td></tr><tr><td>pairs contrasting on the assistant turn</td><td class="n">294/294</td><td class="n">457/459</td></tr><tr><td>displacement orthogonal to w</td><td class="n">99.9%</td><td class="n">99.9%</td></tr><tr><td>eval AUROC, all red-team data</td><td class="n">0.9164</td><td class="n">0.8314</td></tr><tr><td>eval AUROC, no red-team data</td><td class="n">0.8523</td><td class="n">0.8523</td></tr></tbody></table></div></div>
+      <div class="qbody"><div class="panel"><table class="key"><thead><tr><th>measure</th><th>arm 1 &middot; gpt-oss-120b</th><th>arm 2 &middot; deepseek-v4-pro</th></tr></thead><tbody><tr><td>separable from eval on text alone</td><td class="n">0.9983</td><td class="n">0.9981</td></tr><tr><td>separable from eval in activation space</td><td class="n">0.9999</td><td class="n">1.0000</td></tr><tr><td>past eval&#8217;s own p95 self-kNN radius</td><td class="n">35.5%</td><td class="n">52.2%</td></tr><tr><td>rows containing a refusal &nbsp;<span class='ref'>eval 13.3%</span></td><td class="n">1.0%</td><td class="n">2.6%</td></tr><tr><td>labelled opposite to the eval convention</td><td class="n">0</td><td class="n">7</td></tr><tr><td>pairs contrasting on the assistant turn</td><td class="n">294/294</td><td class="n">457/459</td></tr><tr><td>displacement orthogonal to w</td><td class="n">99.87%</td><td class="n">99.93%</td></tr><tr><td>&nbsp;&nbsp;the same, for the eval rows</td><td class="n">99.87%</td><td class="n">99.95%</td></tr><tr><td>eval AUROC, all red-team data</td><td class="n">0.9164</td><td class="n">0.8314</td></tr><tr><td>eval AUROC, no red-team data</td><td class="n">0.8523</td><td class="n">0.8523</td></tr></tbody></table></div></div>
     </div>
   </div>
 </section>

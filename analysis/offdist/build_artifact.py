@@ -21,6 +21,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import od_common as O  # noqa: E402
+from ablate import group_score, pair_groups  # noqa: E402
 from report import controls, load_ablation  # noqa: E402
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else O.RESULTS / "offdist.html"
@@ -57,6 +58,10 @@ def delta_vs_random(k, name):
 
 
 # --------------------------------------------------------------------------- charts
+# The two ends of the surface-distance axis Q3 removes along. Kept as one number so the
+# highlighted points in the Q4 scatter and the bars named in Q3 can never disagree.
+EXTREME_PCT = 10
+
 BAR_CONDS = [
     ("drop_most_offdist_10pct", "most off-distribution, 10%"),
     ("drop_most_offdist_20pct", "most off-distribution, 20%"),
@@ -115,21 +120,103 @@ def diverging_chart(k) -> str:
     return "\n".join(o)
 
 
+def extreme_groups(k) -> dict[str, np.ndarray]:
+    """The red-team rows at each end of the surface-distance axis, as row indices.
+
+    Re-derived with `ablate.py`'s own pair grouping and `p_redteam` ranking, so these are
+    exactly the rows `drop_most_offdist_{EXTREME_PCT}pct` and
+    `drop_most_evallike_{EXTREME_PCT}pct` remove in Q3 — not a second ordering that could
+    drift from them. Flag row `i` is its own index into the npz arrays.
+    """
+    flags = [json.loads(l) for l in
+             (O.RESULTS / f"flags_{k}.jsonl").read_text(encoding="utf-8").splitlines()
+             if l.strip()]
+    groups = pair_groups(flags)
+    p = group_score(groups, flags, "p_redteam")
+    n = max(1, int(round(len(groups) * EXTREME_PCT / 100)))
+
+    def take(order):
+        return np.array(sorted(i for gi in order[:n] for i in groups[gi]), dtype=int)
+
+    return {"offdist": take(np.argsort(-p)), "evallike": take(np.argsort(p))}
+
+
+def extreme_stats(k) -> dict[str, dict]:
+    """Where each end of that axis actually sits, in the coordinates the scatter plots."""
+    z, ex = D[k]["npz"], extreme_groups(k)
+    proj, dist = z["proj_on_w"], z["centroid_dist"]
+    orth = np.sqrt(np.maximum(dist ** 2 - proj ** 2, 0))
+    out = {}
+    for name, idx in ex.items():
+        out[name] = {
+            "n": int(len(idx)),
+            "abs_proj": float(np.abs(proj[idx]).mean()),
+            "orth": float(orth[idx].mean()),
+            "knn": float(z["knn_to_eval"][idx].mean()),
+        }
+    return out
+
+
+def eval_coords(k):
+    """Eval rows in the same two coordinates, plus which split each came from."""
+    z = D[k]["npz"]
+    proj = z["proj_on_w_eval"]
+    dist = z["centroid_dist_eval"]
+    orth = np.sqrt(np.maximum(dist ** 2 - proj ** 2, 0))
+    return proj, orth, z["eval_split"], [str(n) for n in z["eval_split_names"]]
+
+
+def eval_stats(k) -> dict:
+    """The eval cloud's own geometry, in the coordinates the scatter plots.
+
+    Derived from the npz rather than read off the summary json, the same way the red-team
+    side already is, so the two halves of the comparison are computed identically.
+    """
+    proj, orth, split, names = eval_coords(k)
+    dist = D[k]["npz"]["centroid_dist_eval"]
+    out = {"n": int(len(proj)), "abs_proj": float(np.abs(proj).mean()),
+           "orth": float(orth.mean()),
+           "orth_frac": float((orth / np.maximum(dist, 1e-12)).mean()),
+           "per_split": {}}
+    for i, name in enumerate(names):
+        m = split == i
+        out["per_split"][name] = {"n": int(m.sum()), "abs_proj": float(np.abs(proj[m]).mean()),
+                                  "orth": float(orth[m].mean())}
+    return out
+
+
 def orthogonality_diagram(k) -> str:
     """Displacement from the eval centroid, resolved onto the probe's decision axis.
 
     Real coordinates: the horizontal axis is a row's projection on the unit direction `w`,
     the vertical axis the magnitude of everything left over. Both are read off the npz, so
     the shape of the cloud is the measurement, not an illustration of it.
+
+    Three things are drawn, and each is there to stop a misreading of the other two. The
+    **eval rows** are plotted split by split rather than summarised by the centroid marker,
+    because in 5376 dimensions no row sits near the mean and a lone centroid dot invites the
+    reader to think the red-team cloud is uniquely far from it. The two ends of **Q3's
+    removal axis** are coloured in, since the question this scatter answers is whether
+    surface distance from eval is the same thing as displacement in the representation. And
+    the rest of the red-team set is left grey behind both.
+
+    Points are drawn rest, then eval, then the two extreme groups in row order — so neither
+    extreme group ends up systematically on top of the other where they overlap.
     """
     z = D[k]["npz"]
     proj = z["proj_on_w"]
     dist = z["centroid_dist"]
     orth = np.sqrt(np.maximum(dist ** 2 - proj ** 2, 0))
-    W, H = 720, 330
-    L, R, T, B = 74, 690, 26, 272
-    xlim = max(6.0, float(np.abs(proj).max()) * 1.1)
-    ylim = float(orth.max()) * 1.08
+    ev_proj, ev_orth, ev_split, ev_names = eval_coords(k)
+    ex = extreme_groups(k)
+    grp = np.full(len(proj), "rest", dtype=object)
+    grp[ex["evallike"]] = "like"
+    grp[ex["offdist"]] = "off"
+
+    W, H = 720, 398
+    L, R, T, B = 74, 690, 24, 286
+    xlim = max(6.0, float(max(np.abs(proj).max(), np.abs(ev_proj).max())) * 1.1)
+    ylim = float(max(orth.max(), ev_orth.max())) * 1.06
 
     def X(v):
         return L + (R - L) * (v + xlim) / (2 * xlim)
@@ -138,24 +225,65 @@ def orthogonality_diagram(k) -> str:
         return B - (B - T) * (v / ylim)
 
     o = [f'<svg viewBox="0 0 {W} {H}" class="chart" role="img" '
-         f'aria-label="red-team displacement from the eval centroid, resolved onto the '
-         f'probe decision axis and its orthogonal complement">']
+         f'aria-label="every eval row, split by split, and every red-team row with the most '
+         f'off-distribution and most eval-like {EXTREME_PCT}% coloured, displaced from the '
+         f'eval centroid and resolved onto the probe decision axis and its orthogonal '
+         f'complement">']
     for t in range(0, int(ylim) + 1, max(1, int(ylim // 5))):
         o.append(f'<line class="ogrid" x1="{L}" y1="{Y(t):.1f}" x2="{R}" y2="{Y(t):.1f}"/>')
         o.append(f'<text class="otick" x="{L-10}" y="{Y(t)+4:.1f}" text-anchor="end">{t}</text>')
     o.append(f'<line class="oaxis" x1="{L}" y1="{B}" x2="{R}" y2="{B}"/>')
     o.append(f'<line class="oaxis dash" x1="{X(0):.1f}" y1="{T}" x2="{X(0):.1f}" y2="{B}"/>')
+
     step = max(1, len(proj) // 600)
-    for p, q in zip(proj[::step], orth[::step]):
-        o.append(f'<circle class="odot" cx="{X(float(p)):.1f}" cy="{Y(float(q)):.1f}" r="2.4"/>')
+    shown = np.arange(0, len(proj), step)
+    for i in shown:                                        # the red-team middle, behind
+        if grp[i] == "rest":
+            o.append(f'<circle class="odot rest" cx="{X(float(proj[i])):.1f}" '
+                     f'cy="{Y(float(orth[i])):.1f}" r="2.4"/>')
+    for i in range(len(ev_proj)):                          # the eval cloud, by split
+        o.append(f'<circle class="ering s{int(ev_split[i]) + 1}" '
+                 f'cx="{X(float(ev_proj[i])):.1f}" cy="{Y(float(ev_orth[i])):.1f}" r="2.2"/>')
+    for i in shown:                                        # the two ends of Q3's axis
+        if grp[i] != "rest":
+            o.append(f'<circle class="odot {grp[i]}" cx="{X(float(proj[i])):.1f}" '
+                     f'cy="{Y(float(orth[i])):.1f}" r="2.9"/>')
+
     o.append(f'<circle class="ocent" cx="{X(0):.1f}" cy="{Y(0):.1f}" r="5"/>')
-    o.append(f'<text class="olab" x="{X(0):.1f}" y="{B+22}" text-anchor="middle">'
+    o.append(f'<text class="olab" x="{X(0):.1f}" y="{B+20}" text-anchor="middle">'
              f'eval centroid</text>')
-    o.append(f'<text class="oaxlab" x="{R}" y="{B+22}" text-anchor="end">'
+    o.append(f'<text class="oaxlab" x="{R}" y="{B+20}" text-anchor="end">'
              f'projection on the probe direction w &#8594;</text>')
-    o.append(f'<text class="oaxlab rot" transform="translate(22,{(T+B)/2:.0f}) rotate(-90)" '
+    o.append(f'<text class="oaxlab rot" transform="translate(20,{(T+B)/2:.0f}) rotate(-90)" '
              f'text-anchor="middle">everything orthogonal to w</text>')
+
+    counts = {g: int((grp == g).sum()) for g in ("off", "like", "rest")}
+    o.append(swatch_row("red-team", [
+        ("odot off", f"most off-distribution {counts['off']}"),
+        ("odot like", f"most eval-like {counts['like']}"),
+        ("odot rest", f"the rest {counts['rest']}"),
+    ], x=L, y=B + 54, item_w=182))
+    o.append(swatch_row("eval", [
+        (f"ering s{i + 1}",
+         f"{n.removeprefix('eval_')} {int((ev_split == i).sum())}")
+        for i, n in enumerate(ev_names)
+    ], x=L, y=B + 84, item_w=132, title_w=70))
     o.append("</svg>")
+    return "\n".join(o)
+
+
+def swatch_row(title, items, *, x: float, y: float, item_w: float,
+               title_w: float = 76) -> str:
+    """One legend row: a left-hand group title, then swatch + label per class.
+
+    `item_w` is picked per row so the last label still lands inside the frame: IBM Plex
+    Mono advances 0.6em, so a 10.5px label costs ~6.5px a character.
+    """
+    o = [f'<text class="okeyhead" x="{x:.1f}" y="{y + 3.6:.1f}">{esc(title)}</text>']
+    for i, (cls, label) in enumerate(items):
+        cx = x + title_w + i * item_w
+        o.append(f'<circle class="{cls}" cx="{cx:.1f}" cy="{y:.1f}" r="3.4"/>')
+        o.append(f'<text class="okey" x="{cx + 10:.1f}" y="{y + 3.6:.1f}">{esc(label)}</text>')
     return "\n".join(o)
 
 
@@ -176,7 +304,9 @@ def answers_table() -> str:
          lambda k: f"{D[k]['surface']['pair_axis_counts']['assistant']}/"
                    f"{D[k]['surface']['n_pairs']}"),
         ("displacement orthogonal to w",
-         lambda k: f"{D[k]['acts']['mean_orthogonal_fraction']:.1%}"),
+         lambda k: f"{D[k]['acts']['mean_orthogonal_fraction']:.2%}"),
+        ("&nbsp;&nbsp;the same, for the eval rows",
+         lambda k: f"{D[k]['acts']['mean_orthogonal_fraction_eval']:.2%}"),
         ("eval AUROC, all red-team data",
          lambda k: f"{cond(k,'full')['mean']['auroc']:.4f}"),
         ("eval AUROC, no red-team data",
@@ -235,6 +365,11 @@ g, d = D["gptoss120b"], D["deepseekv4pro"]
 base_only = cond("gptoss120b", "base_only")["mean"]["auroc"]
 la = {k: delta_vs_random(k, "drop_longest_assistant_30pct") for k in ARMS}
 best_ds = delta_vs_random("deepseekv4pro", "drop_most_evallike_20pct")
+ex_ds = extreme_stats("deepseekv4pro")
+ev_ds = eval_stats("deepseekv4pro")
+rt_orth_ds = float(np.sqrt(np.maximum(
+    D["deepseekv4pro"]["npz"]["centroid_dist"] ** 2
+    - D["deepseekv4pro"]["npz"]["proj_on_w"] ** 2, 0)).mean())
 
 HTML = f"""<title>Orthogonal by Construction</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -247,6 +382,8 @@ HTML = f"""<title>Orthogonal by Construction</title>
   --rule:#D5DEDB; --rule-strong:#B9C6C3;
   --eval:#0F6F68; --eval-soft:#DCEBE8;
   --drift:#AC432C; --drift-soft:#F4E2DC;
+  --near:#A8761B;
+  --ev1:#0F6F68; --ev2:#2F6DA8; --ev3:#6B5BA6; --ev4:#3F8A55;
   --band:#DFE6E4;
   --measure:66ch; --wide:1000px;
 }}
@@ -257,6 +394,8 @@ HTML = f"""<title>Orthogonal by Construction</title>
     --rule:#253134; --rule-strong:#374548;
     --eval:#4FB3A6; --eval-soft:#12302D;
     --drift:#D97A5E; --drift-soft:#331B14;
+    --near:#D9A441;
+    --ev1:#4FB3A6; --ev2:#6FA8DE; --ev3:#A294E0; --ev4:#6FC183;
     --band:#1E292B;
   }}
 }}
@@ -266,6 +405,8 @@ HTML = f"""<title>Orthogonal by Construction</title>
   --rule:#253134; --rule-strong:#374548;
   --eval:#4FB3A6; --eval-soft:#12302D;
   --drift:#D97A5E; --drift-soft:#331B14;
+  --near:#D9A441;
+  --ev1:#4FB3A6; --ev2:#6FA8DE; --ev3:#A294E0; --ev4:#6FC183;
   --band:#1E292B;
 }}
 * {{ box-sizing:border-box; }}
@@ -279,7 +420,7 @@ body {{
 .col {{ max-width:var(--measure); }}
 h1,h2,h3,.display {{ font-family:Archivo,"Helvetica Neue",Arial,sans-serif; color:var(--ink);
   text-wrap:balance; margin:0; }}
-.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.otick,.olab,.oaxlab,.ref,.chip {{
+.mono,.eyebrow,td.n,th,.cval,.ctick,.crow,.otick,.olab,.oaxlab,.okey,.okeyhead,.ref,.chip {{
   font-family:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; }}
 .eyebrow {{ font-size:11px; letter-spacing:.18em; text-transform:uppercase;
   color:var(--muted); font-weight:500; }}
@@ -348,10 +489,21 @@ caption,.cap {{ font-size:13px; color:var(--muted); max-width:var(--measure);
 .ogrid {{ stroke:var(--rule); stroke-width:1; }}
 .oaxis {{ stroke:var(--rule-strong); stroke-width:1.5; }}
 .oaxis.dash {{ stroke-dasharray:3 4; }}
-.odot {{ fill:var(--drift); fill-opacity:.42; }}
-.ocent {{ fill:var(--eval); }}
+.odot {{ fill:var(--faint); fill-opacity:.34; }}   /* .rest, and the legend swatch */
+.odot.off {{ fill:var(--drift); fill-opacity:.85; }}
+.odot.like {{ fill:var(--near); fill-opacity:.85; }}
+.ering {{ fill:none; stroke-width:1.05; stroke-opacity:.62; }}
+.ering.s1 {{ stroke:var(--ev1); }}
+.ering.s2 {{ stroke:var(--ev2); }}
+.ering.s3 {{ stroke:var(--ev3); }}
+.ering.s4 {{ stroke:var(--ev4); }}
+.ocent {{ fill:var(--ink); stroke:var(--surface); stroke-width:1.6; }}
 .otick {{ font-size:10px; fill:var(--faint); }}
-.olab {{ font-size:10.5px; fill:var(--eval); letter-spacing:.06em; }}
+.olab {{ font-size:10.5px; fill:var(--ink); letter-spacing:.06em; }}
+.okey {{ font-size:10.5px; fill:var(--body); letter-spacing:.02em;
+  font-variant-numeric:tabular-nums; }}
+.okeyhead {{ font-size:10px; fill:var(--muted); letter-spacing:.12em;
+  text-transform:uppercase; }}
 .oaxlab {{ font-size:10.5px; fill:var(--muted); letter-spacing:.08em; text-transform:uppercase; }}
 
 .armhead {{ font-family:Archivo,sans-serif; font-size:12px; font-weight:600;
@@ -518,15 +670,43 @@ a {{ color:var(--eval); }}
         <code>LinearThenSoftmax</code>, so <code>w</code> is a single vector and a row&#8217;s
         offset from the eval centroid splits cleanly into a component along it and everything
         else. Almost all of it is everything else:</p>
-        <div class="armhead">{SHORT['deepseekv4pro']} <span>&middot; every red-team row, resolved onto the decision axis</span></div>
+        <div class="armhead">{SHORT['deepseekv4pro']} <span>&middot; every red-team row and every
+        eval row, resolved onto the decision axis</span></div>
         <div class="panel">{orthogonality_diagram('deepseekv4pro')}</div>
         <p class="cap">Horizontal: projection on the unit direction <code>w</code>, averaged over
         the run&#8217;s 10 ensemble members (pairwise cosine
         {d['acts']['ensemble_direction_agreement_cos']:.2f}). Vertical: the magnitude of the
-        residual. The cloud is tall and narrow because the mean absolute projection on
+        residual. Both clouds are tall and narrow because the mean absolute projection on
         <code>w</code> is {d['acts']['mean_abs_proj_on_w_redteam']:.2f} for red-team rows against
         {d['acts']['mean_abs_proj_on_w_eval']:.2f} for eval rows &#8212; essentially the same
         &#8212; while the total displacement is many times larger.</p>
+        <p class="cap">All {ev_ds['n']} eval rows are drawn too, one colour per split. Two things
+        they fix that the centroid marker alone does not. The centroid is the <em>origin of
+        these coordinates</em>, not a place any row sits: in {d['acts']['dim']:,} dimensions the
+        average eval row is {ev_ds['orth']:.1f} from the eval mean. And the vertical axis is a
+        magnitude, not a direction &#8212; the two corpora overlap on it ({rt_orth_ds:.1f} mean
+        residual for red-team against {ev_ds['orth']:.1f} for eval) while staying separable in the
+        full space at AUROC {d['acts']['separability_redteam_vs_eval_auroc']:.4f}. They are
+        displaced by similar <em>amounts</em>; what differs is the direction, and one number
+        cannot show {d['acts']['dim'] - 1:,} of them.</p>
+        <p class="cap">Coloured in are the two ends of the axis Q3 removes along &#8212; the
+        {EXTREME_PCT}% of contrastive pairs the text discriminator scores as most off-distribution
+        and the {EXTREME_PCT}% it scores as most eval-like, which is exactly what
+        <code>drop_most_offdist_{EXTREME_PCT}pct</code> and
+        <code>drop_most_evallike_{EXTREME_PCT}pct</code> drop. They land on top of each other
+        here. Mean projection on <code>w</code> is {ex_ds['offdist']['abs_proj']:.2f} against
+        {ex_ds['evallike']['abs_proj']:.2f}, mean residual {ex_ds['offdist']['orth']:.1f} against
+        {ex_ds['evallike']['orth']:.1f} &#8212; the ordering that separates them on the page is
+        distance to the eval set ({ex_ds['offdist']['knn']:.1f} against
+        {ex_ds['evallike']['knn']:.1f} mean kNN), and that is not the direction the probe
+        reads.</p>
+        <p>The eval rows also set the scale for the headline number. They are
+        <strong>{ev_ds['orth_frac']:.2%}</strong> orthogonal to <code>w</code> themselves,
+        against {d['acts']['mean_orthogonal_fraction']:.2%} for the red-team rows: near-total
+        orthogonality is what this geometry hands <em>any</em> row, not something the red-team
+        data is unusual for having. The claim that survives is about direction, not about the
+        red-team set being peculiar in holding it &#8212; which is the sense in which it is
+        orthogonal by construction.</p>
         <p>Novelty orthogonal to <code>w</code> <strong>cannot move an eval score directly</strong>.
         It has no component along the axis the probe reads. It can only act by rotating
         <code>w</code> at the next refit &#8212; which is exactly why the removal conditions in Q3

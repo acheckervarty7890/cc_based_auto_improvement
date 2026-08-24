@@ -123,7 +123,14 @@ def run_arm(arm: O.Arm, args) -> None:
     rt_src = C.redteam_source(concept)
     H_rt = pooled(rt_src, range(N_BASE, len(rt_src)))
     eval_srcs = C.eval_sources(concept)
-    H_ev = np.concatenate([pooled(s) for s in eval_srcs.values()])
+    ev_parts = {name: pooled(src) for name, src in eval_srcs.items()}
+    ev_split_names = list(ev_parts)
+    # Which split each eval row came from, kept alongside the pooled vectors so the
+    # write-up can plot the eval cloud split by split rather than as one undifferentiated
+    # reference blob.
+    ev_split = np.concatenate([np.full(len(h), i, dtype=np.int16)
+                               for i, h in enumerate(ev_parts.values())])
+    H_ev = np.concatenate(list(ev_parts.values()))
     print(f"[{arm.key}] pooled {len(H_rt)} red-team, {len(H_ev)} eval "
           f"({H_rt.shape[1]}-d)", flush=True)
 
@@ -140,6 +147,9 @@ def run_arm(arm: O.Arm, args) -> None:
     proj_rt = d_rt @ w
     proj_ev = d_ev @ w
     norm_rt = np.linalg.norm(d_rt, axis=1)
+    norm_ev = np.linalg.norm(d_ev, axis=1)
+    orth_frac_ev = (np.sqrt(np.maximum(norm_ev ** 2 - proj_ev ** 2, 0.0))
+                    / np.maximum(norm_ev, 1e-12))
     along = np.abs(proj_rt)
     orth = np.sqrt(np.maximum(norm_rt ** 2 - proj_rt ** 2, 0.0))
     orth_frac = orth / np.maximum(norm_rt, 1e-12)
@@ -152,6 +162,17 @@ def run_arm(arm: O.Arm, args) -> None:
     sep_flag = separability(H_rt, flagged, seed=args.seed)
     y_rt_ev = np.r_[np.ones(len(H_rt), int), np.zeros(len(H_ev), int)]
     sep_corpus = separability(np.concatenate([H_rt, H_ev]), y_rt_ev, seed=args.seed)
+
+    per_eval_split = {}
+    for i, name in enumerate(ev_split_names):
+        m = ev_split == i
+        per_eval_split[name] = {
+            "n": int(m.sum()),
+            "abs_proj_on_w": float(np.abs(proj_ev[m]).mean()),
+            "orth": float(np.sqrt(np.maximum(
+                np.linalg.norm(d_ev[m], axis=1) ** 2 - proj_ev[m] ** 2, 0.0)).mean()),
+            "self_knn": float(knn_ev[m].mean()),
+        }
 
     per_topic = {}
     for c in sorted(set(topic.tolist())):
@@ -177,18 +198,29 @@ def run_arm(arm: O.Arm, args) -> None:
         "mean_abs_proj_on_w_redteam": float(along.mean()),
         "mean_abs_proj_on_w_eval": float(np.abs(proj_ev).mean()),
         "mean_orthogonal_fraction": float(orth_frac.mean()),
+        # The same fraction for the eval rows against their own centroid. It is the baseline
+        # the red-team figure has to be read against: near-total orthogonality to a single
+        # direction is what 5376 dimensions hand any row, so the finding is which way the
+        # displacement points, not that it is orthogonal.
+        "mean_orthogonal_fraction_eval": float(orth_frac_ev.mean()),
         "spearman_p_redteam_vs_knn": float(rho_knn),
         "spearman_p_redteam_vs_centroid_dist": float(rho_dist),
         "separability_flagged_vs_rest_auroc": sep_flag,
         "separability_redteam_vs_eval_auroc": sep_corpus,
         "flag_frac": args.flag_frac,
         "per_topic": per_topic,
+        "per_eval_split": per_eval_split,
     }
     O.write_json(O.RESULTS / f"actsig_{arm.key}.json", summary)
     np.savez_compressed(
         O.RESULTS / f"actsig_{arm.key}.npz",
         knn_to_eval=knn_rt, centroid_dist=norm_rt, proj_on_w=proj_rt,
         orth_frac=orth_frac, p_redteam=p_surface, topic=topic,
+        # The eval side in the same coordinates, so the reference cloud can be drawn
+        # instead of standing in as a single centroid marker.
+        proj_on_w_eval=proj_ev, centroid_dist_eval=np.linalg.norm(d_ev, axis=1),
+        knn_self_eval=knn_ev, eval_split=ev_split,
+        eval_split_names=np.array(ev_split_names, dtype="U64"),
     )
     print(f"[{arm.key}] outside eval's own p95 kNN: {outside.mean():.1%}  "
           f"orthogonal fraction {orth_frac.mean():.1%}  "

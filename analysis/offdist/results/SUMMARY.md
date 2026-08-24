@@ -22,7 +22,7 @@ Fits are the ceiling analysis's: one `linear_then_softmax` head, seed 42, early-
 1. **Not "some portion" — effectively all of it.** Both corpora separate at AUROC >= 0.998 on text alone and >= 0.9999 in activation space. There is no eval-like subset of the red-team data to keep; there is only a gradient.
 2. **Nothing is labelled backwards, and no pair contrasts on the wrong turn.** What is off is the *mix*: refusal, which is a large part of what the eval negative class is made of, is 5-13x rarer in red-team data.
 3. **Removing the most off-distribution rows does not reliably help.** It clears the matched-random band in some conditions and loses in others, and the most-eval-like removal does about as well - so surface distance from eval is not the axis that predicts harm. The one consistent effect points the other way: dropping the 30% with the LONGEST assistant replies - the rows least like eval structurally - is significantly WORSE than random in both arms.
-4. **The novelty is real but almost entirely orthogonal to the decision axis** (~99.9%), so it cannot move an eval score directly; it can only act by rotating `w` at the next refit. The surface flag is a weak proxy for representation-level novelty (Spearman ~0.3) yet still names a group that is linearly separable in activation space at ~0.90.
+4. **The novelty is real but almost entirely orthogonal to the decision axis** (~99.9%) - as are the eval rows themselves about their own centroid (~99.9%), so this is the geometry of a 5376-dimensional space rather than a peculiarity of the red-team data. Either way it cannot move an eval score directly; it can only act by rotating `w` at the next refit. The surface flag is a weak proxy for representation-level novelty (Spearman ~0.3) yet still names a group that is linearly separable in activation space at ~0.90.
 
 ## gptoss120b — attacker `openai/gpt-oss-120b`
 
@@ -85,6 +85,7 @@ The band is `max(control sd, 0.005)`; a condition inside it removed *some* data,
 
 * **35.5%** of red-team rows sit further from the eval set than eval's own 95th-percentile self-kNN radius (k=10, threshold 27.97; median red-team 27.34 against median eval 18.75).
 * That displacement is **99.9% orthogonal** to the probe's decision direction `w` (10 ensemble members, pairwise cosine 0.824). Novelty orthogonal to `w` cannot move a score directly — it can only act by rotating `w` at the next refit.
+* Read that against its baseline: the **eval** rows are **99.87%** orthogonal to `w` about their own centroid. Near-total orthogonality to one direction is what 5,376 dimensions hand any row — the finding is which way the displacement points, not that it is orthogonal.
 * The surface score is a **weak** proxy for it: Spearman ρ between `p_redteam` and kNN-to-eval is +0.336. Text-level oddness and representation-level oddness are not the same ordering.
 * But the flagged group is **real in the representation**: the top 30% by `p_redteam` separate from the rest at out-of-fold AUROC **0.8898**.
 
@@ -161,6 +162,7 @@ The band is `max(control sd, 0.005)`; a condition inside it removed *some* data,
 
 * **52.2%** of red-team rows sit further from the eval set than eval's own 95th-percentile self-kNN radius (k=10, threshold 27.97; median red-team 28.04 against median eval 18.75).
 * That displacement is **99.9% orthogonal** to the probe's decision direction `w` (10 ensemble members, pairwise cosine 0.874). Novelty orthogonal to `w` cannot move a score directly — it can only act by rotating `w` at the next refit.
+* Read that against its baseline: the **eval** rows are **99.95%** orthogonal to `w` about their own centroid. Near-total orthogonality to one direction is what 5,376 dimensions hand any row — the finding is which way the displacement points, not that it is orthogonal.
 * The surface score is a **weak** proxy for it: Spearman ρ between `p_redteam` and kNN-to-eval is +0.290. Text-level oddness and representation-level oddness are not the same ordering.
 * But the flagged group is **real in the representation**: the top 30% by `p_redteam` separate from the rest at out-of-fold AUROC **0.9123**.
 
