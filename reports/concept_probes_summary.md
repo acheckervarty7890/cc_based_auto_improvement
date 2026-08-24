@@ -1,6 +1,6 @@
 # Concept probes — three generators compared
 
-_Generated 2026-08-24 01:49:34Z._
+_Generated 2026-08-24 02:29:38Z._
 
 The same experiment run on three ~50-row synthetic cuts per concept, one per
 generating model. Every cell is mean AUROC over that concept's eval splits.
