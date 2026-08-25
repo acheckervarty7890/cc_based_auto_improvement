@@ -311,6 +311,19 @@ attacker:
                                       #   content}) which is scored through the same probe+judge path. Only
                                       #   supported for openrouter models — load_config raises if any model
                                       #   resolves to claude_sdk under interface: prompt.
+  show_eval_data_description: bool    # default FALSE. Put `eval.data_description` in the ATTACKER's
+                                      #   system prompt, as its own "## The data this probe is evaluated
+                                      #   on" section directly under "## Probe under attack". Everywhere
+                                      #   else the description is judge-side; it reaches the attacker only
+                                      #   laundered through a memo, and only from round 1 — so round 0 is
+                                      #   always written blind to the eval data's shape. A KNOB rather than
+                                      #   automatic because that indirect path is what the evaldesc
+                                      #   experiments measure: under view_limit 0 + batch_submissions the
+                                      #   memo is the ONLY channel into a session, so a run with this ON
+                                      #   answers a different question and is NOT comparable to one with it
+                                      #   off. Inert with no description set. The closing line varies with
+                                      #   judge.eval_scope_check, so it never claims a candidate "is
+                                      #   rejected" when nothing rejects it.
   view_limit: int                     # prompt mode only: size of the view_past_attempts sample injected each
                                       #   turn (default 10). Mirrors the tools-mode view_past_attempts limit.
                                       #   <= 0 means inject NOTHING (note this is the opposite of
@@ -708,6 +721,13 @@ what its two labels mean, an example on each side, and any surface cue that runs
 label there. (Main's versions assume several and steer for breadth across them; a
 multi-kind description set here would be steered for depth instead.) Where it lands and why:
 
+- **The attacker sees it only if asked for.** `attacker.show_eval_data_description`
+  (default off) adds it to the attacker's system prompt as its own section under
+  "## Probe under attack", via `attacker._eval_data_section`. With it off — the default,
+  and what every evaldesc arm ran — the description reaches the attacker only laundered
+  through a memo, and only from round 1, so round 0 is always written blind to the eval
+  data's shape. Measured on the three instruction scope-check arms, 68-73% of submissions
+  were off-task under the indirect path alone.
 - **Both summarizers, and — only under `judge.eval_scope_check` — the classifier.** It is rendered as one extra
   `## Task context` bullet (`_eval_data_context_line`, continuation lines indented so an
   enumeration reads as part of the bullet rather than as further context bullets), and
@@ -758,8 +778,13 @@ properties are load-bearing:
   needs the labeller blind sets it false and every prompt returns to what it was.
 - **It rejects as little as possible, on purpose.** Both the ask and the generator
   instruction say outright that anything the description leaves open — topic, wording,
-  length, layout, how many parts a request has, whether source material is supplied — is
-  not a constraint, and that an unusual instance of the described task is kept. A check
+  length, layout, whether source material is supplied — is
+  not a constraint, and that an unusual instance of the described task is kept.
+  **How many parts a request has is deliberately absent from that list.** A description
+  whose task is defined by asking more than one thing *states* the count, so listing it
+  as free to vary licensed exactly the conversations the check exists to reject — it was
+  removed from `_scope_block`, `_scope_request` and `_eval_data_instruction` together,
+  since any one of the three left in place overrides the other two. A check
   that infers unstated constraints narrows the attacker to whatever shape the
   description's examples happened to use, which is the opposite of the point; the example
   tags in the prompt (`not_the_described_task`, `label_undecidable_here`) are generic for
@@ -1602,7 +1627,7 @@ threaded from the config's `eval.data_description` by `cli` → `retrain_probe` 
 `_build_redteam_dataset`). `_eval_data_instruction` injects it verbatim and tells the
 generator to keep the pair inside what the description **states** — the same task, its
 class decided on the same terms — changing the class, not the task, while everything the
-description leaves open (topic, wording, length, layout, number of parts, supplied
+description leaves open (topic, wording, length, layout, supplied
 material or not) varies freely and the description's examples are explicitly not
 requirements. Same reason as the judge's scope check: these pairs become training data
 for a probe scored on that data, so a pair shaped unlike it trains on a distribution

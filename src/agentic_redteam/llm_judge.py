@@ -915,7 +915,7 @@ def _scope_block(eval_data_description: str) -> str:
         "classifier, and they are only informative if they are the task described "
         "above, decided on the terms described above. Only what that description "
         "actually constrains counts. Anything it leaves open — the topic, the "
-        "wording, the length, how the request is laid out, how many parts it has, "
+        "wording, the length, how the request is laid out, "
         "whether the user supplies material to work from — is not a constraint and is "
         "never grounds for rejection. This does not change what the labels mean or how "
         "you apply them; it is a separate judgement about whether the conversation is "
@@ -928,9 +928,12 @@ def _scope_request() -> str:
 
     Written to reject as little as possible: only what the description *states*, and an
     unusual instance of the described task is kept. A scope check that infers unstated
-    constraints — a fixed number of parts, a particular layout, supplied source
+    constraints — a particular layout, supplied source
     material — narrows the attacker to whatever shape the description's examples
-    happened to use, which is the opposite of what it is for. The example tags are
+    happened to use, which is the opposite of what it is for. How many parts a request
+    has is NOT treated as unstated here: a description whose task is defined by asking
+    more than one thing states it, and listing it as free to vary licensed exactly the
+    conversations the check exists to reject. The example tags are
     generic for the same reason: an example tag naming a structural feature would teach
     the judge to go looking for one.
     """
@@ -940,7 +943,7 @@ def _scope_request() -> str:
         "is not that task at all, or when its label cannot be decided on the terms "
         "that description decides labels on. Everything the description leaves open is "
         "in scope — a different topic, different wording, a different length, a "
-        "different layout, a different number of parts. "
+        "different layout. "
         "When it plausibly is that task, keep it: set \"in_scope\": true and leave the "
         "other two fields empty strings. Otherwise set \"in_scope\": false and name the "
         "stated constraint it breaks as a short snake_case tag in "

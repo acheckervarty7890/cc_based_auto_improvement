@@ -301,7 +301,7 @@ def main() -> int:
         "Reject it ONLY when it is not that task at all" in scope_on["classification / user"]
         and "Everything the description leaves open is in scope"
         in scope_on["classification / user"]
-        and "a different number of parts" in scope_on["classification / user"],
+        and "a different layout" in scope_on["classification / user"],
         "the scope ask rejects only STATED constraints, never an inferred shape",
     )
     check(

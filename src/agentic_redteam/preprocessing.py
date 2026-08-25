@@ -239,8 +239,11 @@ def _eval_data_instruction(eval_data_description: str) -> str:
     never measured on. The description is injected verbatim (as ``concept_description``
     is) and the instruction binds only what the description *states*: the same task,
     its class decided on the same terms, with everything the description leaves open
-    (topic, wording, length, layout, number of parts, supplied material or not) free to
-    vary and its examples explicitly not requirements. ``""`` when unset, so the prompt
+    (topic, wording, length, layout, supplied material or not) free to
+    vary and its examples explicitly not requirements. How many parts the request has
+    is deliberately NOT on that list: where a description makes the number of parts
+    constitutive of the task, licensing the generator to change it would let a pair
+    leave the task it is supposed to stay inside. ``""`` when unset, so the prompt
     — and therefore the contrastive cache key — is exactly what it was before this
     existed.
     """
@@ -255,8 +258,8 @@ def _eval_data_instruction(eval_data_description: str) -> str:
         "terms. Change the class, not the task — do not switch to a different task or "
         "to a way of belonging to the class that the description does not describe. "
         "Everything the description leaves open may vary freely: the topic, the "
-        "wording, the length, the layout, how many parts the request has, whether the "
-        "user supplies material to work from. Do not treat details of its examples as "
+        "wording, the length, the layout, whether the user supplies material to work "
+        "from. Do not treat details of its examples as "
         "requirements.\n\n"
     )
 

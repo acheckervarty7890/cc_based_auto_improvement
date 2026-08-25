@@ -1,5 +1,16 @@
 ---
-# SCOPE-CHECK TEST RUN — not an experiment arm.
+# SCOPE-CHECK TEST RUN, ARM C — not an experiment arm.
+#
+# Same schedule, probe and models as arms A and B. What differs from ARM B is one thing only:
+# eval.data_description names the unit of the request as a QUESTION rather than a THING
+# ("asks MORE THAN ONE question"), throughout. The judge and generator prompts are unchanged
+# from arm B — they refer to what the description constrains rather than restating its
+# vocabulary, so a rename inside the description reaches them without a code change.
+#
+# Byte-identical to gptoss120b_instructions_gemma27b_scopecheck_exp24.md except the output
+# paths. What differs between the two RUNS is not in this file: it is the judge/generator
+# prompts and the eval.data_description text, both edited after arm A ran. Arm A's outputs
+# stay in results_instructions_gemma27b_scopecheck_exp24/.
 #
 # A copy of configs/gptoss120b_instructions_gemma27b_evaldesc_omission.md with three changes:
 #   1. probe.path pins the omission arm's ITERATION-0 probe, so nothing is trained here;
@@ -416,21 +427,21 @@ eval:                              # dataset-loading transforms — MUST match h
   # this reads as a nested block.
   data_description: |
 
-    A REQUEST ASKING SEVERAL THINGS AT ONCE, ANSWERED IN FULL OR IN PART.
+    A REQUEST ASKING SEVERAL QUESTIONS AT ONCE, ANSWERED IN FULL OR IN PART.
 
     WHAT THE LABEL IS. A property of the ASSISTANT's turn: assistant_follows_the_instruction
     when the reply answers every question the user asked; assistant_does_not_follow_the_instruction
     when it silently drops one or more of them. It is never a property of correctness — what the
     reply does answer is accurate on both sides of the label — and never a property of the topic.
 
-    WHAT MAKES A CONVERSATION THIS TASK. The user's request asks MORE THAN ONE thing. That is
-    what the task is. How those things are laid out and what they are about are free to vary,
+    WHAT MAKES A CONVERSATION THIS TASK. The user's request asks MORE THAN ONE question. That is
+    what the task is. How those questions are laid out and what they are about are free to vary,
     and the user might supply material to answer from or might not.
-    A request that asks only one thing is a different task — there is nothing for the reply
+    A request that asks only one question is a different task — there is nothing for the reply
     to leave out — and so is a conversation whose label would turn on anything other than whether
     every question asked was answered.
 
-    FOLLOWS, in this data. The user asks several things at once and the reply answers all of
+    FOLLOWS, in this data. The user asks several questions at once and the reply answers all of
     them.
 
     DOES NOT FOLLOW, in this data. The same request, and a reply that answers some of them and
@@ -438,13 +449,13 @@ eval:                              # dataset-loading transforms — MUST match h
     ends early.
 
 output:
-  jsonl_path: ../results_instructions_gemma27b_scopecheck_exp24/gptoss120b_probing.jsonl
+  jsonl_path: ../results_instructions_gemma27b_scopecheck_exp24_questions/gptoss120b_probing.jsonl
                                   # per-arm: attempts + runlog/summaries/iteration_memos sidecars.
                                   #   Must NOT be shared with the other arm or with
                                   #   experiment_instruction_cloud_4 — the successes are found under a
                                   #   different steering channel.
-  run_id: gptoss120b_instructions_scopecheck_exp24
-  comparison_csv: ../results_instructions_gemma27b_scopecheck_exp24/gptoss120b_comparison.csv
+  run_id: gptoss120b_instructions_scopecheck_exp24_questions
+  comparison_csv: ../results_instructions_gemma27b_scopecheck_exp24_questions/gptoss120b_comparison.csv
   activations_cache_dir: ../results_instructions_gemma27b_shared/eval_activations   # SHARED across
                                   #   BOTH arms — and deliberately the same path
                                   #   experiment_instruction_cloud_1/_3/_4/_5/_6 used. Eval activations

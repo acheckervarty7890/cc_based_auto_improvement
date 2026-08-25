@@ -172,6 +172,14 @@ class AttackerConfig:
     # view_limit: number of past attempts injected each turn in prompt mode (matches the
     #   tools-mode fallback of 10). Unused in tools mode, where the model picks the count.
     view_limit: int = 10
+    # show_eval_data_description: put `eval.data_description` in the ATTACKER's system
+    #   prompt, as its own section under "## Probe under attack". Off by default, and
+    #   deliberately a knob rather than automatic: the description is otherwise
+    #   judge-side only, so a run that sets it has the memos as the ONLY channel from
+    #   the eval data to the attacker — which is exactly what the evaldesc experiments
+    #   measure. Turning this on removes that constraint, so a run with it on is not
+    #   comparable to one with it off. Inert with no description set.
+    show_eval_data_description: bool = False
     # Dump the exact prompt sent to the attacker each turn to
     # <jsonl>.prompts.jsonl (prompt mode only). Off by default: the file holds
     # every prompt in full, so it grows much faster than the JSONL.
@@ -723,6 +731,9 @@ def load_config(path: str | Path) -> RedteamConfig:
             cross_iteration_memo_word_budget=cross_iteration_memo_word_budget,
             interface=attacker_interface,
             view_limit=int(a.get("view_limit", 10)),
+            show_eval_data_description=bool(
+                a.get("show_eval_data_description", False)
+            ),
             capture_prompts=bool(a.get("capture_prompts", False)),
             batch_submissions=attacker_batch_submissions,
             system_prompt=attacker_prompt,
