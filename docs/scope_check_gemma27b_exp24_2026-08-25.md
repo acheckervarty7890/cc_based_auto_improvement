@@ -234,6 +234,14 @@ is the held-finds one above.
 6. **Audit the other pair-generation paths** for the same failure. The length artifact was
    invisible in every eval column until it was measured directly.
 
+## Follow-up
+
+`docs/what_limits_the_instruction_probe_2026-08-25.md` takes the v3 run's 33 couples and asks why
+red-team data costs this probe the split it is aimed at. Short version: the achievable AUROC on
+`oig_omission` is **0.914**, volume / selection / validation are all ruled out, the attacker's
+**finds** carry the damage while the generated partners do not — and the whole effect reverses
+once the training set contains in-distribution data.
+
 ## Reproducing / inspecting
 
 ```bash

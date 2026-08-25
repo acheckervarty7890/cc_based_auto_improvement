@@ -1629,6 +1629,19 @@ knob: that older property meant *adding the knobs* did not invalidate pre-existi
 and it cannot survive the template itself being keyed. Bumping it invalidates every
 contrastive cache in the repo, which is the point.
 
+**Version 3 added an escape hatch: the generator may decline.** A source that *already*
+belongs to the target class has no contrastive partner — editing it can only invent a
+difference, which is exactly the second signal these pairs exist to remove. So the prompt
+now allows `generated_messages: null` ("it already qualifies, here is why"), and
+`generate_contrastive_dataset` **drops that source record** rather than pairing it, the same
+outcome a failed generation gets. The difference from a failure is that this verdict is
+**cached** (`ALREADY_TARGET_KEY = "already_target_class"` on the cached row): a failure is an
+accident and is re-attempted next iteration, a decline is an answer and is paid for once. The
+cached-verdict check runs *before* the length re-check, since a verdict row carries no pair to
+measure. The prompt also says outright that merely being close to the boundary, ambiguous or
+hard to edit is **not** grounds to decline — a generator that declines liberally would silently
+shrink the training set.
+
 **Version 2 made generation a MINIMAL-EDIT task.** Version 1 asked for "a similar-looking
 conversation/scenario that belongs to the other class", with bullets for similar structure,
 length and style — a *resemblance* instruction, which let the generator rewrite freely as

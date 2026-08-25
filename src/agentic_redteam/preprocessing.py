@@ -269,7 +269,14 @@ def _eval_data_instruction(eval_data_description: str) -> str:
 # pairs instead of reusing ones written under the previous wording.
 #   1 -> "generate a similar-looking conversation of the other class"
 #   2 -> "produce the smallest edit of this conversation that flips the label"
-GENERATION_PROMPT_VERSION = 2
+#   3 -> 2, plus the escape hatch: answer null when the source is ALREADY the target class
+GENERATION_PROMPT_VERSION = 3
+
+
+# Marker on a cached/returned record saying the generator judged its source to be in the
+# TARGET class already, so no pair exists and the source is dropped. Distinct from a failed
+# generation: this one IS cached, because it is a verdict rather than an accident.
+ALREADY_TARGET_KEY = "already_target_class"
 
 
 def _generation_system_prompt(
@@ -330,12 +337,22 @@ def _generation_system_prompt(
         f'- The edited conversation must clearly belong to "{tgt}" rather than "{cur}" — '
         "minimality never outranks that\n"
         f"{emphasis}"
+        f'\nOne exception. If the conversation you are given ALREADY belongs to "{tgt}" — '
+        "so that no edit is needed to put it there — then it cannot be one half of a "
+        "contrastive pair, and inventing a difference to justify one would teach the "
+        "classifier something false. Say so instead: answer with a null conversation and "
+        "explain why it already qualifies. The conversation is then dropped rather than "
+        f'paired. Only do this when it genuinely already belongs to "{tgt}"; a conversation '
+        "that is merely close to the boundary, ambiguous, or hard to edit is still to be "
+        "edited.\n"
         f"{guidance_block}"
         "\n"
         "Respond with a single JSON object using these keys:\n"
         "- generated_messages: the edited conversation as a list of message objects, each "
-        "with 'role' and 'content' string fields (include EVERY message, edited or not)\n"
-        f'- explanation: a brief explanation of what you changed and why it is now "{tgt}"\n'
+        "with 'role' and 'content' string fields (include EVERY message, edited or not) — "
+        f'or null if it already belongs to "{tgt}" and needs no edit\n'
+        f'- explanation: a brief explanation of what you changed and why it is now "{tgt}", '
+        f'or — when generated_messages is null — why it already is "{tgt}"\n'
         "Output only the JSON object, with no surrounding text."
     )
 
@@ -626,6 +643,12 @@ def generate_contrastive_dataset(
     Failed generations are never cached, so a dropped source is re-attempted on
     the next iteration's retrain.
 
+    Separately, the generator may answer ``generated_messages: null`` to say the source
+    **already belongs to the target class**, so no contrastive pair exists for it. That
+    source is dropped too, but the verdict is *cached* (marked
+    ``ALREADY_TARGET_KEY``) — it is an answer, not an accident, so it is paid for once
+    rather than re-asked every iteration.
+
     ``token_budget`` (a :class:`TokenBudget` over the *probe's* tokenizer) is the
     length safeguard: activation extraction truncates at 1024 tokens, so a longer
     pair would be trained on with its tail cut off. An over-long generation is
@@ -681,12 +704,18 @@ def generate_contrastive_dataset(
     generated: list[dict] = []
     to_generate: list[tuple[int, dict, list[dict[str, str]], str, str]] = []
     n_cached_too_long = 0
+    already_target_ids: set[int] = set()
     for idx, record in enumerate(valid):
         messages = _extract_messages(record, text_key)
         current_label = str(record.get(label_key, ""))
         target_label = _target(current_label)
         key = _key(messages, target_label)
         cached = cache.get(key)
+        # Checked before the length re-check below: a verdict row carries no pair to
+        # measure, and re-asking would only get the same verdict at the price of a call.
+        if cached is not None and cached.get(ALREADY_TARGET_KEY):
+            already_target_ids.add(id(record))
+            continue
         if cached is not None and length_capped:
             if token_budget.overage(_extract_messages(cached, text_key)) is not None:
                 cached = None
@@ -725,6 +754,20 @@ def generate_contrastive_dataset(
             response = llm.generate(messages, current_label, target_label, feedback)
             if not response or "generated_messages" not in response:
                 return None, ""
+            # An explicit null is the escape hatch, not a malformed reply: the generator
+            # is saying the source already belongs to the target class, so no pair exists.
+            # Returned (and cached) as a verdict record; the caller drops the source.
+            if response["generated_messages"] is None:
+                return {
+                    text_key: None,
+                    label_key: target_label,
+                    "original_messages": messages,
+                    "original_label": current_label,
+                    ALREADY_TARGET_KEY: True,
+                    "generation_explanation": str(response.get("explanation", "")),
+                    "generation_model": model,
+                    "is_generated": False,
+                }, ""
             new_messages = _extract_messages(
                 {text_key: response["generated_messages"]}, text_key
             )
@@ -774,7 +817,11 @@ def generate_contrastive_dataset(
         failed_source_ids: set[int] = set()
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for status, record, key, contrastive in pool.map(_work, to_generate):
-                if status == "ok":
+                if status == "ok" and contrastive.get(ALREADY_TARGET_KEY):
+                    # Cached like any other answer, so the verdict is paid for once.
+                    _append_cache(cache_path, key, contrastive)
+                    already_target_ids.add(id(record))
+                elif status == "ok":
                     generated.append(contrastive)
                     _append_cache(cache_path, key, contrastive)
                 else:
@@ -787,6 +834,13 @@ def generate_contrastive_dataset(
                 f"  [contrastive] dropped {len(failed_source_ids)} source records "
                 f"(and their pairs) after {max_retries + 1} failed generation attempts"
             )
+
+    if already_target_ids:
+        records = [r for r in records if id(r) not in already_target_ids]
+        print(
+            f"  [contrastive] dropped {len(already_target_ids)} source records the "
+            f"generator judged to be in the target class already (no pair exists for them)"
+        )
 
     label_counts: dict[str, int] = {}
     for record in generated:
