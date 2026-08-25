@@ -1617,10 +1617,30 @@ matching neither class label are warned about and ignored (a typo would otherwis
 silently degrade the prompt back to its generic form). **Non-empty guidance is folded
 into the contrastive cache key** via `_guidance_fingerprint` — the cache is loaded by
 key without re-checking the prompt, so otherwise an edited description would silently
-reuse pairs written under the old one. The fingerprint is `""` when neither knob is
-set, so configs that don't use them keep byte-identical keys (existing caches still
-hit), and it covers only the *target* label's guidance, so editing one class's text
-doesn't invalidate the other direction's pairs.
+reuse pairs written under the old one. It covers only the *target* label's guidance, so
+editing one class's text doesn't invalidate the other direction's pairs.
+
+**`GENERATION_PROMPT_VERSION` is folded into that key too**, so it tracks the prompt
+TEMPLATE and not merely the config-supplied text inside it. Bump it whenever
+`_generation_system_prompt` changes materially, or every cache written under the older
+wording is reused forever — the failure the description hash already existed to prevent,
+one level up. This is why the fingerprint is no longer `""` for a config setting neither
+knob: that older property meant *adding the knobs* did not invalidate pre-existing caches,
+and it cannot survive the template itself being keyed. Bumping it invalidates every
+contrastive cache in the repo, which is the point.
+
+**Version 2 made generation a MINIMAL-EDIT task.** Version 1 asked for "a similar-looking
+conversation/scenario that belongs to the other class", with bullets for similar structure,
+length and style — a *resemblance* instruction, which let the generator rewrite freely as
+long as the result rhymed. Version 2 asks for "the SMALLEST EDIT of it that makes it belong
+to the other class", tells the model this is an editing and not a writing task, and requires
+it to copy every message through unchanged unless the label demands otherwise, keep
+unchanged sentences byte-identical, hold the length close to the source, and preserve role
+count and order — with one explicit override: minimality never outranks actually flipping
+the label. The motivation is measured, not stylistic: on the `oig_omission` leave-one-out
+study (`scripts/pair_selection_study.py`) the couples that *hurt* the split had generated
+replies 2-3x longer than the find they came from, so the pair taught length as much as
+completeness.
 
 **The eval-data description as a generation constraint** (`eval_data_description=`,
 threaded from the config's `eval.data_description` by `cli` → `retrain_probe` →

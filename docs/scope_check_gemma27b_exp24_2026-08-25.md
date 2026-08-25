@@ -133,12 +133,75 @@ Mean AUROC delta across the seven arms: **-0.030 / +0.002 / +0.004 / +0.041 / -0
 spread, on essentially identical data quality and at retrain sizes of 22 / 36 / 26 / 18 red-team
 samples, is noise.
 
-`oig_omission` — the split the description names — falls in six of seven arms. Arm D is the only
-one where it rises (+0.027), and with F and G at -0.046 and -0.074 on better-matched data, that
-is a coin flip rather than a finding.
+`oig_omission` — the split the description names — falls in six of seven arms. Arm D is the one
+that rises (+0.027), and with F and G at -0.046 and -0.074 on better-matched data, that is a coin
+flip rather than a finding. Section 6 confirms it directly: re-running arm D's own config and code
+put `oig_omission` at 0.765 against arm D's 0.824 — a 0.059 swing from the red-team draw alone,
+larger than any arm-to-arm difference in this table.
 
 **So arm D's +0.041 is not established.** The on-task and probe-score results are large,
 consistent and replicated four times; the eval column is not.
+
+## 6. Follow-up: it was the pairs all along
+
+Seven arms varied what the attacker and judge were told and moved the eval by nothing
+interpretable. A second pass varied what happens to the finds *after* they are collected, and
+that did move it.
+
+**The re-draw sets the noise floor.** Arm D was re-run at `--iterations 5`, same config, same
+code: 75 attempts per iteration, 16 successes across five (8/4/2/0/2), retraining on the
+cumulative set each time. Its iteration-1 `oig_omission` is **0.765** where arm D's was **0.824**.
+Nothing differs but the draw. Every delta in section 5 is smaller than that.
+
+**Leave-one-out over the 16 couples.** Refitting the probe 16 times, each time holding out one
+couple (both halves together), and scoring `oig_omission`:
+
+| training set | oig_omission |
+| --- | --- |
+| base only (50 rows) | 0.797 |
+| base + all 16 couples | 0.750 |
+| base + the 8 couples LOO called helpful | 0.818 |
+| base + the 8 couples LOO called harmful | 0.727 |
+
+The sign split is 8/8, though one couple on the harmful side has a delta of 1e-16 — numerically
+no effect at all, so read it as 8 helping / 7 hurting / 1 inert.
+
+The red-team data as collected **cost** 0.047. Selection recovers it and a little more, but
+selection is fitted on the split it is scored on, so 0.818 is an upper bound, not a result. What
+the study did give was a mechanism: the couples that hurt had generated replies 2-3x longer than
+the find they came from. The pair was teaching length.
+
+**A minimal-edit generation prompt** (`GENERATION_PROMPT_VERSION = 2`) replaced version 1's
+"generate a similar-looking conversation of the other class" with "produce the smallest edit of
+this conversation that flips the label", and made the copy-through explicit. Regenerating the same
+16 finds with the same generator, changing only the prompt:
+
+- mean find/partner assistant-length ratio **0.62 -> 0.90** (1.00 = same length)
+- user turn preserved verbatim in **16/16** pairs
+- `oig_omission` **0.750 -> 0.843**, beating the cherry-picked best-8 with no selection at all
+
+**Which half carries it.** Refitting on one side of the couples only, everything else held:
+
+| training set | rows | pos/neg | oig_omission |
+| --- | --- | --- | --- |
+| base only | 50 | 25/25 | 0.797 |
+| + the 16 finds alone | 66 | 25/41 | **0.689** |
+| + the 16 v1 partners alone | 66 | 41/25 | 0.779 |
+| + the 16 v2 partners alone | 66 | 41/25 | 0.774 |
+| + both halves, v1 | 82 | 41/41 | 0.750 |
+| + both halves, v2 | 82 | 41/41 | **0.843** |
+
+Neither half helps alone, and the finds alone are the single most damaging thing in this whole
+document (-0.108). The v1 and v2 partners are indistinguishable *individually* (0.779 vs 0.774),
+so the prompt's entire +0.093 comes from how the partner relates to its source. The v2 couple
+beats its own better half by +0.069: superadditive, which is the mechanism contrastive pairs are
+supposed to have and version 1 did not deliver. Caveat: the single-sided fits are class-skewed
+(41/25 on a 66-row set), and the base is only 50 rows, so 16 additions is a 32% perturbation.
+
+**Arms F and G re-run under v2** (`_nocue_told_v2`, `_cue_told_v2`) both moved `oig_omission` up,
++0.051 and +0.042. Read those as corroboration only — a full re-run re-draws the red-team phase,
+so the finds differ as well as the pairs, and the re-draw alone is worth 0.059. The clean result
+is the held-finds one above.
 
 ## Verdict
 
@@ -150,24 +213,42 @@ consistent and replicated four times; the eval column is not.
 | it needs the sharpened wording to work | no — arm E gets 90% on arm A's own loose description |
 | naming the surface cue helps | no — F vs G identical, G found fewer |
 | better data yields a better probe | **unproven at n=1 per arm** |
+| minimal-edit contrastive pairs yield a better probe | **yes** — +0.093 on `oig_omission`, finds held fixed |
+| the red-team finds themselves help | **no** — alone they cost 0.108; the value is in the couple |
 
 ## What to do next
 
 1. **Repeats, not variants.** Seven arms sit between -0.030 and +0.041 with no relationship to
-   data quality. Three reseeded runs of one configuration would settle whether the retrain effect
-   exists; another description variant would not.
+   data quality, and section 6 measures the draw-to-draw noise at 0.059. Three reseeded runs of
+   one configuration would settle whether the retrain effect exists; another description variant
+   would not.
 2. **Reject no-assistant-turn transcripts in code.** It is now 8 of 8 rejections in arm D and
    needs no LLM.
 3. **Fix the on-task metric** to check the label mechanism, not just the request's item count —
    the constraint-violation cases are currently counted as on-task.
 4. Consider whether `eval_scope_check` earns its cost once the attacker is told. On arms D-G it
    catches only what an assert would.
+5. **The single-variable F/G control**: hold F's and G's existing finds fixed and regenerate only
+   their pairs under v2. That is the design that produced the clean +0.093 and it removes the
+   re-draw confound from the F2/G2 numbers.
+6. **Audit the other pair-generation paths** for the same failure. The length artifact was
+   invisible in every eval column until it was measured directly.
 
 ## Reproducing / inspecting
 
 ```bash
 .venv_claude/bin/python scripts/analyze_scopecheck_run.py results_instructions_gemma27b_scopecheck_exp24_tellattacker
 .venv_claude/bin/python scripts/verify_memo_prompt_knobs.py    # pins the prompts, no network/GPU/probe
+```
+
+Section 6 in order (each reads the cached activations; only the first needs the network):
+
+```bash
+.venv_claude/bin/python scripts/regenerate_pairs_promptv2.py   # same 16 finds, v2 prompt -> pairs_promptv2.jsonl
+.venv_claude/bin/python scripts/pair_selection_study.py        # leave-one-out over the 16 couples
+.venv_claude/bin/python scripts/pair_selection_controls.py     # base-only / helpful-8 / harmful-8 controls
+.venv_claude/bin/python scripts/score_pairs_promptv2.py        # base + the 16 v2 couples, all 7 splits
+.venv_claude/bin/python scripts/pair_half_ablation.py          # each half of the couples on its own
 ```
 
 Each arm's `_item_counts.json` holds the per-attempt item counts the tables above are computed

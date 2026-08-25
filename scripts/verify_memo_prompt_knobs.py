@@ -304,10 +304,21 @@ def main() -> int:
         and "a different layout" in scope_on["classification / user"],
         "the scope ask rejects only STATED constraints, never an inferred shape",
     )
+    # The fingerprint used to be "" when no config knob was set, so that adding those
+    # knobs did not invalidate caches written before they existed. That is no longer the
+    # contract: the generation PROMPT ITSELF is now keyed, because the cache is loaded by
+    # key without re-reading the prompt, and an edited template would otherwise reuse
+    # pairs written under the old wording forever. What must hold instead is that the key
+    # is a pure function of (prompt version, config knobs) — stable within a version,
+    # different across one.
     check(
-        P._guidance_fingerprint("", "neg", None) == ""
-        and P._guidance_fingerprint("", "neg", None, "") == "",
-        "unset ⇒ empty fingerprint, so existing contrastive caches still hit",
+        P._guidance_fingerprint("", "neg", None)
+        == P._guidance_fingerprint("", "neg", None, ""),
+        "unset knobs ⇒ one stable key (blank and absent eval-description agree)",
+    )
+    check(
+        P._guidance_fingerprint("", "neg", None) != "",
+        "the generation prompt's version is in the key, so an edited prompt regenerates",
     )
     check(
         P._guidance_fingerprint("cd", "neg", {"neg": "g"})
