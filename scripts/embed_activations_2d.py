@@ -102,6 +102,25 @@ for r, msgs in zip(sh, sh_ds.inputs):
 print(f"shortened rows pooled: {len(sh_vecs)} (missing: {sh_missing})")
 add(np.array(sh_vecs), "redteam", sh_meta)
 
+# ---- the restyled couples, so the fourth tab has its own points --------------
+# Their activations were computed by the restyled retrain and live in the same
+# per-conversation cache, so this adds 66 points without extracting anything.
+rs = [json.loads(l) for l in (RES/"restyled_paired.jsonl").open()]
+rs_ds = LabelledDataset(
+    inputs=[[TLMessage(role=m["role"], content=m["content"]) for m in r["inputs"]] for r in rs],
+    ids=[r["id"] for r in rs],
+    other_fields={"labels": [r["label"] for r in rs]})
+rs_ds = _apply_message_transforms(rs_ds, C, V)
+rs_vecs, rs_meta, rs_missing = [], [], 0
+for r, msgs in zip(rs, rs_ds.inputs):
+    q = _redteam_activation_cache_path(RTC.parent, msgs, bp.model_name, bp.layer, C, V)
+    if not Path(q).exists(): rs_missing += 1; continue
+    rs_vecs.append(pool_blob(q)[0])
+    rs_meta.append({"y": 1 if r["label"] == "positive" else 0, "side": "restyled", "delta": None,
+                    "half": "partner" if r["label"] == "positive" else "find", "id": r["id"]})
+print(f"restyled rows pooled: {len(rs_vecs)} (missing: {rs_missing})")
+add(np.array(rs_vecs), "redteam", rs_meta)
+
 # ---- the eval split, tagged with what each arm did to it --------------------
 flips = json.load(open(RES/"flips_oig_omission.json")); TH = flips["threshold"]
 ev = flips["rows"]
@@ -109,12 +128,16 @@ def moved(r, k):
     ok_b = (r["base"] >= TH) == bool(r["y"]); ok_a = (r[k] >= TH) == bool(r["y"])
     return "same" if ok_b == ok_a else ("gained" if ok_a else "lost")
 fd = json.load(open(SP/"flipdata.json"))
-sh_state = {}
-for st in ("gained", "lost"):
-    for x in fd["arms"]["short"][st]: sh_state[x["i"]] = st
+def arm_state(name):
+    st = {}
+    for k in ("gained", "lost"):
+        for x in fd["arms"][name][k]: st[x["i"]] = k
+    return st
+sh_state, rs_state = arm_state("short"), arm_state("restyled")
 add(pool_blob(EVB), "eval",
     [{"y": r["y"], "i": r["i"], "base": r["base"], "help": moved(r, "help"),
-      "hurt": moved(r, "hurt"), "short": sh_state.get(r["i"], "same")} for r in ev])
+      "hurt": moved(r, "hurt"), "short": sh_state.get(r["i"], "same"),
+      "restyled": rs_state.get(r["i"], "same")} for r in ev])
 
 # ---- the split's own dev rows (the +0.072 that beat the whole programme) -----
 dev_ds = LabelledDataset.load_from(REPO/"dev_samples/instructions/oig_omission.jsonl",

@@ -260,6 +260,20 @@ class PreprocessingConfig:
     # reusing ones written under the old prompt.
     concept_description: str = ""
     label_guidance: dict[str, str] = field(default_factory=dict)
+    # When true, the SOURCE conversations are dropped after contrastive generation and
+    # only the generated opposite-class partners are kept as training data. Inert
+    # without a preprocessing section (there are no generated partners to keep).
+    #
+    # This exists because the two halves of a couple are not equally useful: measured on
+    # this repo's instruction-following probe, the red-team finds alone trained a
+    # markedly worse probe than their generated partners alone (oig_omission AUROC 0.606
+    # vs 0.793), so "does the find carry the signal, or only its partner?" is a question
+    # the retrain loop can now be asked directly rather than only offline.
+    #
+    # It changes what is TRAINED on, not what is generated: the generator still sees
+    # every find and still writes one partner per find, so the contrastive cache is
+    # shared with a run that has this off.
+    keep_only_generated: bool = False
 
 
 @dataclass
@@ -345,9 +359,32 @@ class ValidationConfig:
 
     The dev data must be disjoint from the eval splits — otherwise the fit selects
     its checkpoint on the test set.
+
+    ``dev_train_per_iteration`` (default 0 = off) moves dev rows the other way: at each
+    retrain, ``dev_train_per_iteration * (iteration + 1)`` dev rows are added to the
+    TRAINING data, cumulatively and nested (the rows trained at iteration k are a prefix
+    of those trained at k+1), so a run measures what a trickle of in-distribution
+    supervision buys against the same red-team schedule. The initial probe gets none.
+
+    Every row that will EVER be trained on is withheld from validation for the whole run
+    — not just from the iteration that trains it — so the validation set is identical at
+    every iteration and the best-epoch checkpoints stay comparable, which is the entire
+    reason ``dev_data`` exists. Nothing is ever both trained and validated on. The draw
+    is a seeded permutation of the concatenated dev set, so it is reproducible and the
+    reserved rows are the same on a resumed run.
     """
 
     dev_data: Path | None = None
+    dev_train_per_iteration: int = 0
+    # Restrict the lending pool to one dev split, by file stem. "" = every dev row is
+    # eligible. Use it to make the ladder in-distribution for the split under study —
+    # a uniform draw over a seven-split dev set puts almost none of its rows in the
+    # early rungs.
+    dev_train_split: str = ""
+    # "rows" | "pairs". On a paired split (one request answered once each way, two rows
+    # with opposite labels) "pairs" lends both halves together, so a rung adds balanced
+    # supervision instead of a class skew. Counts are then in PAIRS, not rows.
+    dev_train_unit: str = "rows"
 
 
 @dataclass
@@ -570,6 +607,20 @@ def load_config(path: str | Path) -> RedteamConfig:
     kg = frontmatter.get("kaggle") or {}
     va = frontmatter.get("validation") or {}
 
+    dev_train_per_iteration = int(va.get("dev_train_per_iteration", 0) or 0)
+    if dev_train_per_iteration < 0:
+        raise ValueError("validation.dev_train_per_iteration must be >= 0")
+    dev_train_unit = str(va.get("dev_train_unit", "rows") or "rows").strip()
+    if dev_train_unit not in ("rows", "pairs"):
+        raise ValueError(
+            f"validation.dev_train_unit must be 'rows' or 'pairs', got {dev_train_unit!r}"
+        )
+    if dev_train_per_iteration and not va.get("dev_data"):
+        raise ValueError(
+            "validation.dev_train_per_iteration needs validation.dev_data — the rows it "
+            "trains on are drawn from that dev set."
+        )
+
     if "models" not in a or not a["models"]:
         raise ValueError("attacker.models must be a non-empty list")
     if int(a.get("sessions_per_model", 1)) < 1:
@@ -704,6 +755,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             assistant_centric=bool(pp.get("assistant_centric", False)),
             concept_description=str(pp.get("concept_description", "") or "").strip(),
             label_guidance=_parse_label_guidance(pp.get("label_guidance")),
+            keep_only_generated=bool(pp.get("keep_only_generated", False)),
         )
 
     return RedteamConfig(
@@ -789,5 +841,8 @@ def load_config(path: str | Path) -> RedteamConfig:
         kaggle=kaggle_cfg,
         validation=ValidationConfig(
             dev_data=_resolve(va["dev_data"]) if va.get("dev_data") else None,
+            dev_train_per_iteration=dev_train_per_iteration,
+            dev_train_split=str(va.get("dev_train_split", "") or "").strip(),
+            dev_train_unit=dev_train_unit,
         ),
     )

@@ -401,6 +401,15 @@ preprocessing:                        # OPTIONAL: collation-style preprocessing 
       - ...                           #   LABEL_SHORT alias is also accepted). Unknown keys are
     <neg_class_label>: |              #   warned about and ignored.
       - ...
+  keep_only_generated: bool           # default FALSE. true → after contrastive generation, DROP the
+                                      #   source red-team finds and train on the generated partners
+                                      #   alone. Changes what is TRAINED on, not what is generated:
+                                      #   the generator still runs over every find and writes one
+                                      #   partner per find, so the contrastive cache is shared with a
+                                      #   run that has this off. Inert with no preprocessing section.
+                                      #   Note the kept partners are all ONE class (they are the
+                                      #   opposite of the finds, which a single error_type fixes), so
+                                      #   this adds single-class red-team data by construction.
 validation:                           # OPTIONAL: held-out dev data used as the probe fit's
   dev_data: <path>                    #   VALIDATION set (a JSONL, or a dir whose *.jsonl files
                                       #   are each a split, auto-discovered + concatenated).
@@ -412,6 +421,43 @@ validation:                           # OPTIONAL: held-out dev data used as the 
                                       #   class labels. MUST be disjoint from the eval splits or
                                       #   the best-epoch checkpoint is selected on the test set.
                                       #   CLI --dev-data overrides.
+  dev_train_per_iteration: int        # default 0 = off. Lend dev rows to TRAINING: iteration i's
+                                      #   retrain trains on the first `N x (i+1)` rows of a
+                                      #   --seed-keyed permutation of the dev set, so the rows are
+                                      #   cumulative and NESTED (iteration k's are a subset of k+1's)
+                                      #   rather than a fresh draw each time. The initial probe gets
+                                      #   none. Requires dev_data (load_config raises otherwise).
+                                      #   EVERY row the run will ever train on is withheld from
+                                      #   validation at EVERY iteration — not just at the iteration
+                                      #   that trains it — so validation is identical throughout and
+                                      #   the checkpoints stay comparable, which is the one thing a
+                                      #   dev set exists to provide. Nothing is ever both trained and
+                                      #   validated on. The reserve is `N x --iterations`, so changing
+                                      #   --iterations changes the validation set: a run resumed at a
+                                      #   different --iterations is NOT a continuation of the first.
+                                      #   The dev ACTIVATION BLOB is untouched — the partition is a
+                                      #   row selection applied after extraction (see
+                                      #   retrain._dev_lending_indices), so the cache key does not
+                                      #   move and a Kaggle-assembled dev blob is reused as-is.
+  dev_train_split: <split stem>       # OPTIONAL. Restrict the lending pool to ONE dev split by file
+                                      #   stem (e.g. oig_omission); the other splits are never lent
+                                      #   and validate throughout. Unset ⇒ every dev row is eligible,
+                                      #   which for a multi-split dev dir means a uniform draw: on
+                                      #   dev_samples/instructions, oig_omission is 32 of 436 rows, so
+                                      #   the first 30 rows drawn contained NONE of it. Set this
+                                      #   whenever the ladder is meant to be in-distribution for the
+                                      #   split being read.
+  dev_train_unit: rows | pairs        # default rows. `pairs` groups eligible rows by their USER turns
+                                      #   and lends whole groups — the shape of a paired split, where
+                                      #   one request is answered once each way and the two rows carry
+                                      #   OPPOSITE labels (oig_omission's 32 dev rows are 16 such
+                                      #   pairs). Drawing rows independently would give early rungs a
+                                      #   class skew unrelated to the supervision being measured.
+                                      #   Under `pairs` the counts above are in PAIRS, not rows.
+                                      #   Both counts SATURATE at the pool's size rather than raising
+                                      #   — a restricted pool is easily smaller than the schedule asks
+                                      #   for, and a ladder that flattens is more useful than a run
+                                      #   that dies at iteration 3. Saturation is logged, never silent.
 eval:                                 # OPTIONAL: dataset message transforms applied to BOTH
   combine_consecutive_messages: bool  # training data AND eval splits (default false) — merge
   convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
@@ -1398,6 +1444,35 @@ change which rows it holds. `_train_with_cached_base_activations` takes it as `d
 `dev_val_cache` and folds it into `validation_dataset` alongside the (now empty) base and
 red-team val sides, so the non-dev path is byte-for-byte unchanged.
 
+**`dev_train_n=` / `dev_train_reserve=` lend part of that dev set back to TRAINING**
+(`validation.dev_train_per_iteration` in config; `_dev_lending_indices` computes the
+partition). `dev_train_reserve` rows are drawn from a `seed`-keyed permutation and leave
+validation **for the whole run**; this retrain trains on the first `dev_train_n` of them,
+so successive iterations train on nested prefixes — a dose ladder on one sample rather
+than a fresh draw each time. Reserving the *whole* run's rows at every iteration, rather
+than only the currently-trained ones, is what keeps the validation set identical across
+iterations; removing only the trained rows would shrink validation each retrain and give
+back exactly the comparability a dev set exists to provide. No index is in both lists, so
+nothing is ever trained and validated on. The split is a **row selection applied after
+extraction**, in `_train_with_cached_base_activations` and after `_release_model()` (the
+selection transiently holds the dev activations twice): the dev set is therefore still
+fetched or computed *whole*, `_dev_activation_cache_path` is untouched, and a
+Kaggle-assembled dev blob is reused as-is. Both counts 0 (the default) leaves the dev set
+undivided and every prior path byte-identical.
+
+**What the reserve is drawn from is `_dev_lending_groups`.** `dev_train_split` restricts
+the pool to one dev split (by file stem; a row's origin is recovered from the per-file row
+counts `_load_dev_dataset` now returns, since it concatenates in `sorted(glob)` order).
+`dev_train_unit="pairs"` groups the eligible rows by `_dev_pair_key` — their **user turns**
+— so both halves of a contrastive dev pair are lent together. Both exist because a uniform
+row-wise draw answers a different question than it appears to: on
+`dev_samples/instructions` a 30-row draw contained **zero** `oig_omission` rows (32 of
+436), and on a paired split an odd row count is necessarily class-skewed, since the two
+halves of a pair carry opposite labels. The counts then saturate at the pool's size instead
+of raising — a restricted pool is easily smaller than a five-rung schedule asks for, and a
+ladder that flattens once exhausted is a more honest outcome than a run that dies at
+iteration 3. Saturation is printed, never silent.
+
 Note tuberlens uses the validation set to select a best-val-AUROC epoch and to
 early-stop, so which set this is materially changes the probe — but only for the pytorch
 architectures. `SklearnProbe.fit` prints "does not use a validation dataset" and ignores it.
@@ -1582,8 +1657,12 @@ collation step of tuberlens' pipeline applied to the "extra" data: `filter_datas
 (drop confounders) then `generate_contrastive_dataset` (add opposite-class pairs),
 keyed off the probe's pos/neg labels. The contrastive pairs are cached to disk
 (`contrastive_cache_path`) so successes accumulated across iterations aren't
-re-generated. With no `preprocessing`, the plain `_records_to_labelled_dataset`
-path (judge label → canonical class) is used unchanged. When given a
+re-generated. `preprocessing.keep_only_generated` then optionally drops the **source**
+finds from the result, so the retrain trains on the generated partners alone; it filters
+`_build_redteam_dataset`'s output on the `is_generated` flag the generator already sets,
+which is why it changes nothing about generation and leaves the contrastive cache
+interchangeable with a run that has it off. With no `preprocessing`, the plain
+`_records_to_labelled_dataset` path (judge label → canonical class) is used unchanged. When given a
 `postprocessed_out_path`, `retrain_probe` also dumps the resulting red-team
 `LabelledDataset` (the postprocessed red-team samples **only** — base training
 data excluded) to that JSONL via `_dump_labelled_dataset` (`{id, inputs, label}`

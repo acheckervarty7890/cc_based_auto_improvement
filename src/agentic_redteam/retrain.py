@@ -8,6 +8,7 @@ import io
 import json
 import os
 import pickle
+import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -337,7 +338,10 @@ def _load_dev_dataset(
     labels it wanted. So the labels are read *here*, per split, and the failure is
     re-raised pointing at the offending file.
 
-    Returns ``(dataset, files)`` — the files are what the activation cache is keyed on.
+    Returns ``(dataset, files, sizes)`` — the files are what the activation cache is
+    keyed on, and ``sizes`` is each file's row count in the same order, which is what
+    lets a caller recover which split a concatenated row came from (the parts are
+    concatenated in ``sorted(glob)`` order, each preserving its own row order).
     """
     from tuberlens.interfaces.dataset import LabelledDataset
 
@@ -371,10 +375,11 @@ def _load_dev_dataset(
         if verbose:
             print(f"  dev split {f.name}: {len(part)} samples")
 
+    sizes = [len(part) for part in parts]
     dataset = parts[0] if len(parts) == 1 else LabelledDataset.concatenate(parts)
     if len(dataset) == 0:
         raise ValueError(f"Dev data at {path} is empty.")
-    return dataset, files
+    return dataset, files, sizes
 
 
 # How often _activate_redteam_cached reports progress while computing misses. Rows cost
@@ -897,6 +902,8 @@ def _train_with_cached_base_activations(
     base_train_cache: Path | None,
     base_val_cache: Path | None,
     dev_val_cache: Path | None = None,
+    dev_train_idx: "list[int] | None" = None,
+    dev_val_idx: "list[int] | None" = None,
     redteam_cache_dir: str | Path | None = None,
     combine_consecutive_messages: bool = False,
     convert_tool_to_assistant: bool = False,
@@ -915,7 +922,11 @@ def _train_with_cached_base_activations(
     ``_activate_redteam_cached``). ``dev_val`` is a held-out dev set supplied whole as
     the validation set; like the base split it is fixed for the run, so it is cached as
     one blob (``_dev_activation_cache_path``). When it is given, the callers pass
-    ``base_val``/``redteam_val`` as empty, so validation is the dev set *alone*. With ``redteam_cache_dir=None`` the red-team set is
+    ``base_val``/``redteam_val`` as empty, so validation is the dev set *alone*.
+    ``dev_train_idx`` / ``dev_val_idx`` optionally partition that dev set into a
+    training slice and a validation slice — a row selection applied *after* extraction,
+    so the blob (and its cache key) is untouched and the whole set is still fetched or
+    computed exactly once. Both empty (the default) leaves the dev set undivided. With ``redteam_cache_dir=None`` the red-team set is
     recomputed each call (previous behaviour). Per-side parts are merged with
     ``_concatenate_consuming``, which pads the activation tensors to a common length and
     concatenates them at ~1x rather than ~2x the result's peak memory.
@@ -1035,6 +1046,7 @@ def _train_with_cached_base_activations(
     redteam_train_a = _activate_redteam(redteam_train)
     redteam_val_a = _activate_redteam(redteam_val)
     dev_val_a = _activate(dev_val, dev_val_cache)
+
     n_by_origin = (
         0 if base_train_a is None else len(base_train_a),
         0 if base_val_a is None else len(base_val_a),
@@ -1054,10 +1066,25 @@ def _train_with_cached_base_activations(
     # and `_get_model` would reload it if that ever changed.
     _release_model()
 
+    # Split the dev set into a training slice and a validation slice AFTER extraction —
+    # and after the model release, since the row selection transiently holds the dev
+    # activations twice. The dev set is one cached blob keyed on the dev files' bytes
+    # (assembled, under a `kaggle:` section, from published per-split blobs), so it is
+    # always extracted whole and the partition is a row selection on the result: no
+    # cache key moves, and the two slices cost exactly what the undivided set cost.
+    # `dev_val_idx` is empty on the default path, which leaves this a no-op.
+    dev_train_a = None
+    if dev_val_a is not None and dev_val_idx:
+        dev_train_a = dev_val_a[dev_train_idx] if dev_train_idx else None
+        dev_val_a = dev_val_a[dev_val_idx]
+        gc.collect()
+
     def _combine(parts):
         return _concatenate_consuming([p for p in parts if p is not None])
 
-    train_dataset = _combine([base_train_a, redteam_train_a])
+    n_dev_train = 0 if dev_train_a is None else len(dev_train_a)
+    n_dev_val = 0 if dev_val_a is None else len(dev_val_a)
+    train_dataset = _combine([base_train_a, redteam_train_a, dev_train_a])
     validation_dataset = _combine([base_val_a, redteam_val_a, dev_val_a])
     if train_dataset is None:
         raise ValueError("No training data available to fit the probe.")
@@ -1068,7 +1095,7 @@ def _train_with_cached_base_activations(
             f"Train/validation: {len(train_dataset)} train, "
             f"{0 if validation_dataset is None else len(validation_dataset)} validation "
             f"(base {n_by_origin[0]}+{n_by_origin[1]}; red-team "
-            f"{n_by_origin[2]}+{n_by_origin[3]}; dev {n_by_origin[4]})"
+            f"{n_by_origin[2]}+{n_by_origin[3]}; dev {n_dev_train}+{n_dev_val})"
         )
 
     # Park the activations ON THE GPU for the duration of the fits. This is the
@@ -1395,7 +1422,146 @@ def _build_redteam_dataset(
             convert_tool_to_assistant=convert_tool_to_assistant,
         ),
     )
+    if getattr(preprocessing, "keep_only_generated", False):
+        # Keep the generated partners, drop the finds they were written from. The
+        # generator has already run over every find (and the cache is keyed by the
+        # source conversation), so this costs nothing and a run with the knob off
+        # reuses the same pairs.
+        kept = [d for d in dicts if d.get("is_generated")]
+        if verbose:
+            print(
+                f"  [contrastive] keep_only_generated: {len(dicts)} → {len(kept)} "
+                "records (source red-team finds dropped, generated partners kept)"
+            )
+        dicts = kept
     return _dicts_to_labelled_dataset(dicts, pos_label, neg_label)
+
+
+def _dev_row_splits(dev_files: "list[Path]", dev_sizes: "list[int]") -> list[str]:
+    """Per-row split stem for the concatenated dev set.
+
+    ``_load_dev_dataset`` concatenates the splits in ``sorted(glob)`` order, each
+    keeping its own row order, so a row's origin is recoverable from the per-file row
+    counts alone.
+    """
+    out: list[str] = []
+    for f, n in zip(dev_files, dev_sizes):
+        out.extend([f.stem] * n)
+    return out
+
+
+def _dev_pair_key(row_inputs) -> str:
+    """Group key that puts the two halves of a contrastive dev pair together.
+
+    Several dev splits are built as pairs — one user request answered once each way, so
+    the two rows differ only in the assistant's turn and carry opposite labels. Keying
+    on the USER turns alone therefore collects a pair into one group. A split that is
+    not paired simply yields one row per group, which is the unpaired behaviour.
+
+    Lending whole pairs matters because the halves carry opposite labels: drawing rows
+    independently hands early rungs of a dose ladder a class skew that has nothing to do
+    with the supervision being measured.
+    """
+    parts = [
+        str(getattr(m, "content", ""))
+        for m in row_inputs
+        if str(getattr(m, "role", "")) == "user"
+    ]
+    return "\u0000".join(parts) if parts else repr(row_inputs)
+
+
+def _dev_lending_groups(
+    dev_val,
+    dev_files: "list[Path]",
+    dev_sizes: "list[int]",
+    dev_train_split: str = "",
+    dev_train_unit: str = "rows",
+) -> list[list[int]]:
+    """The draw units the lending reserve is taken from, in dev-row order.
+
+    ``dev_train_split`` restricts the pool to one dev split by file stem — the rest of
+    the dev set is then never lent and validates throughout. Without it every row is
+    eligible. ``dev_train_unit="pairs"`` groups eligible rows by :func:`_dev_pair_key`
+    so a draw takes both halves of a contrastive pair at once; ``"rows"`` (the default)
+    makes each row its own group.
+    """
+    eligible = range(len(dev_val))
+    if dev_train_split:
+        origins = _dev_row_splits(dev_files, dev_sizes)
+        eligible = [i for i in eligible if origins[i] == dev_train_split]
+        if not eligible:
+            raise ValueError(
+                f"dev_train_split {dev_train_split!r} matches no dev split; "
+                f"available: {', '.join(sorted({f.stem for f in dev_files}))}"
+            )
+    if dev_train_unit not in ("rows", "pairs"):
+        raise ValueError(
+            f"dev_train_unit must be 'rows' or 'pairs', got {dev_train_unit!r}"
+        )
+    if dev_train_unit == "rows":
+        return [[i] for i in eligible]
+    grouped: dict[str, list[int]] = {}
+    for i in eligible:
+        grouped.setdefault(_dev_pair_key(dev_val.inputs[i]), []).append(i)
+    return list(grouped.values())
+
+
+def _dev_lending_indices(
+    n_dev: int,
+    dev_train_n: int,
+    dev_train_reserve: int,
+    seed: int,
+    groups: "list[list[int]] | None" = None,
+    verbose: bool = False,
+) -> tuple[list[int], list[int]]:
+    """Partition a dev set into rows lent to training and rows kept for validation.
+
+    ``dev_train_reserve`` **groups** are drawn from a ``seed``-keyed permutation and
+    leave validation **for the whole run**; this call trains on the first
+    ``dev_train_n`` of them. A group is one row by default (``groups=None``) and a
+    contrastive pair under ``dev_train_unit="pairs"`` — see :func:`_dev_lending_groups`.
+    Two properties make the resulting series of retrains comparable:
+
+    * **Nested.** Iteration k's training rows are a prefix of iteration k+1's, so the
+      series is a dose ladder on one sample rather than a fresh draw each time.
+    * **Fixed validation.** The reserve, not the currently-trained count, is what leaves
+      validation — so the validation set is byte-identical at every iteration and the
+      best-epoch checkpoints stay comparable. That is the one thing a dev set exists to
+      provide, and removing only the trained rows would give it away again.
+
+    Both counts **saturate** at the number of available groups rather than raising: a
+    restricted pool (one split, and paired) is easily smaller than a schedule asks for,
+    and the honest behaviour there is a ladder that flattens once the pool is exhausted
+    — not a run that dies at iteration 3. Saturation is reported when ``verbose``.
+
+    No index appears in both lists, so nothing is ever trained and validated on.
+    """
+    if groups is None:
+        groups = [[i] for i in range(n_dev)]
+    if dev_train_n > dev_train_reserve:
+        raise ValueError(
+            f"dev_train_n ({dev_train_n}) exceeds dev_train_reserve "
+            f"({dev_train_reserve}) — the reserve is the pool it draws from."
+        )
+    n_groups = len(groups)
+    reserve = min(dev_train_reserve, n_groups)
+    train_n = min(dev_train_n, reserve)
+    if verbose and (reserve < dev_train_reserve or train_n < dev_train_n):
+        print(
+            f"  dev lending pool exhausted: asked for {dev_train_n}/{dev_train_reserve} "
+            f"groups, only {n_groups} exist — using {train_n}/{reserve}"
+        )
+    order = list(range(n_groups))
+    random.Random(f"devtrain:{seed}").shuffle(order)
+    reserved = order[:reserve]
+    train_idx = sorted(i for g in reserved[:train_n] for i in groups[g])
+    reserved_rows = {i for g in reserved for i in groups[g]}
+    val_idx = sorted(i for i in range(n_dev) if i not in reserved_rows)
+    if not val_idx:
+        raise ValueError(
+            f"The lending reserve covers all {n_dev} dev rows, leaving no validation set."
+        )
+    return train_idx, val_idx
 
 
 def retrain_probe(
@@ -1412,6 +1578,10 @@ def retrain_probe(
     test_size: float = 0.2,
     split_field: str | None = None,
     dev_data_path: str | Path | None = None,
+    dev_train_n: int = 0,
+    dev_train_reserve: int = 0,
+    dev_train_split: str = "",
+    dev_train_unit: str = "rows",
     seed: int = 0,
     base_data_fraction: float = 1.0,
     ensemble_size: int | None = None,
@@ -1473,7 +1643,28 @@ def retrain_probe(
             the held-out slice. The dev set must be disjoint from the eval splits, or
             early stopping is selecting on the test set. None keeps the old behaviour
             (validation = the `test_size` slice of base + red-team).
-        seed: Seed for the deterministic train/val split (stable_train_test_split).
+        dev_train_n: Number of dev rows to move from validation into TRAINING for this
+            retrain (0 = none, the default and the behaviour before this argument
+            existed). The rows are the first `dev_train_n` of a `seed`-permuted dev set,
+            so successive iterations train on nested prefixes rather than fresh draws.
+        dev_train_reserve: Number of dev rows withheld from validation for the whole run
+            — the pool `dev_train_n` draws its prefix from. Must be >= `dev_train_n`.
+            Reserving the *whole* run's rows at every iteration is what keeps validation
+            identical across iterations: were only the currently-trained rows removed,
+            the validation set would shrink each retrain and its checkpoints would stop
+            being comparable, which is the one thing `dev_data_path` exists to prevent.
+            No row is ever both trained and validated on.
+        dev_train_split: Restrict the lending pool to one dev split, by file stem (e.g.
+            "oig_omission"). The other splits are then never lent and validate
+            throughout. "" (default) makes every dev row eligible.
+        dev_train_unit: "rows" (default) draws individual dev rows; "pairs" draws both
+            halves of a contrastive dev pair at once (rows sharing their user turns).
+            Pairs matter on a paired split: the two halves carry opposite labels, so
+            drawing rows independently gives early rungs of a dose ladder a class skew
+            unrelated to the supervision being measured. Both counts saturate at the
+            pool's size rather than raising.
+        seed: Seed for the deterministic train/val split (stable_train_test_split), and
+            for the dev permutation the arguments above index into.
         base_data_fraction: Fraction (0, 1] of the base training data to ingest,
             selected by a deterministic content-addressed random subsample
             (stable_fraction_subsample) applied *before* the train/val split.
@@ -1571,7 +1762,7 @@ def retrain_probe(
     if dev_data_path is not None:
         if verbose:
             print(f"Validation set: held-out dev data at {dev_data_path}")
-        dev_val, dev_files = _load_dev_dataset(
+        dev_val, dev_files, dev_sizes = _load_dev_dataset(
             dev_data_path,
             pos_class_label,
             neg_class_label,
@@ -1586,6 +1777,37 @@ def retrain_probe(
             )
         test_size = 0.0
         split_field = None
+
+    # Optionally lend part of the dev set to TRAINING. The reserved pool leaves
+    # validation for the whole run — see the `dev_train_reserve` docstring — and this
+    # call trains on its first `dev_train_n` rows, so iteration k's rows are a prefix of
+    # iteration k+1's. Indices, not a resliced dataset: the dev activations are one
+    # cached blob keyed on the dev files' bytes, and splitting *after* extraction keeps
+    # that blob (and the Kaggle-assembled one the CLI prefetches) valid untouched.
+    dev_train_idx: list[int] = []
+    dev_val_idx: list[int] = []
+    if dev_val is not None and dev_train_reserve > 0:
+        dev_train_idx, dev_val_idx = _dev_lending_indices(
+            len(dev_val),
+            dev_train_n,
+            dev_train_reserve,
+            seed,
+            groups=_dev_lending_groups(
+                dev_val, dev_files, dev_sizes, dev_train_split, dev_train_unit
+            ),
+            verbose=verbose,
+        )
+        if verbose:
+            print(
+                f"Dev rows lent to training: {len(dev_train_idx)}"
+                + (
+                    f" (from {dev_train_split}, by {dev_train_unit})"
+                    if dev_train_split
+                    else ""
+                )
+                + f"; validation is the remaining {len(dev_val_idx)} "
+                "(fixed for every iteration of this run)"
+            )
 
     layer_used = layer if layer is not None else int(base_probe.layer)
 
@@ -1690,6 +1912,8 @@ def retrain_probe(
         base_train_cache=base_train_cache,
         base_val_cache=base_val_cache,
         dev_val_cache=dev_val_cache,
+        dev_train_idx=dev_train_idx,
+        dev_val_idx=dev_val_idx,
         redteam_cache_dir=base_activation_cache_dir,
         combine_consecutive_messages=combine_consecutive_messages,
         convert_tool_to_assistant=convert_tool_to_assistant,
@@ -1709,7 +1933,7 @@ def retrain_probe(
     return RetrainResult(
         new_probe_path=new_probe_path,
         n_redteam_samples=n_redteam,
-        n_training_samples_total=n_total,
+        n_training_samples_total=n_total + len(dev_train_idx),
         ensemble_size=ensemble_size,
     )
 
@@ -1807,7 +2031,7 @@ def train_initial_probe(
     if dev_data_path is not None:
         if verbose:
             print(f"Validation set: held-out dev data at {dev_data_path}")
-        dev_val, dev_files = _load_dev_dataset(
+        dev_val, dev_files, dev_sizes = _load_dev_dataset(
             dev_data_path,
             pos_class_label,
             neg_class_label,

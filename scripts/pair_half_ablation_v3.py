@@ -28,7 +28,7 @@ base = LabelledDataset.load_from(Path(BASE), pos_class_label=pos, neg_class_labe
     combine_consecutive_messages=C, convert_tool_to_assistant=V)
 btr, bva = stable_train_test_split(base, test_size=TS, split_field=None, seed=42)
 btc, bvc = _base_activation_cache_paths(BC, BASE, bp.model_name, bp.layer, 42, TS, None, C, V, 1.0)
-dv, dfiles = _load_dev_dataset(DEV, pos, neg, C, V, verbose=False)
+dv, dfiles, _sizes = _load_dev_dataset(DEV, pos, neg, C, V, verbose=False)
 dvc = _dev_activation_cache_path(BC, dfiles, bp.model_name, bp.layer, C, V)
 
 def load(path):

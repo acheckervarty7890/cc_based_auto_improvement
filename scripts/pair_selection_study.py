@@ -117,7 +117,7 @@ def main(argv=None) -> int:
         args.seed, TEST_SIZE, None, COMBINE, CONVERT, 1.0)
 
     # Returns (dataset, files); the files are what the dev activation cache is keyed on.
-    dev_val, dev_files = _load_dev_dataset(args.dev_data, pos, neg, COMBINE, CONVERT, verbose=False)
+    dev_val, dev_files, _sizes = _load_dev_dataset(args.dev_data, pos, neg, COMBINE, CONVERT, verbose=False)
     dev_cache = _dev_activation_cache_path(
         args.base_activation_cache_dir, dev_files, model_name, layer, COMBINE, CONVERT)
 

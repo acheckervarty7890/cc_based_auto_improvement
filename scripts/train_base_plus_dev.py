@@ -43,7 +43,7 @@ btc, _bvc = _base_activation_cache_paths(BC, BASE, bp.model_name, bp.layer, 42, 
 tmp = Path(tempfile.mkdtemp())
 for q in sorted(DEV.glob("*.jsonl")):
     if q.name != "oig_omission.jsonl": (tmp/q.name).symlink_to(q)
-rest, _ = _load_dev_dataset(tmp, pos, neg, C, V, verbose=False)
+rest, _, _sizes = _load_dev_dataset(tmp, pos, neg, C, V, verbose=False)
 
 a = torch.load(btc, map_location="cpu", weights_only=False)              # 50 x 135
 b = torch.load(SC/"omission_train.pt", map_location="cpu", weights_only=False)  # 32 x 436
