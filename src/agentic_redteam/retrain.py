@@ -2160,6 +2160,15 @@ def _infer_probe_spec(base_probe):
         LinearThenRollingMax: ProbeType.linear_then_rolling_max,
         LinearThenLast: ProbeType.linear_then_last,
     }
+    # Guarded so this repo still loads against a tuberlens checkout predating the
+    # MultiMax architecture — there, no probe can be one, and the map is complete
+    # without it.
+    try:
+        from tuberlens.probes.pytorch_modules import MultiMax
+    except ImportError:
+        pass
+    else:
+        arch_to_type[MultiMax] = ProbeType.multimax
     if arch is not None and arch in arch_to_type:
         hyper = getattr(base_probe, "hyper_params", None) or {}
         return ProbeSpec(name=arch_to_type[arch], hyperparams=hyper)
