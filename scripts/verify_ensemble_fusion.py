@@ -104,8 +104,8 @@ def fit_calls(fused: bool) -> list:
         R._train_with_cached_base_activations(
             base_train=None,
             base_val=None,
-            redteam_train=None,
-            redteam_val=None,
+            extra_train=None,
+            extra_val=None,
             dev_val=None,
             model_name="llama-1b",
             layer=8,

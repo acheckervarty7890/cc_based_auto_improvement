@@ -4,64 +4,52 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-`agentic_redteam` is an agentic red-teaming and iterative-retraining toolkit
-for [tuberlens](https://github.com/blandfort/tuberlens) activation probes. The
-attacker and judge can each be driven by one of two providers, picked
-per-section in the config:
+`agentic_redteam` (the package keeps its historical name) is a **training-set curation
+loop** for [tuberlens](https://github.com/blandfort/tuberlens) activation probes. It is
+*not* a red-teaming tool any more — the earlier attacker/judge/tool-use scaffold was
+replaced wholesale on the `dev_new_scaffolding` branch; see git history up to
+`815770e4` for it. Two LLM roles drive the loop, each on one of two providers picked
+per section in the config:
 
-- **`claude_sdk`** — Anthropic's [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-python)
-  (attacker) and Anthropic Python SDK (judge). Tools are exposed to the
-  attacker via an in-process MCP server.
-- **`openrouter`** — the official `openai` SDK pointed at
-  [OpenRouter](https://openrouter.ai/), giving access to Claude, GPT, Gemini,
-  Llama, Mistral, DeepSeek, etc. through one OpenAI-compatible endpoint. The
-  attacker uses native OpenAI tool calls; the judge uses chat completions.
-  No MCP machinery is used on this path.
+- **`claude_sdk`** — the Anthropic Python SDK (plain Messages API; no Agent SDK, no
+  MCP, no tools).
+- **`openrouter`** — the official `openai` SDK pointed at [OpenRouter](https://openrouter.ai/).
 
-Providers can be mixed within a single attacker rotation (e.g. one
-`claude_sdk` model and several `openrouter` models in the same run), and the
-two SDKs are imported lazily so a config that only uses one provider does not
-need the other installed.
+The **generator** writes batches of labelled conversations for the probe's concept —
+it labels its own samples, half per class, from the probe's `description` — and the
+**judge** reads how each batch moved the probe's dev-set AUROC and steers the next
+round. The probe itself is the arbiter: a batch joins the training set only if a
+probe trained with it scores higher on the dev set than the current probe.
 
-The end-to-end loop:
+One iteration (`cli.iterative_generate_main`), for a current probe *P* with mean dev
+AUROC *A*:
 
-1. Load a pickled tuberlens probe.
-2. Run an **attacker** in a submit-and-refine loop. It submits candidate
-   conversations and reads back probe + judge verdicts to refine its strategy
-   in-context. Whichever driver runs it, the attacker gets no shell, no
-   filesystem and no web — only the three red-team tools (or, under
-   `interface: prompt`, no tools at all). See `attacker.py` for the four
-   drivers.
-3. Each candidate is scored by the probe **and** independently classified by a
-   Claude-based **human-style judge** (the judge picks one of the two class
-   labels on the conversation's own merits, with no hint about what we are
-   hoping for). A candidate counts as a successful red-team find only if the
-   probe's predicted label and the judge's label **disagree** in the direction
-   matching the configured `error_type` — e.g. for `error_type=false_positive`,
-   the probe must predict the positive class and the judge must pick the
-   negative class.
-4. Every attempt is appended to a JSONL log.
-5. With `attacker.round_summaries` enabled (the default), rounds run
-   **sequentially**: at the end of each round the **judge** reads all of that
-   round's attempts (successful and not) and folds them into a single **rolling
-   strategy memo** — it rewrites and condenses the prior memo rather than
-   appending, so the memo stays bounded no matter how many rounds run (the
-   budget is derived in `llm_judge.py`). That memo is injected into the system prompt of every later round's
-   attacker, which is always shown it and can still call `view_past_attempts`
-   for specific conversations. The memo resets per iteration (and per error type).
-6. With `attacker.cross_iteration_memos` enabled (default **off**), a second,
-   **cross-iteration** memo bridges that reset: after each iteration's rotation
-   finishes — and before the retrain — the judge writes a hand-off memo covering
-   what was tried, what succeeded (and is therefore about to be trained against,
-   so it should be treated as *patched*), and what remains unexplored. It is
-   injected into the next iteration's attacker system prompts and rewritten
-   (not appended) each iteration, so it stays bounded.
-7. The retraining script converts JSONL successes into a tuberlens
-   `LabelledDataset` — each sample labelled with the **judge's predicted
-   class** (the judge is the source of truth; `error_type` is only used as a
-   fallback for old rows missing `judge_label`). Optionally concatenates with
-   a base training dataset, then trains a fresh probe with the same
-   architecture and metadata as the original.
+1. **Directions.** The `n_batches` directions written for this iteration — the
+   judge's, from the previous iteration's results; at iteration 0 the generator
+   proposes them itself (`Generator.propose_directions`).
+2. **Generate.** `n_batches` concurrent generator calls, batch *k* under direction *k*
+   by `models[k % len(models)]`, each asked for `batch_size` samples, `batch_size/2`
+   per class. Three guards per sample: length (`max_sample_tokens` through
+   `TokenBudget`), label (must normalize to one of the probe's two), novelty (never
+   generated earlier in the run, accepted or not, nor by a sibling batch in flight).
+   A short batch gets up to `max_retries` in-context top-up asks naming only what is
+   missing. The generator sees **no verdict** within an iteration.
+3. **Warm the per-sample activation cache** for every new sample in one extraction
+   model load (`retrain.warm_sample_activation_cache`), so the fits below load nothing.
+4. **Score each batch on its own.** `retrain_probe(samples = accepted-so-far ∪ batch)`
+   → candidate probe → per-split dev AUROC, read right after the fit while the dev
+   activations are still staged. Δ = mean − *A*. Δ > `loop.min_auroc_gain` ⇒
+   **accepted**; |Δ| ≤ `loop.exhausted_gain` ⇒ flagged **exhausted**; Δ < 0 ⇒ harmful.
+   Batches are scored **independently against the same baseline** — never greedily.
+5. **Union retrain.** `probe_iter{i+1}.pkl` trained on base ∪ every accepted batch of
+   every iteration so far; its dev AUROC is the next baseline. Nothing accepted ⇒ the
+   current probe file is copied over unchanged.
+6. **Judge.** Every batch (direction, sample excerpts, per-split Δ, verdict) →
+   `LLMJudge.guide` → a rewritten, bounded **rolling memo** + the next iteration's
+   `n_batches` **directions** (`GuidanceRecord`, iteration `i+1`).
+7. Optional `--eval` on the eval splits.
+
+`loop.iterations` (CLI `--iterations` overrides) repeats this.
 
 ## Environment
 
@@ -72,18 +60,14 @@ ${REPO_ROOT}cc_based_auto_improvement/.venv_claude/
 ```
 
 `tuberlens` is installed into it as an editable checkout under
-`.venv_claude/src/tuberlens/`.
-The other key packages: `anthropic` and `claude_agent_sdk` (used when
-`provider: claude_sdk`), `openai` (used when `provider: openrouter` —
-points at OpenRouter via `base_url`), `pyyaml` (config parser).
+`.venv_claude/src/tuberlens/`. Other key packages: `anthropic` (`provider: claude_sdk`),
+`openai` (`provider: openrouter`), `pyyaml`.
 
-**Always invoke the venv's Python by absolute path** to avoid burning permission
-prompts on `source .venv_claude/bin/activate` — the venv interpreter has its
-`site-packages` baked into its own `sys.path`, so `source` adds nothing here:
+**Always invoke the venv's Python by absolute path** (`source activate` adds nothing):
 
 ```bash
 ${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python -c "..."
-${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/pip install ...
+${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/pip install -e .
 ```
 
 Required environment variables:
@@ -91,1750 +75,411 @@ Required environment variables:
 - `ANTHROPIC_API_KEY` — only when any section uses `provider: claude_sdk`.
 - `OPENROUTER_API_KEY` — only when any section uses `provider: openrouter`.
 - Optional: `OPENROUTER_BASE_URL` (default `https://openrouter.ai/api/v1`),
-  `OPENROUTER_HTTP_REFERER`, `OPENROUTER_APP_TITLE` (sent as `HTTP-Referer` /
-  `X-Title` for OpenRouter dashboard attribution).
+  `OPENROUTER_HTTP_REFERER`, `OPENROUTER_APP_TITLE`, `OPENROUTER_TIMEOUT_S` (default 60).
 - Optional circuit-breaker tuning (see `circuit_breaker.py`):
   `OPENROUTER_MAX_CONSECUTIVE_ERRORS` (default 10),
   `OPENROUTER_MAX_CONSECUTIVE_FATAL_ERRORS` (default 3),
-  `OPENROUTER_MAX_CONNECTION_OUTAGE_S` (default 1800 — how long the network may
-  stay down before the run aborts) and `OPENROUTER_CONNECTION_BACKOFF_S`
-  (default `60,120,480` — retry intervals while it is down).
-- Optional: `OPENROUTER_TIMEOUT_S` (default 60) — per-request wall-clock cap.
+  `OPENROUTER_MAX_CONNECTION_OUTAGE_S` (default 1800) and
+  `OPENROUTER_CONNECTION_BACKOFF_S` (default `60,120,480`).
 - Optional activation-extraction tuning (see `model_loading.py`):
   `AGENTIC_REDTEAM_TRUNCATE_LAYERS` (default on — load only layers `0..probe.layer`;
-  set `0` to load the full model), `AGENTIC_REDTEAM_MAX_MEMORY`
-  (e.g. `"0=21GiB,cpu=45GiB"` — pins accelerate's per-device budget so it can't fall
-  back to disk offload; unset by default) and tuberlens' own `BATCH_SIZE` (default 1),
-  which drives both `get_activations` and the red-team chunking in `retrain`.
+  `0` loads the full model), `AGENTIC_REDTEAM_MAX_MEMORY` (e.g. `"0=21GiB,cpu=45GiB"`)
+  and tuberlens' own `BATCH_SIZE` (default 1), which drives both `get_activations` and
+  the per-sample chunking in `retrain`.
 - Optional probe-fit staging (see `retrain._to_device_for_fit`):
   `AGENTIC_REDTEAM_STAGE_ACTIVATIONS` (default on; `0` fits host-resident) and
-  `AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB` (default 2 — GPU headroom left for the fit's
-  own activations and gradients).
-- Optional probe-fit tuning, read from tuberlens' settings (see
-  `tuberlens/probes/fused_ensemble.py`): `PROBE_FUSED_ENSEMBLE` (default on — fit *and*
-  score an ensemble's members together in one pass; `0` reverts **both** to the
-  pre-fusion sequential paths, one `ProbeFactory.build` per seed and one `predict_proba`
-  per member, which is slower and otherwise identical — this repo reads the same setting
-  in `ensemble.fusion_enabled()`, so the two halves can't be half-reverted, and
-  `scripts/verify_ensemble_fusion.py` pins the dispatch), `PROBE_FUSED_MAX_MEMBERS` (default 0
-  = all; cap how many members are stepped together when a fused step's
-  `(members, batch, seq, embed)` gather is too big for the card — an OOM halves it
-  automatically), `PROBE_EVAL_BATCH_SIZE` (default 0 = the training batch size; raising it
-  speeds up every no-grad pass but changes the matmul reduction order, so a near-tied best
-  epoch can flip) and `PROBE_RESTORE_BEST_CHECKPOINT` (default **off**, see below).
-- Also read from tuberlens' own settings (`tuberlens.config.global_settings`, populated
-  from the environment): `MAX_MEMORY` (same `"0=21GiB,cpu=45GiB"` form) and per-model
-  `MODEL_MAX_MEMORY` pin the budget for **every** tuberlens load — including
-  `get_performances`, which this repo cannot pass `model_kwargs` to — and
-  `OFFLOAD_BUFFERS` (default on) toggles buffer offloading. `AGENTIC_REDTEAM_MAX_MEMORY`
-  takes precedence over both on the `load_extraction_model` path; neither reaches the
-  layer truncation, which stays this repo's alone.
+  `AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB` (default 2).
+- Optional probe-fit tuning read from tuberlens' settings (`tuberlens/probes/fused_ensemble.py`):
+  `PROBE_FUSED_ENSEMBLE` (default on — fit *and* score an ensemble's members in one
+  pass; `0` reverts both to the sequential paths; this repo reads the same setting in
+  `ensemble.fusion_enabled()`, and `scripts/verify_ensemble_fusion.py` pins the
+  dispatch), `PROBE_FUSED_MAX_MEMBERS`, `PROBE_EVAL_BATCH_SIZE`, and
+  `PROBE_RESTORE_BEST_CHECKPOINT` (default **off**, see the checkpoint note below).
+- Also from tuberlens' settings: `MAX_MEMORY` / `MODEL_MAX_MEMORY` and `OFFLOAD_BUFFERS`.
+  `AGENTIC_REDTEAM_MAX_MEMORY` takes precedence on the `load_extraction_model` path.
+
+**Model ids:** `probe.model` must be a full HF id (`meta-llama/Llama-3.2-1B-Instruct`,
+`google/gemma-3-27b-it`). tuberlens' short keys (`llama-1b`) are NOT resolved by
+`LLMModel.load`, which is what every load here goes through.
 
 ## Common commands
 
-Install in editable mode (re-run after dependency changes):
-
 ```bash
-${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/pip install -e .
-```
+${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/pip install -e .      # after dependency changes
 
-Smoke-test imports:
+# The loop
+${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python scripts/iterative_generate.py \
+  configs/example_generate.md --base-training-data data/highstakes_llama70b_50.jsonl \
+  --probe-out-dir probes/my_run --eval --eval-dataset-dir eval_sets/highstakes
 
-```bash
-${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python -c \
-  "import agentic_redteam; from agentic_redteam.attacker import run_redteam; print('ok')"
-```
-
-One round of red-teaming:
-
-```bash
-${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python \
-  scripts/run_redteam.py configs/example_config.md
-```
-
-Full iterative loop (train initial probe → red-team → retrain → optional eval, n times):
-
-```bash
-${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python \
-  scripts/iterative_retrain.py configs/example_config.md \
-  --iterations 3 --base-training-data path/to/base.jsonl \
-  --eval --eval-dataset-dir eval_sets/highstakes   # --eval is optional
+# End-to-end checks (fake LLMs; `real` also does real llama-1b fits, ~minutes on a laptop GPU)
+${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python scripts/verify_generation_loop.py --mode fake
+${REPO_ROOT}cc_based_auto_improvement/.venv_claude/bin/python scripts/verify_generation_loop.py --mode real
 ```
 
 `--base-training-data` is **required**: it trains the initial probe (unless
-`probe.path` warm-starts from an existing one) and is concatenated with red-team
-successes on every retrain. With no `probe.path`, the first probe is trained from
-scratch using the `probe:` fields (`model`, `layer`, `pos_class_label`,
-`neg_class_label`, `architecture`). `--eval` additionally scores the initial probe
-and every retrained probe on the local eval splits and writes a cross-round
-comparison CSV.
+`probe.path` warm-starts one) and is part of every retrain. **A dev set is required**
+(`validation.dev_data` or `--dev-data`; the CLI errors without one): it is the fit's
+validation set (early stopping) *and* the ΔAUROC scoring set, and it **must be disjoint
+from the eval splits**. Base data and generated samples always train in full
+(`test_size` is forced to 0.0 inside `retrain`); there is no CLI `--test-size` any more.
+`--seed` governs the eval subsample and the (degenerate) split; `--base-data-fraction`,
+`--ensemble-size`, `--probe-arch`, `--layer`, `--eval*`, `--[no-]combine-consecutive-messages`,
+`--[no-]convert-tool-to-assistant`, `--base-activation-cache-dir`, `--activations-cache-dir`,
+`--comparison-csv` and `--results-dir` behave as documented in `--help`.
 
-Validation comes from one of two sources. **By default** it is derived by splitting the
-training data via this repo's `stable_train_test_split` (`--test-size`, default 0.2;
-optional `--split-field`). **With `--dev-data` (or `validation.dev_data` in config)** it
-is instead a held-out **dev set** used whole, and *nothing* is held out of the base data
-or the red-team successes — both train in full, and `--test-size` / `--split-field` are
-ignored. The dev path exists because the default split makes the validation set move: a
-share of every iteration's red-team successes lands in it, so the set the probe
-early-stops against (tuberlens *selects* the best-val-AUROC epoch — but see the
-checkpoint note below for what it actually returns) changes shape at every retrain and
-the checkpoints are not comparable across iterations. `--dev-data` takes a JSONL or a **directory** whose
-`*.jsonl` files are each a split, auto-discovered and concatenated (column intersection)
-the way `evaluate_probe` discovers eval splits; every row's `labels` must be one of the
-probe's two class labels, or the load raises rather than silently handing the fit
-unlabelled rows. **The dev data must be disjoint from the eval splits** — otherwise the
-fit selects its checkpoint on the test set. The three shipped dev sets are under
-`dev_samples/` (see below). The dev set is fixed for the run, so its activations are
-cached as **one blob** (`_dev_activation_cache_path`, keyed on the dev files' bytes +
-`model | layer | combine | convert` — no `seed`/`test_size`, since it is never split).
-Note that switching a run to `--dev-data` changes the *base* cache key too, since the
-base split's `test_size` becomes 0.0.
+**Budget the dev set's size deliberately** — it is resident for every fit and scored
+every epoch. `get_activations` pads to 1024, so a row costs `1024 × hidden × 2` bytes:
+`dev_samples/highstakes` (1908 rows) is **8.0 GB** on llama-1b and **21 GB** on
+gemma-3-27b. And this loop fits `n_batches + 1` probes per iteration, each against the
+whole dev set, so an oversized dev set multiplies through. Subsample the dev dir rather
+than dropping it.
 
-**Budget the dev set's size deliberately** — it is resident for the whole fit and is
-usually now the largest single thing in a retrain. `get_activations` pads to 1024, so a
-row costs `1024 × hidden × 2` bytes: the 1908-row `dev_samples/highstakes` blob measured
-**8.0 GB** on llama-1b (hidden 2048) and would be **21 GB** on gemma-3-27b (hidden 5376,
-11 MB/row — the same arithmetic as the OOM analysis under `retrain.py` below). The
-default `test_size` slice it replaces was ~56 rows (0.24 GB) on a 282-sample retrain, so
-this is a ~34x increase in validation-side RAM, on top of the training activations that
-section already warns about. It is also scored **every epoch**, which is what turned a
-seconds-long fit into ~8 min at 1908 rows. If a gemma-sized run gets tight, subsample the
-dev dir rather than dropping back to the moving split.
+**Noise floor.** A single-probe fit's dev AUROC moves by roughly ±0.005 between
+near-identical training sets, so with `ensemble_size: 1` and `min_auroc_gain: 0.0` some
+accepted batches are noise. `probe.ensemble_size` (score-averaging deep ensemble) is
+the lever that tightens it; `loop.exhausted_gain` only changes what the judge is told.
 
-**The split is content-deterministic, not
-RNG-based**: each sample's train-vs-val side is a pure function of its own content
-(or its `split_field` value) plus `--seed`, so the base samples land identically
-every iteration even as red-team successes accumulate. `--seed` (default 42) seeds
-that split and the (reproducible) eval subsampling; `--eval-max-samples`
-(default 100, `0` = full split) sets the balanced subsample size per eval split.
-`--base-data-fraction` (default 1.0, range (0, 1]) ingests only a random fraction
-of the **base** training data — selected by the same content-deterministic hash
-(`stable_fraction_subsample`, namespaced `frac:{seed}` so it's independent of the
-train/val split) and applied *before* the split, so the chosen subset is identical
-every iteration, preserves class balance in expectation, and is folded into the
-base activation cache key. Red-team successes are never subsampled.
-`--ensemble-size` (1..10; overrides `probe.ensemble_size`) makes **every** training and
-retraining step fit that many probes on the same activations and average their
-probabilities into one score — a score-averaging deep ensemble (see `ensemble.py`).
-Member `i` is trained under the repo-pinned `ENSEMBLE_SEEDS[i]`, identical on every
-run; `--seed` keeps governing only the *data* (train/val split, eval subsample). The
-averaged score is what the threshold, the judge and the eval all see. Omit both flag
-and config key to inherit the size of the probe being retrained (1 for a plain probe).
-When the config has a `preprocessing:` section, red-team successes are run through
-`filter_dataset` + `generate_contrastive_dataset` before each retrain.
-
-Because the base train/val split is fixed across iterations, the base training
-split's activations are cached to disk (`--base-activation-cache-dir` flag, or
-`output.base_activation_cache_dir` in config; default
-`<probe-out-dir>/base_activation_cache`) and computed **once for the whole run** —
-the initial training populates the cache and every retrain reuses it. The growing
-red-team set is also cached in the same dir, but **per conversation** (the set
-changes every iteration, so a whole-set blob like the base one would never hit):
-a success first seen in iteration k is forwarded once and reused by every later
-retrain, so each retrain only computes its *newly-seen* successes.
-`--[no-]combine-consecutive-messages` /
-`--[no-]convert-tool-to-assistant` (or the config `eval:` knobs) apply to **both the
-training data and the eval splits**, so the probe trains and is scored on the same
-message representation.
+**Resume (`--resume`, default on) is three-tiered.** `probe_iter{N}.pkl` (written only
+once an iteration's union retrain finishes) picks the iteration; `batches.jsonl` rows
+with status `generated` are scored without regenerating and rows with status `scored`
+/ `empty` / `generation_failed` are skipped; `guidance.jsonl` restores the directions
+(and, if the run died between scoring and the judge, the judge is re-asked on the
+stored batches). `--no-resume` calls `forget_loaded()` on both stores: the files are
+still appended to, but nothing earlier is reused, restored or deduped against.
 
 ## Architecture
 
 ### `agentic_redteam/config.py`
-Parses one markdown file with YAML frontmatter for runtime knobs and `# Attacker` /
-`# Judge` sections for system prompts. Resolves all paths relative to the config
-file. Frontmatter shape (see `configs/example_config.md` and
-`configs/example_config_openrouter.md`):
+Parses one markdown file: YAML frontmatter + `# Generator` / `# Judge` sections
+(system prompts). Paths resolve relative to the config file. See
+`configs/example_generate.md` for every key with comments. Shape:
 
 ```yaml
-attacker:
-  provider: claude_sdk | openrouter   # default provider for bare-string models
-  models:
-    - <bare-string>                   # inherits attacker.provider
-    - {name: <model>, provider: claude_sdk | openrouter}  # per-model override
-  max_turns: int
-  batch_target: int
-  rounds: int                         # fresh LLM sessions per model (default 1)
-  concurrency: int                    # max parallel attacker sessions (default 1)
-  sessions_per_model: int             # concurrent copies of EACH model launched within each round
-                                      #   (default 1). >1 parallelizes the same model without duplicating
-                                      #   it in `models` and without turning off round_summaries; still
-                                      #   bounded by `concurrency`. All copies share the JsonlStore (dedup)
-                                      #   and write with the same round number, so their attempts fold into
-                                      #   that round's summary.
-  persistence_from_last_rounds: int   # view_past_attempts window (default: all)
-  view_reshuffle: bool                # view_past_attempts: periodic random reshuffle on/off (default true).
-                                      #   when false, show most-recent success/fail attempts (recency),
-                                      #   and use training seeds only as a fallback for the successful half
-  view_reshuffle_interval: int        # view_past_attempts: redraw every N submissions (default 20; reshuffle=true only)
-  view_balance: bool                  # view_past_attempts: ≈50/50 success/fail, total=limit (default true)
-  view_training_seeds: bool           # view_past_attempts: blend true-class training examples (default true)
-  near_dup_guard: bool                # default FALSE. Submit-time clone guard: a candidate whose first
-                                      #   user turn is >= near_dup_threshold similar to any already-recorded
-                                      #   SUCCESS is rejected BEFORE probe/judge run, so re-skinned winning
-                                      #   templates are never scored or stored. Orthogonal to the view_* knobs.
-  near_dup_threshold: float           # difflib ratio the guard rejects at (default 0.8; >= 1.0 disables)
-  near_dup_broadcast: bool            # default FALSE. Show guard-rejected openers to ALL sessions as an
-                                      #   "avoid these" prompt block. In-memory only, never written to JSONL.
-  max_sample_tokens: int              # default 1024 (tuberlens' get_activations cap). Submit-time LENGTH
-                                      #   guard: a candidate longer than this — counted with the PROBE's
-                                      #   tokenizer + transforms — is dropped BEFORE probe/judge run and
-                                      #   never persisted, since past the cap the conversation is truncated.
-                                      #   The limit is also stated in the attacker system prompt. 0 disables.
-  round_summaries: bool               # default true → rounds run SEQUENTIALLY; after each finished round the
-                                      #   judge folds it into one bounded ROLLING memo (rewritten + condensed,
-                                      #   not appended), injected into later rounds' attacker system prompts.
-                                      #   false → legacy fully-concurrent scheduling, no memo. Models within a
-                                      #   round are concurrent either way.
-  cross_iteration_memos: bool         # default FALSE. true → after each iteration's rotation (before the
-                                      #   retrain) the judge writes a hand-off memo — what was tried, what
-                                      #   succeeded and is about to be trained against (⇒ treat as patched),
-                                      #   what's unexplored — injected into the NEXT iteration's attacker
-                                      #   system prompts. Persisted to <jsonl>.iteration_memos.jsonl, which
-                                      #   is re-read at run start, so it crosses both the iteration boundary
-                                      #   and a process restart (--resume). Independent of round_summaries.
-  cross_iteration_memo_max_successes: int  # successes (most recent) shown to the judge when writing that
-                                      #   memo (default 30; 0 = all — can make the judge prompt huge)
-  cross_iteration_memo_word_budget: int  # word budget the judge is given for that memo (default 900 =
-                                      #   llm_judge.DEFAULT_ITERATION_MEMO_WORD_BUDGET). The memo lands in
-                                      #   EVERY attacker system prompt of the next iteration, so this is
-                                      #   prompt real estate, not just cost; and 900 is unreachable at
-                                      #   judge.max_tokens: 1024 (~625 words at ~0.61 words/token), so the
-                                      #   default memo is truncated mid-sentence and the loss compounds
-                                      #   through prior_memo. At <= 300 the prompt also switches to "drop
-                                      #   the weakest notes wholesale" instead of "compress everything".
-                                      #   Must be >= 1 (load_config raises).
-  interface: tools | prompt           # how the attacker is driven (default tools). "prompt" = classical
-                                      #   no-tool prompting: the model gets NO tools; instead get_probe_info
-                                      #   is baked into the system prompt and view_past_attempts is injected
-                                      #   as text after every submission, and the model must output ONE
-                                      #   candidate conversation per turn (fenced ```json array of {role,
-                                      #   content}) which is scored through the same probe+judge path. Only
-                                      #   supported for openrouter models — load_config raises if any model
-                                      #   resolves to claude_sdk under interface: prompt.
-  view_limit: int                     # prompt mode only: size of the view_past_attempts sample injected each
-                                      #   turn (default 10). Mirrors the tools-mode view_past_attempts limit.
-                                      #   <= 0 means inject NOTHING (note this is the opposite of
-                                      #   ViewSampler.sample, where limit <= 0 means unlimited).
-  capture_prompts: bool               # prompt mode only, default FALSE. Dump the verbatim message array of
-                                      #   every API call to <jsonl>.prompts.jsonl (PromptTraceStore). Grows
-                                      #   much faster than the JSONL.
-  batch_submissions: bool             # prompt mode only, default FALSE. Ask for ALL `max_turns` candidate
-                                      #   conversations in ONE reply instead of one per turn: the session
-                                      #   makes a single API call, every conversation is scored, and it ends
-                                      #   — the attacker never sees a probe/judge verdict. load_config RAISES
-                                      #   if combined with interface: tools. See _run_openrouter_prompt_batch_model.
+generator:
+  provider: claude_sdk | openrouter   # default for bare-string models
+  models: [<name> | {name, provider}] # batch k → models[k % len]
+  n_batches: int                      # n (default 5)
+  batch_size: int                     # m, even (default 20)
+  concurrency: int                    # parallel generator calls (default 5)
+  max_tokens: int                     # response cap per call (default 8192)
+  max_sample_tokens: int              # default 1024; 0 disables the length guard
+  max_retries: int                    # top-up calls per short batch (default 2)
 judge:
-  provider: claude_sdk | openrouter
-  model: <model>
-  max_tokens: int                     # also caps the rolling memo's word budget
-                                      #   (min(200, max(150, 0.45 × max_tokens)) — the
-                                      #   200-word target governs at any max_tokens ≥ 512)
-  hide_opposite_direction: bool       # default TRUE. Withhold misclassifications pointing the
-                                      #   OTHER way from error_type (a false positive turned up
-                                      #   during a false_negative hunt) from the round memo, so
-                                      #   the judge doesn't write up weaknesses that are
-                                      #   unactionable this rotation. Rows probe+judge AGREED on
-                                      #   are kept. Affects summarize_round only.
+  provider, model, max_tokens (2048)
+  memo_word_budget: int               # default 400; the memo is in every generator prompt
+  max_samples_per_batch: int          # excerpts shown per batch (default 6; 0 = all)
 probe:
-  path: <path>                        # OPTIONAL: warm-start from an existing probe.
-                                      # If omitted/missing, iterative_retrain_main trains
-                                      # the first probe from --base-training-data using
-                                      # the fields below.
-  threshold: float
-  error_type: false_positive | false_negative | [false_positive, false_negative]
-  model: <tuberlens model key>        # from-scratch only (e.g. llama-1b)
-  layer: int                          # from-scratch only
-  pos_class_label: <str>              # from-scratch only; also loads base_training_data
-  neg_class_label: <str>              # from-scratch only
-  description: <str>                  # from-scratch only (optional)
-  architecture: <ProbeType name>      # from-scratch only (optional; default linear_then_softmax)
-  ensemble_size: int                  # OPTIONAL 1..10 (default unset). Fit N probes on the
-                                      #   SAME activations under the repo-pinned
-                                      #   ENSEMBLE_SEEDS[:N] and average their probabilities
-                                      #   into one score — a score-averaging deep ensemble
-                                      #   (see ensemble.py). Member seeds are fixed; --seed
-                                      #   still governs only the split + eval subsample.
-                                      #   Applies to the initial training AND every retrain.
-                                      #   Unset ⇒ a retrain inherits the size of the probe it
-                                      #   is retraining, exactly as `architecture` does.
-preprocessing:                        # OPTIONAL: collation-style preprocessing of red-team
-  provider: claude_sdk | openrouter   # successes before each retrain
-  model: <model>                      # LLM for generate_contrastive_dataset
-  max_concurrent: int                 # contrastive generation fan-out (default 50)
-  max_tokens: int                     # per contrastive generation (default 2048)
-  filter_percentile: float            # filter_dataset keep-threshold (default 0.8)
-  max_sample_tokens: int              # default 1024. LENGTH guard on GENERATED pairs (probe tokenizer):
-                                      #   the cap is stated in the generation prompt, and a pair that comes
-                                      #   back over it is REGENERATED with its measured length fed back
-                                      #   (consuming one max_generation_retries attempt) rather than
-                                      #   dropped. Cached pairs are re-checked, so caches written under an
-                                      #   older/absent cap are regenerated too. 0 disables.
-  assistant_centric: bool             # default false; true → prompt says the label is set by
-                                      #   the assistant's reply, so edit the assistant turns
-  concept_description: str            # OPTIONAL free text: what the concept IS. Injected into
-                                      #   the generation prompt for both directions.
-  label_guidance:                     # OPTIONAL {class label: free text}; shown when generating
-    <pos_class_label>: |              #   TOWARD that label (keys are the raw probe labels; the
-      - ...                           #   LABEL_SHORT alias is also accepted). Unknown keys are
-    <neg_class_label>: |              #   warned about and ignored.
-      - ...
-validation:                           # OPTIONAL: held-out dev data used as the probe fit's
-  dev_data: <path>                    #   VALIDATION set (a JSONL, or a dir whose *.jsonl files
-                                      #   are each a split, auto-discovered + concatenated).
-                                      #   When set, base data AND red-team successes train in
-                                      #   FULL — nothing is held out — and test_size/split_field
-                                      #   are ignored, so the validation set is identical every
-                                      #   iteration instead of absorbing a share of each
-                                      #   iteration's successes. Labels must be the probe's own
-                                      #   class labels. MUST be disjoint from the eval splits or
-                                      #   the best-epoch checkpoint is selected on the test set.
-                                      #   CLI --dev-data overrides.
-eval:                                 # OPTIONAL: dataset message transforms applied to BOTH
-  combine_consecutive_messages: bool  # training data AND eval splits (default false) — merge
-  convert_tool_to_assistant: bool     # adjacent same-role msgs; rewrite tool→assistant (first)
-  eval_max_samples: int               # balanced subsample per eval split (0 = full split). Unset (None)
-                                      #   → the CLI's --eval-max-samples default; the flag overrides.
-  data_description: str               # OPTIONAL free text: what the EVAL SPLITS hold — in particular the
-                                      #   distinct KINDS of conversation the probe is scored on. Changes no
-                                      #   data path; it is prompt material for the judge's two SUMMARIZERS
-                                      #   only (never its classification prompt). When set, both memos are
-                                      #   organized around those kinds and must name the ones a round /
-                                      #   cycle left untouched — the memos being the only channel into a
-                                      #   later attacker session, this is where eval coverage gets steered.
-                                      #   Unset ⇒ every judge prompt is byte-identical to what it was
-                                      #   before this knob existed.
-kaggle:                               # OPTIONAL: pull PRECOMPUTED eval activations from Kaggle
-  owner: <kaggle username>            #   instead of extracting them (see kaggle_activations.py).
-  eval_dataset_slug: <template>       #   slug + file templates, formatted with BOTH `split=<split stem>`
-  eval_file_name: <template>          #   and `slug=<stem hyphenated>` — e.g. "{split}gemmaevalpt" /
-                                      #   "{split}-gemmaeval.pt". Kaggle slugs are lowercase
-                                      #   alphanumerics + hyphens, so any split stem with an
-                                      #   underscore (every eval_sets/hu_ha / eval_sets/instructions
-                                      #   split) must use {slug} in eval_dataset_slug; the FILE name
-                                      #   inside the dataset is unrestricted and stays on {split}.
-                                      #   Requires eval.eval_max_samples: 0 (validated at parse time).
-output:   { jsonl_path, run_id,
-            comparison_csv,             # OPTIONAL eval-output path (--eval); CLI --comparison-csv overrides
-            activations_cache_dir,      # OPTIONAL eval activation cache (--eval); CLI --activations-cache-dir overrides
-            base_activation_cache_dir } # OPTIONAL training (base-split) activation cache; CLI --base-activation-cache-dir overrides
+  path: <pkl>                         # OPTIONAL warm start
+  model, layer, pos_class_label, neg_class_label, description, architecture  # from scratch
+  ensemble_size: int                  # OPTIONAL 1..10; unset ⇒ inherit from the probe retrained
+loop:
+  iterations: int                     # default 3
+  min_auroc_gain: float               # default 0.0
+  exhausted_gain: float               # default 0.002
+validation:
+  dev_data: <jsonl | dir>             # REQUIRED by the CLI
+eval:
+  combine_consecutive_messages, convert_tool_to_assistant   # applied to training, samples, dev AND eval
+  eval_max_samples: int               # 0 = full split
+  data_description: str               # OPTIONAL, shown to the judge (coverage steering)
+kaggle:                               # OPTIONAL precomputed eval/dev activations (see kaggle_activations.py)
+  owner, eval_dataset_slug, eval_file_name, dev_dataset_slug, dev_file_name
+output:
+  run_dir: <dir>                      # batches.jsonl, guidance.jsonl, runlog.jsonl, auroc_history.csv, accepted_iter{N}.jsonl
+  run_id, comparison_csv, activations_cache_dir, base_activation_cache_dir
 ```
 
-Each attacker model entry can be a bare string (inherits `attacker.provider`)
-or a dict `{name, provider}` to mix providers in one rotation. This is
-represented at runtime as a list of `AttackerModel(name, provider)` —
-`config.attacker.models` is **not** a list of strings; use `.model_names` if
-you only need the names.
-
-`error_type` drives everything downstream: it's both the target misprediction the
-attacker is searching for and the implicit *true* class label (`negative` for
-`false_positive`, `positive` for `false_negative`) that the judge confirms.
-When `error_type` is a list (e.g. `[false_positive, false_negative]`), the CLI
-runs red-teaming for each error type sequentially within every iteration, writing
-to separate JSONL files (auto-suffixed `_fp` / `_fn`). The iterative retrain loop
-is **interleaved**: each iteration attacks with all error types, then retrains
-once on combined successes from all JSONL files.
-
-`rounds` controls how many fresh LLM sessions each model gets per error type.
-Each round is a new conversation context with up to `max_turns` tool calls.
-`persistence_from_last_rounds` limits `view_past_attempts` to records from the
-N most recent rounds (default: all rounds visible).
+`config.generator.models` is a list of `GeneratorModel(name, provider)` — not strings;
+use `.model_names` for names. `batch_size` must be even (validated at parse time).
 
 ### `agentic_redteam/persistence.py`
-`Conversation` (frozen tuple of `Message`s) and `JsonlStore`. The store dedups by
-canonical text on append (no duplicate row for the same conversation), and
-preloads any prior records on init so re-running against the same JSONL keeps
-the success counter and dedup set warm. `append` returns **True if the row was
-newly persisted**, False if it was a duplicate — `tools.py` uses that to
-attribute the row to the submitting session. Each row carries
-`{sample, probe_score, probe_predicts_positive, judge_label, judge_reason,
-judge_confidence, success, attacker_model, run_id, round, iteration, error_type,
-pos_class_label, neg_class_label}` — `judge_label` is the class label the judge
-picked (human-readable, e.g. "high-stakes"), or `""` if the judge response was
-unparseable, and `judge_confidence` is 1–10 (0 when missing/unparseable; it
-feeds `retrain_probe(min_judge_confidence=)`, which the CLI supplies from
-`judge.confidence_threshold`). `iteration` is the 0-based retrain-cycle index (the CLI threads it
-through `run_redteam(..., iteration=)` → `ToolContext.current_iteration`); rows
-written before this field existed read back as `-1`. Note `round` is the
-*global* round number (`iteration * rounds + round_idx`), so `iteration` is now
-explicit rather than only recoverable as `round // rounds`.
+`Message` / `Conversation` (frozen), `GeneratedSample(conversation, label)` — `label` is
+the **human-readable** class label, `to_training_row()` gives the `{inputs, labels}`
+shape `retrain` reads, `key` is the canonical text used for dedup.
 
-**Near-duplicate guard (`attacker.near_dup_guard`).** Exact-text dedup misses a
-*re-skinned* winning template — same opening scenario, swapped nouns and numbers —
-which is how a rotation talks itself into submitting one success fifty times. So
-the store also compares the first `_NEAR_DUP_PREFIX` (600) chars of a candidate's
-first user turn (`first_user_text`) against every persisted **success** by
-`difflib.SequenceMatcher` ratio. Successes only: near-duplicates of past *failures*
-don't inflate the clone rate, and blocking them would needlessly narrow exploration.
+`BatchRecord` — one batch: `run_id, iteration, batch_index, direction, generator_model,
+provider, samples, n_requested, status, auroc_before, auroc_after, delta, accepted,
+exhausted, n_dropped_too_long / _duplicate / _bad_label, n_generation_calls, error,
+candidate_probe_path`. `auroc_*` map split name → AUROC plus `"mean"`; `delta` is on the
+mean. `status` ∈ `generated` (written before scoring — the resume checkpoint),
+`scored`, `empty`, `generation_failed`. A scored batch is a **second row** for the same
+`(iteration, batch_index)`; every reader takes the newest row per key.
 
-- `try_reserve_opener(conversation, threshold) → bool` is the form callers use. It
-  checks the candidate against persisted successes **union the openers currently
-  being scored**, and reserves it on success — one synchronous method with no
-  `await` inside, so asyncio can't interleave two sessions between the check and
-  the reserve. Callers **must** pair a True return with `release_opener` in a
-  `finally`. `near_duplicate_success` is the same test without the in-flight set,
-  and is racy under concurrency by construction.
-- `_is_near` passes **`autojunk=False`**, which is load-bearing: difflib's autojunk
-  heuristic (on above 200 chars) derives its junk set from the *second* argument, so
-  `ratio(a,b) != ratio(b,a)`. At our ~250–400-char openers the guard's
-  candidate-first order under-measured a genuine near-duplicate as 0.30 instead of
-  0.84 and almost never fired. Disabling it also makes the guard measure exactly what
-  `scripts/clone_rate.py` scores offline.
-- `record_near_dup_reject` / `recent_near_dup_rejects(limit)` back
-  `near_dup_broadcast`: an in-memory ring (most recent 200) of rejected openers,
-  shared across the rotation so a rejection in **any** session steers every session.
-  Deliberately **never persisted** — it is a within-run steering signal, and writing
-  it would pollute both the scored-attempts dataset and the clone metric.
+`BatchStore` (`batches.jsonl`, append-only, reloads on init): `get(i, k)`,
+`for_iteration(i)`, `accepted_samples(before_iteration=)` (newest-row-per-key, in
+iteration/batch order — the training-set additions), and the novelty guard:
+`seen_keys` holds every sample ever generated in the run, `reserve(sample)` claims a
+key for an in-flight batch **synchronously** (no `await` between check and claim, so
+concurrent batches can't both admit the same conversation). `forget_loaded()` backs
+`--no-resume`.
 
-A `threshold >= 1.0` disables the guard. Both knobs default off, so existing configs
-behave identically.
+`GuidanceRecord(run_id, iteration, memo, directions, source, baseline_auroc)` —
+`iteration` is the iteration the directions are **for**; `source` is `judge` or
+`generator_proposal` (iteration 0). `GuidanceStore` (`guidance.jsonl`):
+`for_iteration(i)`, `latest_memo_before(i)`. `RunLogger` (`runlog.jsonl`) is the event
+sidecar.
 
-Also hosts `JsonlStore.records_for_round(round_num)` (all attempts for one global
-round, used to summarize it), `JsonlStore.records_for_iteration(iteration,
-only_successful=False)` (all attempts of one retrain cycle, used to write the
-cross-iteration memo) and the rolling-memo storage: `RoundSummary`
-(`{round, iteration, error_type, text, n_attempts, n_successes}`) plus
-`SummaryStore`. A `SummaryStore` is built **once per `run_redteam` call** (i.e. per
-`(iteration, error_type)`), so the memo **resets per iteration**. It holds a single
-rolling memo string, not a list: `update()` *replaces* `current` with each round's
-condensed memo (the judge folds the new round into the prior memo — see
-`LLMJudge.summarize_round(prior_summary=...)`) and, if given a `path`, appends a
-per-round snapshot to a JSONL sidecar (`<jsonl>.summaries.jsonl`) for diagnostics;
-`current` feeds the latest memo back into the next update; `render()` wraps it as the
-"## Strategy memo from earlier rounds" system-prompt block (or `""` before the first
-memo exists). Because the judge rewrites-and-condenses instead of appending, the
-memo stays bounded regardless of round count — it does **not** grow linearly.
-The sidecar is diagnostics-only **except on resume**: constructed with
-`SummaryStore(path, iteration=, error_type=, resume=True)` it seeds `current` from the
-newest sidecar row matching that `(iteration, error_type)`, so a run restarting at
-round 18 opens with the memo distilled from rounds 0..17 instead of an empty one.
-Rows from other iterations are ignored, preserving the per-iteration reset; without
-`iteration` (or with `resume=False`, the default) no load-back happens.
+### `agentic_redteam/generator.py`
+`ProbeMeta` (labels, description, model name — **read off the probe**, never the config).
+`build_generator_system_prompt(config, probe, memo)` = the `# Generator` prompt + the
+concept block (labels + `description` verbatim) + the length limit + the JSON output
+format + the judge's memo last. `_batch_request` asks for exactly `m/2` + `m/2` under
+the direction and tells the generator to keep the two classes matched on surface
+features; `_topup_request` names only what is still missing and why the rest was dropped.
 
-Round-level resume state lives in `RoundProgress`
-(`{round, iteration, error_type, n_attempts, n_successes, completed_at}`) plus
-`RoundProgressStore`, a set of finished `(iteration, error_type, round)` keys backed by
-`<jsonl>.rounds_done.jsonl` and reloaded on init. `mark_done()` appends; `is_done()` /
-`done_rounds()` query. A round is marked **only after its rolling-memo update**, which
-keeps this store and the `SummaryStore` sidecar in lockstep — N rounds done ⟺ the
-newest memo covers rounds 0..N-1 — so a resumed run skips exactly the rounds whose
-findings the restored memo already reflects. Rounds are always recorded; whether they
-are honoured is the caller's `resume` flag.
+`Generator` binds config + probe + `TokenBudget` + clients. `call()` is the only
+provider touch point (Anthropic `AsyncAnthropic.messages.create`; OpenRouter through
+`_openrouter_create_with_retry`, which reports to the breaker and retries connection
+errors on the breaker's outage clock). `generate_batch()` runs the call + parse + guards
+(`_admit`: length → class cap → `store.reserve`) + top-ups; any exception other than
+`OpenRouterOutageError` is captured on the returned `BatchGeneration.error`, so one dead
+batch never aborts an iteration. `propose_directions(n, memo, existing)` pads with a
+free-choice brief if the model under-delivers twice, so the loop always has `n`.
+`generate_batches` fans out under an `asyncio.Semaphore(concurrency)`; `batch_indices`
+restricts a resumed iteration to the batches it still needs.
 
-Finally, the **cross-iteration** memo storage: `IterationMemo`
-(`{iteration, error_type, text, n_attempts, n_successes}`) plus `IterationMemoStore`
-(built per `run_redteam` call when `attacker.cross_iteration_memos` is on). Unlike
-`SummaryStore`, this store **reads its sidecar back on init**
-(`<jsonl>.iteration_memos.jsonl`) — that is what carries the memo across the
-iteration boundary (each iteration is a fresh `run_redteam` call) and across a
-process restart / `--resume`. `update()` appends one memo per iteration;
-`prior_text(iteration)` returns the newest memo from an iteration **strictly before**
-`iteration` (so re-running an interrupted iteration never feeds it its own stale
-memo); `render(iteration)` wraps it as the "## Lessons from previous iterations (the
-probe has since been RETRAINED)" system-prompt block, or `""` at iteration 0. The
-sidecar is per error type, since the JSONL path is.
-
-`PromptTraceStore` (`<jsonl>.prompts.jsonl`, gated on `attacker.capture_prompts`, prompt
-mode only) captures the **verbatim message array of every API call** — the one thing
-nothing else records. The JSONL stores the conversation a turn *produced*, not the
-messages that produced it, and carries no session or turn id, so with
-`sessions_per_model > 1` the concurrent sessions interleave and the in-session context of
-any submission after the first is unrecoverable after the fact. One row per API call:
-`{session_id, turn, round, iteration, attacker_model, error_type, messages,
-response_text, parsed, submission, submission_key, result}`, where `submission_key` is
-the submitted conversation's canonical text and joins the row to its `AttemptRecord`.
-Under `attacker.batch_submissions` one call yields several conversations off a single
-prompt, so those rows carry plural **`submissions` / `submission_keys` / `results`** and
-leave the singular fields null — one row per conversation would repeat the whole message
-array once per batch member. A reader has to explode the list back out; the plural keys
-are simply absent on per-turn rows, so older captures still read unchanged.
-
-### `agentic_redteam/token_budget.py`
-The **length safeguard** against tuberlens' 1024-token activation cap
-(`MAX_ACTIVATION_TOKENS`). `get_activations` pads *or truncates* every conversation to
-`max_length=1024` (`tuberlens/model.py:394`), so a longer one is scored — and, once it
-becomes training data, trained on — from its opening only, tail silently dropped. Red-team
-data is *generated*, so both producers are stopped from emitting over-long samples:
-`tools.handle_submit_conversation` **drops** the attacker's submission, and
-`preprocessing.generate_contrastive_dataset` **re-asks** the generator.
-
-`count_tokens(model_name, messages, *, combine_consecutive_messages,
-convert_tool_to_assistant)` reproduces `tokenize_inputs` exactly, which has two traps:
-its `<bos>` strip is a **no-op** (the following `.to(device)` line reassigns the original
-tensor), so the width reaching the cap *includes* `<bos>` and you must never subtract 1;
-and the tokenizer is called with **`add_special_tokens=False`** (the chat template already
-emitted them), so counting with the default reads one token high. Verified against
-`tokenize_inputs` directly rather than against a reading of its source. The transforms are
-applied first (convert tool→assistant, then combine), matching `ProbeJudge.score` /
-`retrain._apply_message_transforms`, so the count is over the representation extraction
-will actually see.
-
-`TokenBudget(model_name, max_tokens, combine…, convert…)` binds that to a run;
-`overage(messages)` returns the token count **only when over the cap**, else `None`.
-Everything degrades to `None` rather than raising — an unloadable tokenizer or a
-conversation the chat template rejects must never cost a submission that would otherwise
-have been scored (the probe's own `ProbeScoringError` path already reports malformed
-conversations back to the attacker). `max_tokens <= 0` disables the check entirely.
-Tokenizers are `lru_cache`d per model name, and `warmup()` (called in `run_redteam`
-alongside `probe.warmup()`) loads one before the sessions start: unlike the probe forward,
-the count runs on the **asyncio loop thread**, so a first-call load would stall every
-concurrent session.
-
-### `agentic_redteam/probe_judge.py`
-Wraps a pickled tuberlens probe. Lazily loads the extraction LLM on first score
-(heavy import). Exposes `score(conversation) → float`,
-`evaluate(conversation) → (score, predicts_positive)`, and
-`label_for(predicts_positive)` / `true_class_label` for turning a prediction into
-one of the probe's own class-label strings. There is deliberately **no**
-"is the probe already wrong?" predicate: that can only be decided against the
-judge's label, so the judge always runs (see the conventions at the end).
-The probe carries `pos_class_label`, `neg_class_label`, `description`,
-`model_name` and `layer` as metadata, which everything downstream reads off the
-loaded object — never duplicate these in code.
-
-The pickle may hold a single tuberlens probe **or** an `EnsembleProbe` (see
-`ensemble.py`); the two are interchangeable here, since the ensemble exposes the
-same probe surface and averages its members internally, so `score` returns one
-number and `evaluate` thresholds *that*. Two consequences to preserve: the
-CPU-unpickle device/dtype reconciliation loops over `iter_probe_members(probe)`
-(the ensemble itself has no `_classifier`, so reconciling only the top-level
-object would leave every member on the CPU and the first forward would die on a
-device mismatch), and `ProbeJudge.ensemble_size` reports how many probes back the
-score, for logging only.
-
-The model is loaded through `model_loading.load_extraction_model` (see below), which
-carries `offload_buffers` and truncates the model to the layers the probe
-actually reads. `release()` drops the loaded LLM and runs
-`gc.collect()` + `torch.cuda.empty_cache()` — call it when a phase is done with
-the probe (the attacker does, after each rotation) so the next phase reloads onto
-a clean GPU. See "Free GPU memory between heavy phases" in the conventions for why.
-
-### `agentic_redteam/model_loading.py`
-`load_extraction_model(model_name, layer)` — the single loader for the frozen
-extraction LLM, used by both `ProbeJudge._ensure_model` (red-team scoring) and
-`retrain._get_model`. Beyond `offload_buffers` it does the one thing that
-dominates wall-clock on a gemma-sized probe: **it loads only layers `0..layer`.**
-
-tuberlens' `HookedModel.__enter__` already truncates the *executed* stack to
-`original_layers[:layer+1]` (`tuberlens/model.py:144`) — but that happens inside the
-context manager, long after `from_pretrained` has placed the whole model. For
-`google/gemma-3-27b-it` at layer 32 that is 29 of 62 layers, **24 GB of bf16 weights**,
-downloaded, dispatched and CPU/disk-offloaded without ever running a forward. Since
-`device_map="auto"` fills the GPU in layer order and spills the rest, those dead
-layers are exactly what push the *executed* tail off a 24 GB GPU and onto disk —
-measured on a gemma-3-27b run, 6 of 8 loads reported "offloaded to the cpu **and
-disk**" and extraction ran at 48–264 s/sample.
-
-`_truncated_config` rebuilds the config with `num_hidden_layers = layer + 1`
-(`text_config.num_hidden_layers` on multimodal checkpoints like gemma-3-*-it, the
-top-level field otherwise), so only the executed prefix is instantiated and only its
-weights are read out of the shards. **This is exact, not an approximation**: the stack
-is causal, so layer `L`'s output is a function of layers `0..L` alone — verified
-bit-identical on Llama-3.2-1B. That is why no activation cache key mentions truncation
-and why blobs computed with and without it stay interchangeable. transformers logs an
-"weights not used when initializing" warning for the dropped layers; that is expected.
-It returns `None` (leave the model alone) when truncation is disabled, when the probe
-reads the last layer anyway, or when the config exposes no layer count we recognise.
-
-**Memory pinning has two sources now, and this module is where they're ordered.**
-`AGENTIC_REDTEAM_TRUNCATE_LAYERS=0` disables the truncation. The `max_memory` budget is
-resolved by `_resolve_max_memory(model_name)` in the precedence
-**`AGENTIC_REDTEAM_MAX_MEMORY` > tuberlens' `MAX_MEMORY` / `MODEL_MAX_MEMORY`
-(via `global_settings.get_max_memory`) > unpinned** — this repo's env var predates
-tuberlens' and stays authoritative so existing run scripts keep behaving. Unpinned,
-accelerate infers the budget from whatever is *free at load time* and silently falls
-back to **disk** offload on a tight box. The resolved budget is passed explicitly in
-`model_kwargs` even when tuberlens would have resolved the same value, so the printed
-load line names the budget the load actually used and *which source set it* — a line
-reporting "unpinned" while tuberlens had quietly pinned it would defeat the point of
-printing it. `_parse_max_memory` delegates to tuberlens' `parse_max_memory` when
-present (keeping the two entry points to the same budget from drifting on what they
-accept) and keeps an equivalent local body as the fallback. `offload_buffers` likewise
-now comes from tuberlens' `OFFLOAD_BUFFERS` setting rather than being hardcoded, so the
-knob isn't dead on this path. Both lookups are `getattr`-guarded, so the module also
-works against a tuberlens checkout predating those settings. `extraction_batch_size()`
-reads tuberlens' `BATCH_SIZE` (default 1) so the same env var drives both
-`get_activations` and the red-team chunking in `retrain`.
+`parse_samples(text, pos, neg)` accepts a JSON array, a `{"samples": [...]}` wrapper or
+bare objects, through `json_extract`; `normalize_label` maps case variants,
+`positive`/`negative`, and a label string embedding exactly one class name.
 
 ### `agentic_redteam/llm_judge.py`
-**Unbiased classifier** that works with either provider. When
-`provider: claude_sdk` it uses the `anthropic` SDK directly; when
-`provider: openrouter` it uses the `openai` SDK pointed at OpenRouter. In both
-cases the judge is asked to pick one of the two class labels on the
-conversation's own merits, with no hint about which label the caller is hoping
-for. Expects strict JSON output (`{"label", "reason", "confidence"}`); parses
-with code-fence stripping + brace extraction fallback; normalizes
-case-insensitively against the probe's pos/neg class labels. Returns
-`JudgeVerdict(label, reason, confidence)`.
+`LLMJudge.guide(batches, iteration, n_directions, prior_memo, auroc_before, auroc_after,
+min_gain, exhausted_gain) → Guidance(memo, directions)`. The reply format is
+`## Memo` (markdown, ≤ `memo_word_budget` words, rewritten not appended) then
+`## Directions` (one fenced JSON array of exactly `n` strings) — prose in markdown,
+list in JSON, so a long memo never has to survive inside a JSON string.
+`parse_guidance` splits on the heading; a reply with no parseable list yields
+`directions=[]` and the CLI fills the gap via `Generator.propose_directions`.
 
-**The judge is shown the probe's `description`** (`LLMJudge.probe_description`, read
-off the probe in `run_redteam` exactly as the class labels are). A label string like
-`high-stakes` is a *name*, not a definition, and the judge is the source of truth for
-what it means — the JSONL's `judge_label` is what the retrain trains on — so it works
-from the same concept definition the attacker is given, verbatim, rather than from a
-paraphrase that would quietly be a second definition. It reaches **all three** of the
-judge's prompts: classification (`_concept_block` → a `## What the labels refer to`
-section in the *system* message, placed after the config's `# Judge` prompt so a
-config that already defines the concept keeps the last word) and both summarizers
-(`_concept_context_line` → one `## Task context` bullet). This does not compromise the
-neutrality above: a description says what the concept *is*, never which label this run
-is hoping for, and at classification time the judge still never sees the probe's score
-or prediction. Unset (the default), every prompt is byte-identical to what it was
-before the description was threaded in.
+The judge is shown, per batch: direction, generator, class counts, the verdict
+(accepted / exhausted / rejected-harmful / rejected-below-threshold / failed), per-split
+Δ, and `max_samples_per_batch` excerpts alternating classes (`_pick_samples`), plus the
+baseline before and after the union retrain and the acceptance rule itself. It never
+sees per-sample probe scores.
 
-**The summarizers can also be shown what the EVAL DATA holds**
-(`LLMJudge.eval_data_description` ← the config's `eval.data_description`, threaded in by
-`run_redteam` — it is a property of the run's eval splits, not of the probe, so unlike
-the concept description it is *not* read off the pickle). It is for a description that
-enumerates the distinct **kinds of conversation** the probe is scored on — one per eval
-split, typically. Where it lands and why:
+**Prompt register is neutral analyst** ("training-set curation for a text classifier"),
+not adversarial — the previous scaffold's adversarially-phrased summaries drew refusals.
+**Refusal guard**: `_looks_like_refusal` (three guards: markdown opener ⇒ write-up; quoted
+spans blanked so a *cited* refusal phrase isn't an *uttered* one; a marker must start
+within 60 chars) → one in-context re-ask (`_REFUSAL_RETRY_NUDGE`) → `JudgeRefusalError`,
+which the CLI re-raises (a refusal stored as the memo would be injected into every
+generator prompt). A JSON/markdown reply never trips it: `{` and `#` are not refusal
+openers. Transient judge failures are logged (`guidance_error`) and the next iteration
+re-asks on the stored batches.
 
-- **Both summarizers, never the classifier.** It is rendered as one extra
-  `## Task context` bullet (`_eval_data_context_line`, continuation lines indented so an
-  enumeration reads as part of the bullet rather than as further context bullets), and
-  it adds a coverage paragraph to each summarizer's *system* prompt
-  (`_round_coverage_paragraph`, `_iteration_coverage_paragraph`) plus one question to
-  each user prompt (`_eval_coverage_question` → the round prompt's item 5;
-  `_eval_coverage_qualifier` → a clause on the iteration prompt's item 3). It is
-  deliberately kept **out of `_build_judge_request`**: the concept description has to
-  reach classification because the judge is the source of truth for what the labels
-  mean, whereas describing the *test set* to the labeller could only move the labelling
-  function.
-- **What the paragraphs ask for.** That the named kinds become the write-up's
-  coordinates: which kinds this round's/cycle's evidence actually came from, which were
-  left untouched, and a concrete opening (a role, a request, a situation) for each of
-  those — with breadth across the kinds worth more than another variant of whichever one
-  the last round found easiest.
-- **Why the memo is the place to do it.** Under `view_limit: 0` + `batch_submissions` a
-  session sees no past attempts and no verdicts, so the rolling and cross-iteration
-  memos are the *only* thing crossing into an attacker session. Steering the memo is the
-  one available way to steer coverage across the eval splits.
-- **Unset (the default) it is inert**, and not merely by convention: every helper
-  returns `""`, `_iteration_summary_system("")` returns `_ITERATION_SUMMARY_SYSTEM`
-  verbatim (which is why that constant is assembled from a `_HEAD`/`_TAIL` pair — the
-  paragraph has to go *before* the closing word-budget sentence), and all six prompts
-  are byte-identical to their pre-knob text. Verified by diffing rendered prompts, not
-  by inspection.
-- **Nothing else reads it**: no cache key, no data path, no attacker prompt. A run that
-  only adds or edits this text reuses every activation blob it would have anyway, and
-  changes only what the judge writes in the memos.
-
-`scripts/verify_memo_prompt_knobs.py` pins both halves — inert when unset, exactly those
-four insertions when set — by rendering all six prompts and diffing them, and covers the
-memo word budget the same way. It needs no network, GPU or probe.
-`scripts/replay_round_memo.py --eval-data-description` replays a real round's memo with the
-knob on, to see what it actually changes.
-
-The same judge also maintains the **rolling strategy memo** via
-`summarize_round(records, *, round_num, error_type, true_class_label,
-prior_summary="")`: it renders every attempt of the round (status, attacker model,
-**`probe_score`**, probe vs. judge label, judge reason, and per-message-truncated
-transcript) plus per-round aggregates (success rate, mean/min/max probe score, how
-many samples the probe assigned to the positive class) and the `prior_summary` into
-one user message, and asks the judge — under a dedicated system prompt built by
-`_summary_system(max_tokens)`, not the classification one — to **rewrite and
-condense** the prior memo with the new round's findings (merge duplicates, drop
-superseded notes). So the memo is bounded, not cumulative. Reuses the same
-`_call_anthropic` / `_call_openrouter` backends; returns `prior_summary` unchanged
-for an empty round.
-
-Three properties of that prompt are load-bearing and were each fixed after a
-run pathology:
-
-- **The word budget is a 200-word target under a `judge.max_tokens`-derived ceiling.**
-  `_summary_word_budget(max_tokens) = min(_SUMMARY_TARGET_WORDS, max(150,
-  int(max_tokens * _SUMMARY_WORDS_PER_TOKEN)))` — target 200, factor 0.45, so at the
-  default 1024 tokens the ceiling is 460 and the **target governs: 200 words**. The
-  two constraints are independent. The *ceiling* is physical: a budget the model
-  cannot reach is worse than none — the fixed 700-word cap against a 1024-token
-  ceiling truncated **all 48** memos of the experiment7 runs mid-sentence, always
-  amputating the concluding strategy section, and since the memo is fed back as the
-  next round's `prior_summary` the loss compounds (measured density for this
-  dense-markdown register is ~0.61 words/token, so 0.45 leaves room to finish). The
-  *target* is editorial: the memo is injected into every later round's attacker system
-  prompt, and at 460 words it measured 3.4k chars against a 3.2k-char prompt — **54%
-  of the whole system message**, crowding out the instructions it supplements. Raising
-  `judge.max_tokens` no longer lengthens the memo; change `_SUMMARY_TARGET_WORDS` for
-  that. The prompt's closing paragraph is tuned to the tighter budget: it tells the
-  judge to write bullets, and to *drop* the weakest notes wholesale rather than
-  compress every note into vagueness.
-- **Unsuccessful samples are analyzed as first-class evidence.** The prompt asks
-  what did *not* expose a weakness and how confidently (probe score near 0/1 = far
-  from the boundary = strong evidence, near 0.5 = nearly flipped), which lines of
-  investigation are exhausted, and explicitly licenses "this region has been
-  characterized; examine a different one" as a conclusion. The earlier prompt asked
-  only "what strategies work" / "what was most effective", which forces a
-  recommendation even from a round with one success in 47 — the judge duly promoted
-  that single sample to a template and the attackers converged on it.
-- **Opposite-direction misclassifications are withheld** (`hide_opposite_direction`,
-  default on) — see `_drop_opposite_direction`. Rows where probe and judge disagree
-  the *other* way from `error_type` (a false positive found during a `false_negative`
-  hunt) are dropped before rendering, and before the aggregates are computed, so the
-  counts stay consistent. Rows they *agreed* on are kept: "the classifier handled
-  this correctly" is evidence the memo needs whichever class it landed on. Without
-  this, every experiment7 false-positive memo carried a "what reliably yields probe
-  false negatives" section prescribing moves that were unwinnable in that rotation.
-It also writes the **cross-iteration memo** via `summarize_iteration(successes, *,
-iteration, error_type, true_class_label, round_memo="", prior_memo="", n_attempts=0,
-max_successes=30)`, called once per rotation *before* the retrain. Under its own
-`_ITERATION_SUMMARY_SYSTEM` prompt the judge is told the classifier is about to be
-retrained on these misclassified samples, and asked for three things: failure modes
-now covered by retraining, conversation types already handled correctly, and regions
-of the input space not yet examined — folding `prior_memo` in by rewriting rather
-than appending, capped at `word_budget` words — supplied by the caller from
-`attacker.cross_iteration_memo_word_budget`, defaulting to
-`DEFAULT_ITERATION_MEMO_WORD_BUDGET` (900). The prompt is built per call by
-`_iteration_summary_system(eval_data_description, word_budget)` = head + the coverage
-paragraph (empty unless an eval-data description is set) + `_iteration_summary_tail(budget)`,
-which at or below `_ITERATION_MEMO_TIGHT_BUDGET` (300) swaps its closing instruction for the
-round memo's lesson — write terse bullets and *drop* the weakest notes wholesale rather than
-compress every note into vagueness — so a small budget is a supported mode, not a squeezed
-900. At both defaults it is `_ITERATION_SUMMARY_SYSTEM` byte-for-byte.
-Note the default 900 is **not reachable** at the usual `judge.max_tokens: 1024`: at this
-register's measured ~0.61 words/token that is ~625 words, so the memo is guillotined
-mid-sentence and, being fed back as the next iteration's `prior_memo`, the loss compounds —
-the same failure that drove `_summary_word_budget`. Only the
-`max_successes` most recent successes are rendered (0 = all); returns `prior_memo`
-unchanged when the iteration produced neither successes nor a round memo.
-
-**Both summarization prompts are written in neutral analyst register** — "analyze the
-robustness of a text classifier", samples/misclassifications/evaluation cycles — never
-as red-team/attacker coaching ("strategies that worked", "what the next attackers
-should try"). This is not stylistic: the original adversarially-phrased round-summary
-prompt drew refusals from the judge (`openai/gpt-5.1-chat` in every config)
-and had to be rewritten. Keep any new summarization prompt in the same register, and
-note that `summarize_iteration` is the more exposed of the two — its input is *only*
-the successes, i.e. exactly the conversations the judge itself labelled
-harmful/high-stakes.
-
-**Refusal guard.** A refusal is a 200 with prose, not an exception, so it would
-otherwise be stored as the memo and injected into later attackers' system prompts as
-if it were findings. Both summarizers therefore route through
-`LLMJudge._summarization_call(system, user_content, *, what)`:
-`_looks_like_refusal` decides whether the response *opens with* a refusal phrase from
-`_REFUSAL_MARKERS`, which takes three guards, not a substring scan — **a plain
-`marker in head` test is wrong here in a structural way, and it aborted a live
-instruction-following run.** That concept's negative class *is* refusal, so every good
-memo quotes the phrasings the probe over-weights (`- Any explicit refusal cue ("I must
-decline…", "I cannot…") is treated as…`), and the scan read the citation as the judge
-declining. The guards: (1) a response opening with markdown structure
-(`_MARKDOWN_OPENER` — bullet, heading, table, blockquote, numbered item) is a write-up,
-since a refusal is first-person prose; (2) quoted spans are blanked by
-`_strip_quoted_spans` / `_QUOTED_SPAN` before matching, because a *cited* marker is not
-an *uttered* one — note the straight-single-quote alternative is guarded on both sides
-against a letter, or the apostrophe in "I can't help" opens a span and blanks the very
-refusal being looked for; (3) what survives must carry a marker starting within
-`_REFUSAL_LEAD_CHARS` (60) of the response, short enough to exclude a later bullet but
-long enough to keep catching a real refusal with a lead-in ("I'm sorry, but I can't
-help with that"). `_REFUSAL_SCAN_CHARS` (240) still bounds the work. On a hit the judge
-is re-asked once **in-context**
-(original user turn + its refusal + `_REFUSAL_RETRY_NUDGE`, which restates that this
-is a classifier-quality report over already-collected data). A second refusal raises
-`JudgeRefusalError`, which `_summarize_round` / `_write_iteration_memo` deliberately
-**do not swallow** (they log `summary_refused` / `iteration_memo_refused` and
-re-raise) — the run stops rather than continuing on a missing or poisoned memo.
-Ordinary transient errors are still swallowed as before.
-
-### `agentic_redteam/openrouter_client.py`
-Thin factory around `openai.OpenAI` / `openai.AsyncOpenAI` pointed at
-OpenRouter (`https://openrouter.ai/api/v1`). Reads `OPENROUTER_API_KEY` and the
-optional `OPENROUTER_BASE_URL` / `OPENROUTER_HTTP_REFERER` /
-`OPENROUTER_APP_TITLE` env vars. Imports `openai` lazily.
-
-### `agentic_redteam/circuit_breaker.py`
-Process-global breaker that stops a run when OpenRouter is **durably** down.
-Exists because every OpenRouter call site here is individually fault-tolerant
-by design — a failed attacker round is logged and the rotation continues
-(`attacker.run_one_model`), a failed contrastive generation drops one record
-(`preprocessing`), a failed summarization is swallowed (`_summarize_round`) —
-which is right for a blip but makes an exhausted balance or revoked key
-*invisible*: the run grinds through every remaining round, retrains on nothing,
-evals, and exits 0 with a plausible-looking comparison CSV. (This is exactly what
-one memo-ablation sweep did: 300 + 200 model-rounds all failing 402, then 3
-retrain/eval cycles on zero red-team data.)
-
-Every OpenRouter call reports its outcome via `record_success()` /
-`record_failure(detail, where=)`; N consecutive failures across **all** call
-sites trip the breaker, which raises `OpenRouterOutageError` and keeps raising
-it. `classify_error` sorts every failure into **three** classes, since they
-deserve very different patience (fatal is checked first, so a 402 whose body
-mentions a reset connection is still a drained balance):
-
-- **transient** (429/5xx/empty-choices envelopes) — we *reached* OpenRouter and
-  it answered badly; may recover, so `OPENROUTER_MAX_CONSECUTIVE_ERRORS`
-  (default 10) are allowed in a row, retried on 2/4/8s backoff.
-- **connection** (`APIConnectionError`/`APITimeoutError`, DNS failure, reset,
-  network unreachable) — the request never completed a round trip. Retried on a
-  **minutes**-long schedule (`OPENROUTER_CONNECTION_BACKOFF_S`, default
-  `60,120,480`; last interval repeats) and bounded by **elapsed time, not a
-  count**: `OPENROUTER_MAX_CONNECTION_OUTAGE_S` (default 1800 = 30 min).
-- **fatal** (401/402/403, "Insufficient credits", "Invalid API key") — never
-  recovers without human action, so only
-  `OPENROUTER_MAX_CONSECUTIVE_FATAL_ERRORS` (default 3), and callers **skip
-  their backoff sleeps** for these (`classify_error` / `is_fatal_error`).
-
-**Why connection errors are timed, not counted.** A count threshold counts
-*observations*, and with `attacker.sessions_per_model: 10` one network event is
-observed by ten concurrent sessions at once — so the counter hit its limit of 10
-on the first wave, **before any backoff sleep began**, and lengthening the
-backoff alone would not have helped. That is how a ~2.5 min connection blip
-killed a 10-hour run twice in one night — two `openrouter_outage` aborts, then 6h
-and 30min of idle GPU awaiting a human restart. A wall-clock streak is immune to
-that multiplication. So once a streak contains **any**
-connection error it is governed by the outage clock; `_streak_started_at` is
-stamped on the first failure after a success and cleared by `record_success`.
-
-Correspondingly, the retry loops (`attacker._openrouter_create_with_retry`,
-`LLMJudge._call_openrouter`, `_ContrastiveLLM.generate`) bound connection
-retries by the **breaker**, not by `_OPENROUTER_MAX_ATTEMPTS` — they keep
-probing until it trips. That is deliberate: a network back at minute 12 resumes
-*that same round* mid-flight, whereas a fixed attempt cap would already have
-abandoned the round and its remaining `max_turns`. Backoff sleeps go through
-`breaker.sleep_sync` / `sleep_async`, which sleep in 5s chunks and re-check
-`raise_if_tripped()`, so when one call site declares the outage terminal every
-other site sleeping out an 8-minute backoff wakes and aborts (and interpreter
-shutdown never has to join a thread parked for 8 minutes).
-
-"Consecutive" is global and reset by *any* OpenRouter success, so a single
-durably-broken model in a rotation whose siblings still work will **not** trip
-it — the rotation genuinely can continue in that case. Counters are guarded by
-a `threading.Lock`, not an asyncio primitive, because call sites live in the
-asyncio attacker loop *and* in `preprocessing`'s `ThreadPoolExecutor` workers.
-`raise_if_tripped()` is called at the top of `run_one_model` and before each
-OpenRouter call, so once tripped the remaining schedule collapses without
-touching the network. `reset()` / `snapshot()` exist so a test can drive the
-breaker through all three classes without real network failures.
-
-### `agentic_redteam/tools.py`
-Hosts both the **provider-agnostic handlers** (`handle_submit_conversation`,
-`handle_view_past_attempts`, `handle_get_probe_info` — all take a
-`ToolContext` and return plain dicts) and **two surfaces** built on top of
-them:
-
-- `build_mcp_server(ctx)` — wraps the handlers as MCP tools via
-  `claude_agent_sdk.create_sdk_mcp_server` + `@tool`. Used by the Claude SDK
-  driver. `claude_agent_sdk` is imported inside this function so OpenRouter-
-  only configs don't need it.
-- `openai_tool_definitions()` + `dispatch_tool_call(ctx, name, args)` —
-  OpenAI-format tool schemas and a direct dispatcher used by the OpenRouter
-  driver.
-
-Both surfaces share the same business logic; success classification,
-deduplication, and JSONL persistence happen exactly once inside the handlers.
-
-- `submit_conversation(messages)` — **always** runs both the probe and the
-  Claude judge. Whether the probe predicted the wrong class can only be
-  established by comparing its prediction to the judge's label, so there is
-  no short-circuit. Computes `success` as: probe and judge labels disagree
-  *and* the disagreement direction matches the configured `error_type`.
-  Persists every attempt with the judge's label included, and increments
-  `ctx.session_records` / `session_successes` only when `JsonlStore.append`
-  reports the row as newly persisted (a sibling may have won the race).
-  When `ctx.near_dup_guard` is on, `try_reserve_opener` runs **before** the
-  probe and judge — a rejected candidate returns `near_duplicate=True` having
-  cost no scoring — and the reservation is dropped in a `finally`.
-  Ahead of even that, `ctx.token_budget` (a `TokenBudget`, see
-  `token_budget.py`) rejects a candidate **longer than the probe can read**:
-  it returns `too_long=True` with `n_tokens` / `max_tokens`, logs a `too_long`
-  runlog event, and persists **nothing** — an over-long conversation would be
-  scored on its first 1024 tokens and, if it counted as a success, retrained on
-  truncated. An uncountable conversation is allowed through (`overage` → `None`).
-  The cap is also stated in the attacker system prompt by
-  `_build_full_system_prompt`, so the constraint is known rather than only
-  enforced, and `_render_submission_feedback` reports the rejection in prompt mode.
-- `view_past_attempts(only_successful, limit)` — delegates to the shared
-  `ViewSampler` (see `view_sampler.py`) so later attacker models in a rotation
-  can learn from earlier ones. The default (`only_successful=false`) view is a
-  **balanced** ~50/50 mix of successful/unsuccessful attempts (total = `limit`,
-  backfilling from the other side when one is short), **blended** with true-class
-  training-set examples on the successful side (tagged `success=True`,
-  `attacker_model="__training_seed__"`), and **periodically reshuffled** (a fresh
-  seeded random draw every `attacker.view_reshuffle_interval` submissions, stable
-  within an interval). Setting `attacker.view_reshuffle: false` turns off the random
-  reshuffle entirely: the attacker is then shown the **most-recent** successful and
-  unsuccessful attempts (recency, not a random draw), and training seeds are used
-  **only as a fallback** for the successful half when there are no real successes yet
-  (rather than always blended). There is **no judge-confidence filter** here — confidence
-  gating lives only in the training path (`retrain_probe(min_judge_confidence=)`).
-- `get_probe_info()` — returns probe metadata.
-
-A `ToolContext` is the closure shared by all three tools — it holds the probe,
-judge, store, run id, the currently-active round + attacker model, the shared
-`view_sampler`, the near-dup knobs, this session's `session_id` +
-`session_records` / `session_successes` counters, and the optional
-`prompt_trace_store`. The attacker module updates `current_attacker_model` and
-`current_round` before each model run so JSONL rows attribute correctly.
-`confidence_threshold` is still recorded on the context but is **no longer used to
-filter `view_past_attempts`** (it only feeds the training-path gate).
-
-### `agentic_redteam/view_sampler.py`
-`ViewSampler` — one shared instance per rotation (built in `run_redteam`) backing
-`view_past_attempts`. Holds the shared `JsonlStore`, the true-class training seeds
-(`load_true_class_seeds`, read from the base training JSONL, filtered to
-`probe.true_class_label`), and the reshuffle/balance knobs from `attacker:`
-(`view_reshuffle`, `view_reshuffle_interval`, `view_balance`, `view_training_seeds`).
-When `view_reshuffle` is false, `sample()` skips the random draw and instead returns
-the most-recent attempts per side, with seeds used only as a fallback for the
-successful half. The reshuffle
-RNG is keyed on `(rng_seed, interval_idx)` — independent of the global RNG, so the
-draw is reproducible regardless of drift. The base training path is threaded in via
-`run_redteam(base_training_data_path=)` ← `run_redteam_sync` ← the iterative CLI
-(`args.base_training_data`); the one-shot `run_redteam_main` passes none, so seeds
-degrade to empty.
-
-Tool naming for the allow-list: `mcp__redteam_tools__<tool>`. The MCP server
-name (`redteam_tools`) is exported as `MCP_SERVER_NAME`.
-
-### `agentic_redteam/attacker.py`
-Dispatcher + rotation. For each `AttackerModel` in `config.attacker.models`,
-picks the driver by `model.provider` — except when `config.attacker.interface ==
-"prompt"` and the model is `openrouter`, which routes to the prompt driver
-instead (`run_one_model`):
-
-- **`claude_sdk`** — `_run_claude_sdk_model` wraps `ClaudeSDKClient`. Critical
-  sandbox configuration:
-
-  ```python
-  ClaudeAgentOptions(
-      allowed_tools=allowed_tool_names(),                          # mcp__redteam_tools__*
-      disallowed_tools=["Bash","Edit","Write","Read","Glob",...],  # block all built-ins
-      permission_mode="bypassPermissions",                         # auto-approve MCP calls
-      setting_sources=[],                                          # don't auto-load filesystem CLAUDE.md
-  )
-  ```
-
-- **`openrouter`** — `_run_openrouter_model` drives `chat.completions.create`
-  with `tools=openai_tool_definitions()` in a manual loop: read assistant
-  message → record any `tool_calls` → dispatch each via `dispatch_tool_call`
-  → append the result as a `role: "tool"` message → repeat until the assistant
-  emits no tool calls, the batch target is hit, or `max_turns` is reached.
-  No MCP server is constructed on this path.
-
-- **`openrouter` + `interface: prompt`** — `_run_openrouter_prompt_model` drives
-  the same model with **no tools** (`_openrouter_create_with_retry(..., tools=None)`).
-  The system prompt is `_build_full_system_prompt(...)` (which already bakes in the
-  probe metadata `get_probe_info` would return) plus `_PROMPT_MODE_INSTRUCTIONS`
-  (output exactly ONE candidate conversation per turn as a fenced ```json array of
-  `{role, content}`). Each turn: parse the reply with `_extract_conversation`
-  (fenced block → balanced `[...]` → whole text; `_coerce_messages` validates
-  role+content and also accepts a `{"messages": [...]}` wrapper); on parse failure,
-  nudge and retry the turn; on success, score it through the same
-  `dispatch_tool_call(ctx, "submit_conversation", ...)` path as tools mode, then feed
-  back `_render_submission_feedback` (probe vs. judge verdict, duplicate /
-  near-duplicate / error notes — no success count, see below) followed by a freshly
-  injected `_render_injected_view` — `view_past_attempts` rendered as text,
-  `attacker.view_limit` rows, since the model can't call it — and, under
-  `near_dup_broadcast`, `_render_near_dup_rejects`. Both render blocks return `""` for
-  `view_limit <= 0`, so a run configured to show the attacker nothing can't get past
-  attempts back through the rejects channel.
-  Assistant text is coerced to `""` before being appended so a
-  null-content turn can't make the next request protocol-invalid. Respects
-  `batch_target` (shared success counter) and `max_turns` (one submission per turn).
-  This path is **openrouter-only** — `load_config` rejects `interface: prompt` with a
-  `claude_sdk` model. No MCP server is constructed.
-
-- **`openrouter` + `interface: prompt` + `batch_submissions: true`** —
-  `_run_openrouter_prompt_batch_model`. Same system prompt, but with
-  `_prompt_mode_batch_instructions(max_turns)` in place of `_PROMPT_MODE_INSTRUCTIONS`:
-  the model is asked for **all `max_turns` conversations in one reply**, they are parsed
-  by `_extract_conversations` (plural), each is scored through the same
-  `dispatch_tool_call(ctx, "submit_conversation", ...)` path, and the session **ends** —
-  so `max_turns` is a batch size, not a turn budget, and the attacker is **never shown a
-  verdict**. That is the point of the mode: it isolates what in-context feedback does,
-  since the per-turn loop is also how a session talks itself into mode collapse.
-
-  `_extract_conversations` accepts N fenced blocks, one block holding an array of arrays,
-  or a `{"conversations": [...]}` wrapper; each fenced block is parsed **independently**,
-  so a batch whose last block was guillotined by `max_tokens` still yields every complete
-  conversation before it. Exact duplicates within a reply are collapsed and the result is
-  capped at `max_turns`.
-
-  Two deliberate asymmetries with the per-turn loop. **`batch_target` is checked between
-  calls, not between conversations** — a round can overshoot it by up to one batch per
-  session, which is the right trade because the generation cost is already sunk and only
-  the cheaper probe+judge scoring would be saved. And a reply **short of `max_turns` gets
-  up to `_BATCH_MAX_FOLLOWUPS` (2) top-up asks**; the follow-up names only how many more
-  conversations are wanted, never a verdict, or the session would stop being blind.
-  `stop_reason` is one of `batch_complete` / `batch_short` / `batch_no_parse` /
-  `target_reached`.
-
-  Note this mode **does** tell the attacker a number — the batch size. That does not
-  violate the "never state a quota" rule below, which is about `batch_target`'s success
-  count: a batch size is a workload the model cannot produce without knowing, not a goal
-  it can meet early and stop searching.
-
-A fresh `ToolContext` is built per model run (with round/model labels set), but
-all runs share the same `JsonlStore` so dedup and the success counter persist
-across rotation. `run_redteam` builds one shared `ProbeJudge` for the whole
-rotation and calls `probe.release()` once `asyncio.gather` finishes, freeing the
-probe's LLM (gemma-sized) GPU memory before the next phase (retrain/eval) reloads
-the base model — without it, two copies pile up and the retrain offload-thrashes.
-
-**Round scheduling.** When `attacker.round_summaries` is on (default), `run_redteam`
-runs rounds **sequentially** — for each round it launches that round's models
-concurrently (bounded by `concurrency`), `await`s them, then calls
-`_summarize_round` (judge folds the round into the rolling memo via
-`summary_store.update`, passing `summary_store.current` as `prior_summary`) before
-starting the next round. The final round is *not* summarized (nothing would consume
-it). Each model run renders `ctx.summary_store.render()` into its system prompt at
-session start, so sequential ordering guarantees round N sees the memo distilled
-from rounds 0..N-1. `_summarize_round` swallows transient judge failures (logged to
-the runlog as `summary_error`) so a summarization hiccup never aborts the rotation —
-except a `JudgeRefusalError`, which is logged as `summary_refused` and re-raised. When
-`round_summaries` is off, the legacy path launches **all** round×model sessions at
-once with no memo. Note this trades throughput for the memo signal: with `rounds:
-20, concurrency: 30` the legacy path runs all 20 rounds in parallel; sequential runs
-them one at a time.
-
-**Round-level resume.** `run_redteam(..., resume=)` makes a rotation restartable at
-round granularity rather than only at the `(iteration, error_type)` phase boundary.
-A `RoundProgressStore` on `<jsonl>.rounds_done.jsonl` is built on **every** run (so a
-future restart always has checkpoints), but consulted only when `resume=True`; the
-`SummaryStore` is then also constructed with `resume=True` so the rolling memo is
-reloaded from `<jsonl>.summaries.jsonl` instead of starting empty. In the sequential
-branch each round is marked done *after* `_summarize_round` returns, so progress and
-memo can't diverge; the final round (never summarized) is marked straight after its
-tasks. The legacy branch has no round boundary to checkpoint at, so it gives each
-round its own task group, launches them **all** up front (the semaphore, not the await
-order, governs concurrency — throughput is unchanged) and awaits the groups in round
-order, marking each as it lands; a raising group cancels every sibling, matching
-`_gather_or_cancel`. A round interrupted part-way is simply not marked and re-runs in
-full — its attempts survive in the JSONL, and since they carry the same round number
-they still count toward that round's summary. Skipped rounds contribute no
-`ModelRunSummary`, so the CLI's per-error-type success count reports what *this*
-process did, not the cumulative total. The iterative CLI passes
-`resume=args.resume and i == start_iter` (only the resumed iteration can hold partial
-progress) and logs a `round_skipped` runlog event per skipped round.
-
-**Cross-iteration memo.** Independent of the above (it works with `round_summaries`
-either on or off). When `attacker.cross_iteration_memos` is on, `run_redteam` builds
-an `IterationMemoStore` on `<jsonl>.iteration_memos.jsonl`, threads it into every
-`ToolContext`, and — after the whole rotation, before returning to the CLI's retrain
-step — calls `_write_iteration_memo`: it gathers `store.records_for_iteration(iteration)`,
-takes the successes plus the final rolling round memo, and asks the judge for the
-hand-off memo (`summarize_iteration`), which is appended to the sidecar. Transient
-judge failures are logged (`iteration_memo_error`) and swallowed; a `JudgeRefusalError`
-(judge declined twice — see the refusal guard above) is logged and re-raised, stopping
-the run. The prompt side is
-`_prompt_memos(ctx)` → `(iteration_memo, round_memo)`, both passed to
-`_build_full_system_prompt` (iteration memo first, round memo last as the more
-immediate signal) by all four drivers. Note the CLI's phase-marker resume path skips
-the whole rotation for an already-finished `(iteration, error_type)`, so that
-iteration contributes no memo — the next one falls back to the newest earlier memo.
-
-**`sessions_per_model`** multiplies the per-round fan-out: both the sequential and
-legacy branches launch `sessions_per_model` tasks for *each* model (`for _ in
-range(config.attacker.sessions_per_model)` in the round-task comprehension), so N>1
-runs N independent concurrent sessions of the same model within a round **without**
-duplicating it in `models` and **without** disabling `round_summaries` — the rounds
-stay sequential and the memo is unaffected. All copies share the one `JsonlStore`
-(dedup-by-canonical-text, so two siblings that hit the same conversation don't
-double-write) and record the **same** `round`/`attacker_model`, so their attempts all
-fold into that round's summary. Two consequences to plan for: (1) set `concurrency ≥
-sessions_per_model × len(models)` or the copies queue on the semaphore instead of
-running in parallel; (2) `batch_target` is checked against the **shared** success
-counter (`ctx.store.success_count`), so N siblings collectively stop at ~`batch_target`
-successes per round, not `N × batch_target` — it's a shared round budget, not
-per-session. Note the baseline each session compares against is snapshotted when *it*
-starts, so a session that queued on the semaphore gets a fresh budget of its own; keep
-`concurrency ≥ sessions_per_model × len(models)` and the round stays at one budget.
-
-**`batch_target` is enforced only programmatically — never told to the attacker.**
-`_build_full_system_prompt` states what counts as a successful find but not how many
-are wanted, `_render_submission_feedback` reports the verdict without a running count,
-and the `submit_conversation` tool result carries no `successful_finds_so_far`. The
-only stop signals the attacker can perceive are its own turn budget and the verdicts.
-Enforcement lives in the OpenRouter driver loops, which check the shared counter after
-each turn (after each *call*, in batch mode) and break with
-`stop_reason="target_reached"`; the `claude_sdk` driver has no such check and is bounded
-by `max_turns` alone. Don't reintroduce the quota into a prompt: an attacker given a
-target treats it as a quota to satisfy and stops searching once it's met. The batch-size
-number `batch_submissions` states is not this — see that driver above.
-
-**`ModelRunSummary.new_successes` counts the session's own rows**, taken from
-`ToolContext.session_records` / `session_successes` (incremented in
-`handle_submit_conversation` only when `JsonlStore.append` actually persisted). It must
-**not** be a delta on the shared store: siblings write concurrently, so a store delta
-measured around one session also counts theirs, and since the caller sums the summaries
-the error multiplies by the fan-out (with `sessions_per_model: 5`, a 30-success round
-reported ~150). `_mark_round_done` sums these, so `rounds_done.jsonl` inherits the fix.
-
-### `agentic_redteam/ensemble.py`
-`EnsembleProbe` — `n` same-architecture probes fit on the **same** activations under
-`n` different training seeds, whose **probabilities are averaged** into one score.
-Built by `retrain._train_with_cached_base_activations` when it is handed
-`ensemble_seeds` (from `probe.ensemble_size` / `--ensemble-size`), pickled to the
-ordinary `probe_iter{N}.pkl` path, and read back by everything that consumes a probe.
-
-- **Averaging is on probabilities, before the threshold.** The predicted class is
-  `mean_i p_i >= threshold`, not a vote over the members' individual predictions —
-  so the judge, the JSONL row and the attacker all see exactly one score and one
-  prediction, whatever `n` is. Nothing below `ProbeJudge.score` knows it is an
-  ensemble, which is the point: `success` is still probe-label vs. judge-label.
-- **Duck-typed, not a `Probe` subclass.** It matches the surface its consumers
-  actually use (`model_name` / `layer` / `pos_class_label` / `neg_class_label` /
-  `description` / `predict_proba` / `predict_proba_from_inputs`), which is what makes
-  it a drop-in for a single probe at every call site. Not subclassing also keeps the
-  module importable without pulling in tuberlens (`probe_judge` imports it eagerly).
-- **`predict_proba_from_inputs` extracts activations ONCE** and hands them to every
-  member as a pre-activated `Dataset`. Delegating to the members' own
-  `predict_proba_from_inputs` would run `n` forward passes of a gemma-sized model per
-  submission — the dominant cost of scoring — for zero benefit.
-- **`_mean_proba` scores every member in one pass** via `_fused_proba` → tuberlens'
-  `stacked_probs`, which stacks the members' weights and vmaps a single forward instead
-  of walking the activations once per member (5-14x measured on the real eval splits;
-  AUROC moves in the 4th decimal and no prediction flipped). It returns `None` — and the
-  caller falls back to the per-member loop — whenever the members are not a stack of
-  identical pytorch heads, or if the fused pass raises (an OOM, an architecture vmap
-  can't trace), or if `fusion_enabled()` is off. The fallback is the behaviour this path
-  has always had, so the fast path can only cost speed, never a score.
-- **`fusion_enabled()` is the one switch for both halves** — it reads tuberlens'
-  `PROBE_FUSED_ENSEMBLE` (on every call, so a script can flip it in-process;
-  `getattr`-guarded so a tuberlens predating the setting still fuses) and gates the
-  scoring path here *and* the fit-path branch in
-  `retrain._train_with_cached_base_activations`. Deliberately not a separate
-  `AGENTIC_REDTEAM_*` var: the fit-side switch already **is** that setting (it is what
-  `build_ensemble` consults internally), so a second name could only drift from it — and
-  deliberately not two knobs, since the only state that would add is a half-reverted one.
-- **`per_token_predictions` raises.** The per-token output is architecture-dependent
-  (`PytorchAdamClassifier` returns a 3-tuple), so there is no averaging rule correct
-  across architectures. Nothing here calls it; iterate `.members` if you need it.
-- `iter_probe_members(probe)` / `ensemble_size(probe)` let code that must reach
-  *inside* a probe treat the single and ensemble cases uniformly (`[probe]` / `1` for
-  an ordinary probe).
-- `MAX_ENSEMBLE_SIZE` (10) is enforced in `config.load_config`, in the CLI flag and in
-  `retrain._resolve_ensemble_seeds` — every entry point that trains, since a typo like
-  `100` would otherwise turn one retrain into a hundred fits.
-- **`ENSEMBLE_SEEDS`** — 10 numbers drawn once at random and pinned in the repo, one
-  per allowed member. Member `i` is always fit under `ENSEMBLE_SEEDS[i]`, on every
-  run, config and box. This deliberately decouples a member's identity from `--seed`,
-  which also governs the train/val split and the eval subsample: walking `--seed + i`
-  would mean two runs differing only in `--seed` produce ensembles differing in *two*
-  ways at once, uncomparable member-for-member. Taking a prefix also means an
-  `n`-member and an `(n+1)`-member ensemble share their first `n` members' seeds, so
-  growing an ensemble *adds* a member instead of reshuffling all of them. Treat the
-  values as frozen — editing one silently changes every ensemble trained afterwards,
-  and only `EnsembleProbe.member_seeds` (which records what was actually used) would
-  show it. Raising `MAX_ENSEMBLE_SIZE` means *appending* seeds, never reordering; an
-  assert ties the two constants together.
-- `DETERMINISTIC_ARCHS` (`sklearn`, `difference_of_means`, `lda`) drives a warning:
-  those fits are closed-form (or lbfgs under a fixed `random_state`), so `n` seeds
-  produce `n` identical members and an average equal to a single probe, at `n` times
-  the cost. Only stochastic architectures are actually diversified by a seed.
+### `agentic_redteam/json_extract.py`
+`extract_json_values(text, accept)` — fenced blocks first (each parsed independently, so
+a `max_tokens`-guillotined last block still yields the complete ones before it), then
+balanced `[...]`/`{...}` spans (a span nested inside an accepted one is skipped), then
+the whole text; `loads_forgiving` retries a fragment with the closers it is missing
+(`json_repairs`). `extract_string_list` is the directions parser.
 
 ### `agentic_redteam/retrain.py`
-Converts successful JSONL records into a tuberlens `LabelledDataset` — labelled
-with the canonical enum value (`"positive"` / `"negative"`) corresponding to the
-*true* class for the run's `error_type`. The base training dataset
-(`LabelledDataset.load_from(path, pos_class_label, neg_class_label)`) and the
-red-team set are **split independently** and combined per side at activation time
-(see the caching paragraph below), not pre-concatenated. By default `_infer_probe_spec`
-walks the loaded probe's `_classifier.probe_architecture` (or the SklearnProbe
-shape, or the difference-of-means/LDA shape) to reconstruct the `ProbeSpec` so the
-retrained probe matches the original's architecture and hyperparameters. Pass
-`retrain_probe(..., probe_spec=...)` (a `ProbeSpec`, or a `ProbeType` name string
-like `"linear_then_softmax"`) to instead train a **fresh** architecture; the CLIs
-expose this as `--probe-arch` (bare flag → `DEFAULT_FRESH_PROBE_ARCH`,
-`"linear_then_softmax"`; pass a name to override; omit to inherit). A name string
-builds `ProbeSpec(name=ProbeType(name), hyperparams={})`, letting tuberlens fill
-in the arch's default hyperparams (`_coerce_probe_spec` does this string→ProbeSpec
-conversion, shared by `retrain_probe` and `train_initial_probe`).
+Trains probes on base data ∪ in-memory samples. Entry points:
 
-`train_initial_probe(...)` trains the **first** probe from base training data alone
-(no base probe to inherit from), so the caller supplies `model_name`, `layer`,
-`pos_class_label`, `neg_class_label`, `probe_description`, and `probe_spec`
-(defaulting to `DEFAULT_FRESH_PROBE_ARCH`). This mirrors tuberlens'
-`collate_train_evaluate.train_high_stakes_probe` but with the concept passed in
-rather than hardcoded.
+- `train_initial_probe(...) → RetrainResult` — first probe from base data alone.
+- `retrain_probe(samples, base_probe_path, base_training_data_path, new_probe_path,
+  ...) → RetrainResult` — `samples` are `GeneratedSample`s or `{inputs, labels}` dicts
+  (`samples_to_dataset`); labels map through the base probe's class labels. Inherits
+  architecture (`_infer_probe_spec`) and ensemble size from the base probe unless told
+  otherwise. **There is no JSONL input and no preprocessing/contrastive step** any more.
+- `RetrainResult(new_probe_path, n_extra_samples, n_training_samples_total,
+  ensemble_size, dev_auroc)` — `dev_auroc` is `{split: auroc, ..., "mean": ...}`,
+  computed by `_per_split_auroc` **inside `_train_with_cached_base_activations` right
+  after the fit**, while the validation activations are still resident/staged. The
+  function returns `(probe, dev_scores)`; `dev_splits` (`[(name, n_rows), ...]`, from
+  `_load_dev_dataset`'s third return value, in concatenation order) is what makes a
+  per-split number readable off the single dev blob. `"mean"` is the unweighted mean
+  over splits carrying both classes.
+- `score_probe_on_dev(probe_path, dev_data_path, cache_dir, ...)` — the baseline for a
+  warm-started or resumed probe, on the **same dev blob** the fits use.
+- `warm_sample_activation_cache(samples, base_probe_path, cache_dir, ...)` — one model
+  load for every uncached sample, so the `n_batches` candidate fits are cache hits.
+- `load_probe(path)` (CPU unpickle + move every member's classifier to tuberlens'
+  `DEVICE`/`DTYPE` via `iter_probe_members`) and `read_probe_metadata(path)`.
 
-**Deep ensembles (`ensemble_size`).** Both entry points take an ensemble size and turn
-it into `_resolve_ensemble_seeds(seed, n)`, which `_train_with_cached_base_activations`
-hands to `ProbeFactory.build_ensemble` over the *same* pre-activated datasets, wrapped
-in an `EnsembleProbe`. That call **fits the members in one pass where it can** (tuberlens'
-`probes/fused_ensemble.py` stacks their parameters and steps them under `vmap`) and falls
-back to one `ProbeFactory.build` per seed where it can't — a closed-form architecture, one
-member, a torch without `torch.func`, or an OOM. Members come
-back as ordinary independent probes either way, so the pickle and every consumer are
-unchanged, and the call is reached through `getattr` so a tuberlens predating it still
-trains ensembles the old way.
-
-**Choosing the sequential fit.** `ensemble.fusion_enabled()` (i.e.
-`PROBE_FUSED_ENSEMBLE`) selects between the two, and when it is off the members are fit
-by **this module's own per-seed loop**, not by `build_ensemble`'s internal sequential
-fallback. The two are not the same fit: that fallback seeds `torch` alone, whereas
-`_build` calls `seed_everything`, which also seeds `random`/`numpy` and pins the cuDNN
-flags. Turning fusion off is something one does to compare against the pre-fusion runs,
-so it has to land on exactly the path those runs took — a "sequential" mode that was
-itself a third behaviour would answer a question nobody asked. The same switch governs
-scoring (see `ensemble.py`). Measured on this repo's own gemma-3-27b retrains: 3.8x at
-228 train / 436 dev, and **14x** on the high-stakes shape where the 19.6 GiB dev set does
-not fit the card and the members would otherwise each re-read it every epoch. Only the **fit** repeats — the split, the extraction,
-the caches and the merge are all shared — so member `k > 0` costs a probe-head fit,
-not another pass through the extraction LLM (the model is released once, before the
-first fit, exactly as before). For `n > 1` the seeds are the **repo-pinned**
-`ENSEMBLE_SEEDS[:n]`, *not* a walk off `--seed`; `n == 1` is the carve-out and returns
-`[seed]`, so the default single-probe path is byte-identical to what it always was
-(routing it through the pinned list would silently retrain every existing
-non-ensemble config under a different seed). **Only the fit seed varies — never the
-split seed**: varying the latter would give each member a different validation set
-(so early stopping would select against different data) and a different
-base-activation cache key, turning one cached extraction into `n`.
-`retrain_probe(ensemble_size=None)` (the default)
-**inherits** the size off the probe being retrained, mirroring `probe_spec=None`
-inheriting its architecture, so an iterative run keeps building what it was attacking;
-`train_initial_probe` has no probe to inherit from and defaults to 1.
-`_infer_probe_spec` unwraps an `EnsembleProbe` to member 0 (all members share a spec).
-
-Both `retrain_probe` and `train_initial_probe` derive the validation set with
-`stable_train_test_split(dataset, test_size, split_field, seed)` — a
-**content-deterministic** replacement for tuberlens' RNG-based
-`create_train_test_split`. Each sample's train-vs-val side is
-`sha256(seed : content)` (or the `split_field` value) thresholded at `test_size`,
-independent of dataset size or order, so the base samples land identically every
-iteration; class balance is preserved in expectation.
-
-**`dev_data_path=` overrides that split entirely.** Given a held-out dev set (a JSONL or
-a dir of `*.jsonl` splits), both functions load it via `_load_dev_dataset` — which
-concatenates the splits and **raises** if any row's `labels` matches neither class label,
-since tuberlens would otherwise load them as `None` and hand the fit a validation set it
-cannot score — then set `test_size = 0.0` and `split_field = None`. That is the whole
-mechanism: `stable_train_test_split` at `test_size=0.0` puts every sample on the train
-side, so base *and* red-team train in full and the dev set is the sole validation set.
-Nothing else in the split/cache machinery needed changing, and the `test_size` already in
-the base cache key means the changed base membership gets a new key for free. The dev
-set's own activations are a single blob (`_dev_activation_cache_path`) keyed on the dev
-files' bytes + `model | layer | combine | convert`, with **no** `seed` / `test_size` /
-`split_field`: the dev set is used whole, so nothing about the train/val partition can
-change which rows it holds. `_train_with_cached_base_activations` takes it as `dev_val` /
-`dev_val_cache` and folds it into `validation_dataset` alongside the (now empty) base and
-red-team val sides, so the non-dev path is byte-for-byte unchanged.
-
+Validation always comes from the dev set on the CLI path: `dev_data_path` forces
+`test_size = 0.0`, so `stable_train_test_split` puts every base and generated sample
+on the train side and the dev set is the sole validation set. (The split machinery is
+kept; `stable_train_test_split` is content-deterministic — `sha256(seed : content)`.)
 Note tuberlens uses the validation set to select a best-val-AUROC epoch and to
-early-stop, so which set this is materially changes the probe — but only for the pytorch
-architectures. `SklearnProbe.fit` prints "does not use a validation dataset" and ignores it.
+early-stop — only for the pytorch architectures; `SklearnProbe.fit` ignores it.
 
-**What a fit returns is the LAST epoch, not the best one — and that is deliberate now.**
-`PytorchAdamClassifier.train` recorded its best checkpoint as
-`self.model.state_dict().copy()`, a *shallow* dict copy whose values are the live
-parameter tensors the optimizer keeps updating in place; the closing `load_state_dict`
-therefore restored the weights the fit ended on. With `patience: 50` that is a probe fifty
-epochs past its selected checkpoint, and `best_epoch` records an epoch whose weights were
-never kept. Every probe in this project was trained that way. The copy is now a real
-clone, but **restoring it is opt-in** (`PROBE_RESTORE_BEST_CHECKPOINT=1`): flipping the
-default would silently make every cross-iteration comparison incommensurable with the runs
-that produced it, and it is not a free win — measured on a real 10-member instruction
-retrain, restoring the best checkpoint moves the dev AUROC the members were selected on
-(0.740 → 0.774) but is a wash on the held-out eval splits (mean 0.819 → 0.813, with one
-split falling 0.79 → 0.55). It is a *different* probe, not a better one. Both the fused
-and the per-member trainer read the same setting, so the two can never disagree about what
-an early stop hands back.
+**What a fit returns is the LAST epoch, not the best one — deliberately.** tuberlens'
+`PytorchAdamClassifier.train` used to keep a shallow `state_dict().copy()` whose tensors
+the optimizer kept updating; every probe ever trained here is the last-epoch probe.
+The copy is now a real clone but **restoring it is opt-in** (`PROBE_RESTORE_BEST_CHECKPOINT=1`):
+flipping the default would make every cross-iteration comparison incommensurable, and it
+is a *different* probe, not a better one (measured: dev AUROC up, held-out eval a wash).
 
-**Activation caching (base-blob + red-team per-sample).** Because the base split is
-fixed, the base train/val activations are cached on disk and reused across the whole
-run. The red-team set grows every iteration, so it is cached at a **different
-granularity**: per conversation (a single whole-set blob like the base one would get
-a fresh key each iteration and never hit). `retrain_probe` / `train_initial_probe`
-split base and red-team separately, then `_train_with_cached_base_activations`
-re-hosts the tail of tuberlens' `train_probe`: it activates each sub-dataset (base via
-tuberlens' `get_activations(save_path=...)` blob cache — a hit calls
-`LLMModel.load_activations` and needs no model; the red-team set via
-`_activate_redteam_cached`, which partitions by per-conversation cache hit, loads the
-hits from disk, computes only the misses, and writes each new row back as its
-own blob), merges per side with `_concatenate_consuming` (which pads +
-concatenates the activation tensors), then calls `ProbeFactory.build` on the
-pre-activated datasets. The heavy `LLMModel` loads **lazily** — a full cache hit with
-no uncached red-team samples loads no model at all. `_base_activation_cache_paths`
-keys the base cache on a hash of the base data file +
-`model | layer | seed | test_size | split_field | combine | convert`;
-`_redteam_activation_cache_path` keys each red-team blob on the conversation's own
-(transformed) messages + `model | layer | combine | convert`. Per-conversation
-caching is **correct across iterations because the underlying LLM is frozen** (only
-the probe head is retrained), so a conversation's layer activation is identical
-regardless of which iteration computes it — even when `preprocessing` keeps/drops
-different records or mints new contrastive pairs each iteration, each is keyed by its
-own final content. Since `get_activations` / `load_activations` load *by path without
-validating inputs*, any change that would alter the activations changes the key (no
-silent stale reuse). Both caches are disabled when `base_activation_cache_dir=None`.
+**Deep ensembles (`ensemble_size`).** `_resolve_ensemble_seeds(seed, n)` draws member
+seeds from the repo-pinned `ENSEMBLE_SEEDS[:n]` (never a walk off `--seed`; `n == 1`
+returns `[seed]` so the single-probe path is byte-identical to what it always was).
+`_train_with_cached_base_activations` fits members together via tuberlens'
+`ProbeFactory.build_ensemble` when `ensemble.fusion_enabled()`, else one
+`ProbeFactory.build` per seed through `_build` (which calls `seed_everything`, not just
+`torch.manual_seed`). Only the fit repeats — extraction, caches and merge are shared.
 
-**Misses are computed in chunks and written through per row.** `_activate_redteam_cached`
-loops the miss set in chunks of `model_loading.extraction_batch_size()` (tuberlens'
-`BATCH_SIZE`, default 1), saving each row's blob as soon as its chunk returns, rather
-than one `get_activations` call over the whole miss set followed by a bulk save. Two
-reasons, both from a 770-sample gemma-3-27b retrain:
+**Activation caching (base blob + per-sample + dev blob).** `_base_activation_cache_paths`
+keys the base split on the file hash + `model | layer | seed | test_size | split_field |
+fraction | combine | convert`; `_sample_activation_cache_path` keys each generated
+conversation on its own (transformed) messages + `model | layer | combine | convert`
+(subdir `sample_acts_<model>_L<layer>/`); `_dev_activation_cache_path` keys the dev set
+on the dev files' bytes + `model | layer | combine | convert`. Per-sample caching is
+what makes the growing set cheap: a sample first seen in iteration *k* is forwarded
+once — and the loop warms the cache before the fits, so a candidate fit loads no
+model. Per-sample blobs are written through per chunk of `extraction_batch_size()`
+(resumable; each row stored at its own width, `_concatenate_consuming` re-pads at
+merge). All three load **by path without validating inputs** — anything that changes
+which samples are selected or how they're tokenized must be folded into the key.
 
-- **Resumability.** The single-call form persists nothing until the last sample lands,
-  so a crash at row 606 of 607 discarded ~25 h of forwards. Now the next attempt
-  reloads everything already computed. This matters most where the cache does *not*
-  survive the container (cloud boxes with no long-term store for red-team activations,
-  unlike the Kaggle-published eval blobs) — within one run it is the difference between
-  a retry costing minutes and costing the whole retrain again.
-- **Width.** `get_activations` pads every row in a call to that call's max length,
-  capped at 1024 (`tuberlens/model.py:433`). Over the whole miss set that is 1024 for
-  essentially every row; per chunk it is the chunk's own max, and at chunk size 1 it is
-  each row's true length. Real conversations average ~535 tokens, so this roughly halves
-  both the cache's disk footprint (10.7 GB → ~5.6 GB at 970 rows) and resident RAM.
-  `_concatenate_consuming` re-pads at merge, so the merged tensor is byte-identical
-  either way — which is also why blobs written at different chunk sizes interoperate.
+**Host-RAM budget.** The extraction model is released (`_release_model`, hooks stripped
+first) immediately after the last extraction, before the merge and fit;
+`_concatenate_consuming` merges at ~1× peak (it **consumes** its inputs — capture `len()`
+first; `torch.empty` + explicit pad-fill is load-bearing).
 
-Progress is printed every `_REDTEAM_PROGRESS_EVERY` (10) rows with a running s/sample
-and ETA, instead of tqdm — one bar per chunk would be hundreds of bars in the log.
+**Where a fit's wall-clock goes: `_to_device_for_fit`.** Stages the merged
+train/validation activations on the fit device once (the per-epoch `.to()` becomes a
+no-op; measured 18.35 → 0.16 ms/sample, a 4.5 h fit → ~7 min). It **sorts by size** (the
+bigger set wins the card — for `dev_samples/highstakes` that is the dev set, for the
+other two concepts the training set), is **capacity-checked** against
+`_allocatable_bytes` (driver-free + torch's reserved-but-unallocated pool) less a
+reserve, moves a dataset **whole or not at all** (a split dataset raises in tuberlens'
+`Activation.__post_init__`), and restores everything on failure. Bit-identical fits
+either way; `scripts/verify_fit_staging.py` pins it without a GPU.
 
-**Host-RAM budget of a retrain.** This function's peak is what OOM-kills long runs —
-observed as a SIGKILL (exit 137, no traceback) at the iteration-2 retrain of a
-966-sample gemma-3-27b probe on a 60 GB box. Two things are held at once and both
-are guarded:
+### `agentic_redteam/ensemble.py`
+`EnsembleProbe` — `n` same-architecture probes fit on the same activations under
+`ENSEMBLE_SEEDS[:n]`, **probabilities averaged before the threshold**; duck-typed to the
+probe surface (`model_name` / `layer` / labels / `description` / `predict_proba` /
+`predict_proba_from_inputs`), so nothing below `predict_proba` knows it is an ensemble.
+`_mean_proba` scores all members in one fused pass (`stacked_probs`) when
+`fusion_enabled()`, else per member. `iter_probe_members(probe)` / `ensemble_size(probe)`
+let code that must reach *inside* a probe treat both cases uniformly — a
+`getattr(probe, "_classifier")` on an ensemble silently returns `None`. `ENSEMBLE_SEEDS`
+are frozen; raising `MAX_ENSEMBLE_SIZE` (10) means *appending*. `DETERMINISTIC_ARCHS`
+(`sklearn`, `difference_of_means`, `lda`) only trigger a warning: `n` identical members.
 
-- **The extraction model.** `LLMModel.load` uses `device_map="auto"` and, with the
-  budget unpinned (the default), accelerate hands the `"cpu"` device a budget equal to whatever
-  RAM is free *at load time* — a gemma-sized model keeps multi-GB of CPU-offloaded
-  shards resident for as long as it is referenced. `_train_with_cached_base_activations`
-  therefore calls `_release_model()` (mirrors `ProbeJudge.release`) immediately after
-  the last `_activate*` call and **before** the merge + `ProbeFactory.build`, which
-  need no model.
-- **The activations.** At hidden 5376 / fp16 / padded to `get_activations`' 1024-token
-  cap that is 11 MB per sample, so ~10 GB resident for a 966-sample retrain.
-  `LabelledDataset.concatenate` pads every part *then* `torch.cat`s, holding inputs and
-  output simultaneously (~2x, ~19 GB). `_concatenate_consuming` is a drop-in
-  replacement that is byte-identical in output but fills a `torch.empty` block slice by
-  slice, popping each part's pad fields as it copies them, so peak stays at ~1x. It
-  **consumes** its inputs — capture any `len()` you need before calling it — and falls
-  back to `LabelledDataset.concatenate` for layouts it can't reproduce exactly
-  (non-torch pad fields, mixed dtype/device/rank). `torch.empty` over `torch.zeros` is
-  load-bearing: the allocation stays lazily faulted, so every byte must be written
-  exactly once (real rows, then an explicit zero-fill of each part's pad region).
+### `agentic_redteam/model_loading.py`
+`load_extraction_model(model_name, layer)` — the single loader for the frozen extraction
+LLM (**never call `LLMModel.load` directly for extraction**). It loads only layers
+`0..layer` (`_truncated_config`; exact, since the stack is causal — verified
+bit-identical, hence absent from every cache key), resolves the memory budget in the
+precedence `AGENTIC_REDTEAM_MAX_MEMORY` > tuberlens `MAX_MEMORY`/`MODEL_MAX_MEMORY` >
+unpinned, and carries `offload_buffers` from tuberlens' `OFFLOAD_BUFFERS`. `unhook_model`
+strips accelerate's hooks so a release actually frees the card.
+`extraction_batch_size()` reads tuberlens' `BATCH_SIZE`.
 
-Neither is a full fix — the whole set is still materialized in RAM. Streaming it
-(mmap-backed blobs, or a lazy `ActivationDataset` that pads per batch) needs tuberlens
-changes; see the OOM analysis in the git history for this section.
+### `agentic_redteam/token_budget.py`
+The length safeguard against tuberlens' 1024-token activation cap. `count_tokens`
+reproduces `tokenize_inputs` exactly — two traps: its `<bos>` strip is a **no-op** (never
+subtract 1) and the tokenizer is called with `add_special_tokens=False`. `TokenBudget`
+binds it to a run; `overage(messages)` returns the count only when over the cap, else
+`None` — **fails open** (uncountable ⇒ allowed). `warmup()` loads the tokenizer before
+the async fan-out (the count runs on the loop thread).
 
-**Where a retrain's wall-clock actually goes: `_to_device_for_fit`.** Not the
-gemma-sized extraction — that is ~2.8 s/sample and fully cached. It is the probe-head
-fits, which were 57% of a first iteration and >90% by the third, and *none* of it was
-arithmetic. tuberlens reads batches through `ActivationDataset.__getitems__`, which ends
-in `.to(self.device)`; with the tensors on the host that is a scattered CPU gather of
-11 MB rows **plus a host→device copy of the whole set, once per epoch**, for ~780 epochs
-across the ensemble members. So `_to_device_for_fit` stages the merged train/validation
-activations on the fit device once — after `_release_model()` has emptied the card, before
-`ProbeFactory.build` — and that `.to` becomes a no-op. Measured at real shapes
-(1024 × 5376, fp16, batch 16), forward+backward through the real head:
-
-| data path | ms/sample |
-| --- | --- |
-| host-resident, gather + H2D per batch | 18.35 |
-| host-resident, no unbind/restack | 18.57 (no gain) |
-| GPU-resident, same random gather | **0.16** |
-| GPU-resident, contiguous blocks | 0.11 |
-
-On a live 978-train/290-val retrain that took a 4.5-hour fit down to ~7 minutes (3–4
-epochs/min → 158), a ~45× end-to-end — less than the 113× the data path alone predicts,
-because once the transfer is gone the fixed per-epoch costs (kernel launches, the
-optimizer step, sklearn's `roc_auc_score` syncing the validation set to the CPU) become
-the bill.
-
-Two things deliberately **not** done, both because they were measured rather than assumed.
-**The sampler is untouched**: on-device, random gather costs only ~30% over perfectly
-sequential reads, so exact per-sample shuffling is kept instead of being traded for
-block-shuffled batches. And **the unbind/restack inside `__getitems__` is left alone** —
-it splits each gathered batch into per-sample tuples that the default collate immediately
-restacks, which measures 2.2× *in isolation on CPU* and exactly nothing in the real path,
-where the transfer dominates.
-
-This is a placement change only — same indices, same order, same values — so the fitted
-probes are **bit-identical**, verified by re-running `train_initial_probe` and reproducing
-an existing `probe_iter0.pkl` member for member, `best_epoch` included. (The unpatched
-control reproduces it too, so the fit is deterministic and this is a valid test — worth
-knowing independently: a training run here can be regenerated exactly.)
-
-**Which set gets the card is computed, not fixed — and this is the part that does not
-travel between concepts.** Every dataset is traversed once per epoch (train under
-forward+backward, validation under `no_grad`), so the bytes a set moves per epoch is just
-its own size, and when only some of them fit, the biggest is the one worth staging.
-`_to_device_for_fit` therefore **sorts its arguments by size**; the call site's order is
-not load-bearing. Which set *is* the biggest depends entirely on the configuration — with
-`--dev-data dev_samples/highstakes` the 1908-row dev set (19.6 GiB of gemma-27b
-activations at 10.5 MB/row) dwarfs the training data, while `dev_samples/hu_ha` (290 rows)
-and `dev_samples/instructions` (436) are dwarfed by it, as is every run on the default
-`test_size` split. Pinning either end strands the other: measured on the high-stakes shape
-(666 train / 1908 dev, 24 GiB card), staging the **smaller** set ran 4.3 epochs/min against
-**13.7** for the larger and ~4.0 host-resident — picking wrong gives up nearly the whole
-gain. `scripts/verify_fit_staging.py` pins this (and the all-or-nothing rule below)
-without needing a GPU.
-
-**The staging is capacity-checked, not left to OOM**, because on some boxes the OOM never
-comes: under WSL2 the driver oversubscribes into host memory and pages over PCIe rather
-than raising, so an unconditional `.to()` silently buys the paging it was meant to remove
-(26.4 GiB onto a 24 GiB card: 5.3 epochs/min against ~4.0 host-resident, where the data
-path predicts ~45×). A dataset is moved only if it fits `_allocatable_bytes` less a
-reserve, and it moves **whole or not at all** — tuberlens' `Activation.__post_init__` does
-`activations *= attention_mask[:, :, None]`, so a dataset split across two devices *raises*
-rather than merely running slowly. `_allocatable_bytes` is driver-free **plus torch's
-reserved-but-unallocated pool**: `empty_cache()` only returns wholly-unused segments, so
-after a 27B model has been loaded and released the driver can report ~1 GiB free while
-torch has ~22 GiB going spare, and sizing against the driver's figure alone stages nothing.
-
-Two knobs, both read on every call: **`AGENTIC_REDTEAM_STAGE_ACTIVATIONS=0`** skips staging
-entirely (fit host-resident, as before it existed) and
-**`AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB`** (default 2) sets the headroom left for the
-fit's own activations and gradients — raise it if a fit OOMs *after* staging reported
-success, lower it to squeeze a borderline set on. The `reserve_bytes=` argument overrides
-the latter per call. On OOM or any other failure every tensor already moved is restored
-and the fit proceeds host-resident: the red-team set grows each iteration, so a long enough
-run will eventually present a set larger than the card, and a slow retrain beats a dead one.
-
-**Training-time message transforms.** `combine_consecutive_messages` /
-`convert_tool_to_assistant` apply to the training data too (not just eval): the
-base data gets them via `load_from`, and the in-memory red-team set via
-`_apply_message_transforms` (convert tool→assistant first, then combine, matching
-`load_from` order). They're part of the activation cache key.
-
-When `retrain_probe` is given a `preprocessing` config, the
-red-team successes are first run through `_build_redteam_dataset`, which mirrors the
-collation step of tuberlens' pipeline applied to the "extra" data: `filter_dataset`
-(drop confounders) then `generate_contrastive_dataset` (add opposite-class pairs),
-keyed off the probe's pos/neg labels. The contrastive pairs are cached to disk
-(`contrastive_cache_path`) so successes accumulated across iterations aren't
-re-generated. With no `preprocessing`, the plain `_records_to_labelled_dataset`
-path (judge label → canonical class) is used unchanged. When given a
-`postprocessed_out_path`, `retrain_probe` also dumps the resulting red-team
-`LabelledDataset` (the postprocessed red-team samples **only** — base training
-data excluded) to that JSONL via `_dump_labelled_dataset` (`{id, inputs, label}`
-rows) before concatenation, giving a per-iteration snapshot of exactly what
-red-team data trained each probe. The iterative CLI writes
-`<probe-out-dir>/redteam_postprocessed_iter{N}.jsonl` per cycle.
-
-### `agentic_redteam/preprocessing.py`
-Ports the collation preprocessing of tuberlens' `collate_train_evaluate.py`,
-generalized off the hard-coded `"high-stakes"`/`"low-stakes"` to arbitrary
-`pos_class_label` / `neg_class_label`. `filter_dataset(records, pos_class_label,
-filter_percentile)` fits a bag-of-words `LogisticRegression` (`BagOfWordsClassifier`)
-and drops the records it predicts most confidently (top percentile); it's a no-op
-when fewer than two classes are present. `generate_contrastive_dataset(...)` asks an
-LLM (this repo's Anthropic / OpenRouter sync clients, fanned out over a
-`ThreadPoolExecutor`, **not** litellm) to write an opposite-class version of each
-conversation, returning originals + generated pairs. Generated pairs are cached to a
-JSONL keyed by `sha256(source messages + target label [+ guidance fingerprint])` so
-accumulating successes only pay for newly-seen conversations. `label_dataset` (LLM
-relabel) is intentionally **not** ported — red-team data already carries judge labels.
-
-**Concept detail in the generation prompt.** By default `_generation_system_prompt`
-knows nothing about the concept beyond the two label strings.
-`preprocessing.concept_description` (what the concept is, shown in both directions)
-and `preprocessing.label_guidance` (a `{class label: free text}` mapping, shown when
-generating *toward* that label) are injected verbatim, so a config can define the
-concept as concretely as a hand-written per-concept prompt would — e.g. `high-stakes:
-"- significant financial loss, life-threatening situations, legal consequences"`.
-Guidance is looked up by the raw label first, then its `LABEL_SHORT` alias; keys
-matching neither class label are warned about and ignored (a typo would otherwise
-silently degrade the prompt back to its generic form). **Non-empty guidance is folded
-into the contrastive cache key** via `_guidance_fingerprint` — the cache is loaded by
-key without re-checking the prompt, so otherwise an edited description would silently
-reuse pairs written under the old one. The fingerprint is `""` when neither knob is
-set, so configs that don't use them keep byte-identical keys (existing caches still
-hit), and it covers only the *target* label's guidance, so editing one class's text
-doesn't invalidate the other direction's pairs.
-
-**Length safeguard on generated pairs** (`token_budget=`, a `TokenBudget` built by
-`retrain._build_redteam_dataset` from the *probe's* `model_name` + transforms and
-`preprocessing.max_sample_tokens`). The cap is stated in the generation prompt
-(`_length_instruction`, placed next to the "similar structure and length" bullet
-because it overrides it), and a pair that still comes back over it is **regenerated**
-with its measured length fed back (`_length_retry_feedback`, appended to the user turn
-since each attempt is a fresh stateless call) rather than dropped. Regeneration —
-unlike the attacker's drop — is the right move here because the source record has no
-pair without it, so dropping would lose **both**; the retry comes out of the existing
-`max_generation_retries` budget, and a record that never comes back short enough is
-dropped exactly like any other failed generation. **Cache hits are re-checked against
-the budget**, not trusted: the cache is keyed by the *source* conversation, so pairs
-written before this cap existed would otherwise be reused forever. A stale one is
-regenerated and appended under the same key, and `_load_cache` is last-row-wins, so the
-shorter pair supersedes it.
+### `agentic_redteam/circuit_breaker.py`
+Process-global breaker that stops a run when OpenRouter is **durably** down, because
+every call site is individually fault-tolerant (a dead batch is recorded and the
+iteration continues; a judge hiccup is re-asked next iteration) and would otherwise
+grind through a drained balance producing empty batches. Three failure classes:
+**transient** (429/5xx/empty choices — `OPENROUTER_MAX_CONSECUTIVE_ERRORS`, 2/4/8 s
+backoff), **connection** (retried on a minutes-scale schedule and bounded by **elapsed
+time**, not a count — with `concurrency: 10` one network event is observed ten times at
+once), **fatal** (401/402/403 — `OPENROUTER_MAX_CONSECUTIVE_FATAL_ERRORS`, no backoff).
+Every OpenRouter call reports `record_success` / `record_failure`; `raise_if_tripped()`
+before each call; backoff sleeps go through `sleep_sync` / `sleep_async` (5 s chunks,
+re-checking the trip). The CLI's `@_exit_on_outage` turns the error into exit code 3.
 
 ### `agentic_redteam/evaluation.py`
 `evaluate_probe(probe_path, eval_dataset_dir, activations_cache_dir, splits=None,
-max_samples=100, seed=42, combine_consecutive_messages=False,
-convert_tool_to_assistant=False)` scores one probe on local eval split JSONLs via
-tuberlens `get_performances`, returning a per-split DataFrame. When `splits is None`
-(the default) the splits are **auto-discovered** — every `*.jsonl` in `eval_dataset_dir`
-is scored, keyed by its filename stem (there is no longer a hardcoded
-`DEFAULT_EVAL_SPLITS` list; drop new eval JSONLs into a dir and they are picked up
-without code changes). Each split is loaded with the probe's own pos/neg class labels,
-so a split's `labels` strings must match them exactly. It calls `seed_everything(seed)` (ported from
-tuberlens) and then balances each split to `max_samples` via
-`subsample_balanced_subset(n_per_class=max_samples // 2)` (`max_samples=None` → full
-split). Seeding before subsampling makes the subset identical across every probe
-eval — which is what keeps the path-keyed activation cache correct, since
-`get_activations` reloads by file path **without** checking the inputs match. The
-cache filename embeds `max_samples`/`seed` (`acts_n{N}_seed{S}.pt`) so a different
-subsample config can't silently reuse stale activations.
-`combine_consecutive_messages` / `convert_tool_to_assistant` are tuberlens
-`LabelledDataset` loader transforms forwarded into `load_from` for the eval splits
-(merge adjacent same-role messages; rewrite `tool`→`assistant`, the latter applied
-first). **Unlike tuberlens' `collate_train_evaluate.py`, where these are eval-time
-only, this repo applies the same values to the training data as well** (see
-`retrain.py`) so the probe trains and is scored on the same message representation.
-Exposed via the config `eval:` section (`EvalConfig`) and overridable per-run by the
-`--[no-]combine-consecutive-messages` / `--[no-]convert-tool-to-assistant` CLI flags.
-
-`kaggle_source=` (a `KaggleActivationSource`, built by the CLI from the config
-`kaggle:` section) pre-populates the activation cache from Kaggle before
-`get_performances` runs — see below. It is rejected when `max_samples is not None`.
-
-`_assign_cached_activations(eval_datasets, activations_save_path)` then attaches every
-already-cached split's blob to its dataset **before** `get_performances` is called.
-This is purely a fast path, but a load-bearing one: `get_performances` loads the
-extraction model the moment it meets a split with no `activations` field
-(`tuberlens/evaluation.py:75-77`) — *before* `get_activations` gets as far as checking
-`save_path.exists()`. So a fully-cached eval (the normal case once `kaggle:` has
-prefetched) still paid a multi-minute gemma-3-27b load it never used. Blobs are keyed
-by the same path `get_performances` derives (`<dir>/<split>-<cache_stem>`); a split
-whose blob is missing, unreadable, or the wrong row count is left alone and recomputed
-exactly as before, so this can never mask a stale cache.
+max_samples=100, seed=42, combine…, convert…, kaggle_source=None)` scores one probe on
+the auto-discovered `<dir>/*.jsonl` splits via tuberlens `get_performances`.
+`seed_everything(seed)` before `subsample_balanced_subset` keeps the subset identical
+across probes, which is what keeps the path-keyed cache (`acts_n{N}_seed{S}.pt` /
+`acts_full.pt`) correct. `_assign_cached_activations` attaches cached blobs *before*
+`get_performances`, which would otherwise load the model on meeting any split without
+activations.
 
 ### `agentic_redteam/kaggle_activations.py`
-`prefetch_eval_activations(cache_dir, eval_datasets, source, *, model_name, layer,
-cache_stem)` downloads **precomputed** eval activations published on Kaggle into the
-same path-keyed cache dir `evaluate_probe` already uses, writing each split to the
-exact name `get_performances` derives (`<split>-acts_full.pt`). tuberlens'
-`get_activations` checks `save_path.exists()` first, so the subsequent eval is a pure
-cache hit and **no LLM is ever loaded** — the point being that full-split gemma-3-27b
-activations are ~20 GB and hours of forward passes.
-
-Deliberately **not** built on tuberlens' `get_activations(using_kaggle=True)`:
-- **Addressing.** `LLMModel._get_kaggle_dataset_slug` derives the slug from the local
-  `save_path` by stripping punctuation and truncating to the first 50 chars — our
-  discriminating suffix is truncated away, so all four eval splits collapse to one
-  slug. `KaggleActivationSource(owner, dataset_slug, file_name)` is explicit instead,
-  with both fields `str.format`-ed on **two** keys: `split=<split stem>` and
-  `slug=<that stem through `_slugify`>` (lowercased, runs of non-alphanumerics collapsed
-  to one hyphen). `{slug}` exists because Kaggle rejects underscores in a dataset slug,
-  so for any split stem containing one — every `eval_sets/hu_ha` and
-  `eval_sets/instructions` split — a `{split}`-based `dataset_slug` names a dataset that
-  cannot be created. Use `{slug}` there; `file_name` addresses a file *inside* the
-  dataset, is unrestricted, and normally stays on `{split}`.
-  The upload side is `scripts/publish_kaggle_eval_activations.py`, which stages
-  locally-computed `<split>-acts_full.pt` blobs under the published `file_name`
-  (hard-linked, not copied) and runs the **same** `_validate_blob` check before
-  uploading — so a blob that doesn't match the probe is caught at publish time rather
-  than hours into a remote run.
-- **Transfer volume.** tuberlens' `_download_from_kaggle` pulls and unzips the *whole*
-  dataset to a temp dir per call. This fetches the one file, into a staging dir on the
-  same filesystem as the cache, so landing it is a rename not a second copy.
-- **Validation.** Every blob (downloaded *or* already cached) is checked against the
-  probe's `model_name`/`layer` and the split's row count before it may be used;
-  mismatches raise `KaggleActivationError`. `LLMModel.load_activations` discards the
-  `model_name`/`layer` the blob was saved with, and this repo's caches otherwise load
-  by path without validating inputs — acceptable for content-keyed blobs we computed,
-  not for one fetched from a remote store. The header read uses `torch.load(...,
-  mmap=True)`, so validating the 11 GB anthropic blob is instant.
-
-Auth: `KAGGLE_CONFIG_DIR` must name the **directory** holding `kaggle.json` (the API
-joins the filename on, and `os.makedirs` a wrong path, so pointing at the file fails
-silently), or export `KAGGLE_API_TOKEN`. `_authenticate()` catches `SystemExit`
-because `KaggleApi.authenticate()` ends in `exit(1)` when no credential resolves —
-a `BaseException` an ordinary `except Exception` would let kill the run. A split that
-cannot be fetched **raises rather than falling back** to computing it.
+`prefetch_eval_activations` / `prefetch_dev_activations` download **precomputed**
+activations published on Kaggle into the exact cache paths the eval / the fit look for
+(the dev set is assembled from per-split datasets into the single content-hashed blob,
+in `sorted(glob)` order, right-padded to the common width). Explicit
+`KaggleActivationSource(owner, dataset_slug, file_name)` with `{split}` / `{slug}`
+templates (`{slug}` because Kaggle rejects underscores); every blob is validated against
+the probe's `model_name`/`layer` and the split's row count. Auth: `KAGGLE_CONFIG_DIR`
+(the **directory** holding `kaggle.json`) or `KAGGLE_API_TOKEN`.
+`scripts/publish_kaggle_eval_activations.py` / `scripts/extract_eval_activations.py`
+are the upload side.
 
 ### Eval dataset splits on disk
 Eval splits live under **`eval_sets/<concept>/`** and dev splits under
-**`dev_samples/<concept>/`**, sharing the same three concept names — `highstakes`,
-`hu_ha`, `instructions` — so a run's eval dir and dev dir differ only in the top-level
-directory. `--eval-dataset-dir` picks which concept a run scores against; with `splits=None` (the default) `evaluate_probe`
-auto-discovers every `<dir>/*.jsonl` as a split (keyed by filename stem). Every split
-JSONL row is a tuberlens `LabelledDataset` record: `inputs` is a **JSON-encoded string**
-of `[{role, content}, ...]` (parse it, don't treat it as text) and `labels` is the class
-string; any other columns are provenance only.
+**`dev_samples/<concept>/`**, sharing the concept names `highstakes`, `hu_ha`,
+`instructions`. Every row is a tuberlens `LabelledDataset` record: `inputs` is a
+**JSON-encoded string** of `[{role, content}, ...]` and `labels` is the class string;
+other columns are provenance.
 
-- **`eval_sets/highstakes/`** — the **high-stakes** probe's splits (was `eval_datasets/`,
-  then `eval_hs/`; **re-cut** in c260778 and moved under `eval_sets/` afterwards): `anthropic_hh_balanced` (2984),
-  `mt_balanced` (604), `mts_balanced` (86), `toolace_balanced` (734).
-  Labels are `high-stakes` / `low-stakes`, exactly class-balanced per split.
-  The *previous* eval set (`anthropic` 1028 / `mt` 278 / `mts` 274 / `toolace` 328) is
-  now `dev_samples/highstakes/` — so any high-stakes eval number, Kaggle activation
-  blob or comparison CSV predating that commit was scored on what is now the **dev**
-  set, and is not comparable to a post-rename one. Extra columns:
-  `ids`, `scale_labels`, `scale_label_confidence`, and per-split provenance
-  (`category`/`index` for anthropic, `medical_specialty`/`sample_name` for mt,
-  `section_header` for mts, `original_system_prompts`/`modified_system_prompts` for toolace —
-  toolace `inputs` always uses the *modified* system prompt). **Gotcha:**
-  `label_explanation` here is boilerplate (`"Filled in based on scale_labels and
-  scale_label_confidence"`) — the real human-readable rationale is in
-  **`scale_label_explanation`**. Rows are **independently labelled**: there is no
-  cross-class pairing (anthropic chosen/rejected `index` is unique and orthogonal to the
-  stakes label; mt/mts/toolace ids are per-sample).
-- **`eval_sets/hu_ha/`** — the **harmful_to_human** probe's splits: `eval_ai_dilemmas`
-  (136 rows), `eval_balanced_refusal` (400), `eval_daily_dilemmas` (196), `eval_ant_hh`
-  (134). Labels are `harmful_to_human` / `not_harmful_to_human`, class-balanced. Slim
-  schema: `inputs`, `labels`, `harm_explanation` (the real rationale here — no boilerplate
-  field), `source`. Three of the four splits are **paired**: the same user prompt appears
-  once with a harmful assistant response and once with a non-harmful one (ai_dilemmas
-  68 pairs, daily_dilemmas 98, balanced_refusal 200 — 158 one-to-one plus 21 prompts
-  carrying two of each class). `eval_ant_hh` is **not** paired (every user prompt is
-  distinct). Pairing is a property of the data, not something the eval code uses —
-  `evaluate_probe` scores every row independently regardless.
-- **`eval_sets/instructions/`** — the **instruction-following** probe's splits (a third
-  assistant-centric concept: did the assistant's response *follow the user's
-  instruction* or not?). Seven splits, each exactly class-balanced:
-  `anthropic_harmless_refusal` (200), `bbq_substitution` (200), `hc_context_drift`
-  (194), `hc_contradiction` (200), `mm_substitution` (200), `oig_context_drift` (194),
-  `oig_omission` (114). Labels are `assistant_follows_the_instruction` /
-  `assistant_does_not_follow_the_instruction` — the split names encode the *failure
-  mode* on the negative side (refusal, context drift, contradiction of the provided
-  source, omission of requested content, answer substitution). Slim schema: `inputs`,
-  `labels`, `judge_1_reasoning`, `judge_2_reasoning` (the two rationales that produced
-  the label), plus per-split provenance (e.g. `context`/`question`/`correct_answer`/
-  `wrong_answer`/`category` for bbq, `query`/`doc_a`/`doc_b` for hc_contradiction,
-  `turn1_doc`/`turn2_doc`/`*_polarity` for hc_context_drift, `text`/`generated_content`/
-  `cosine_distance` for mm, `human_turn_*`/`bot_turn_*` or `human_turns`/`bot_turns`/
-  `original_text` for the oig splits). **These files were converted in place from a
-  raw `{conversation, follows_the_instruction: bool, ...}` form** to the standard
-  `inputs` (JSON string) + `labels` schema. Attack this concept with
-  `configs/llama70b_instructions_llama1b.md` (llama70b attacker → llama-1b probe).
+- **`eval_sets/highstakes/`** — `anthropic_hh_balanced` (2984), `mt_balanced` (604),
+  `mts_balanced` (86), `toolace_balanced` (734); labels `high-stakes` / `low-stakes`.
+  The real rationale column is `scale_label_explanation` (`label_explanation` is boilerplate).
+- **`eval_sets/hu_ha/`** — `eval_ai_dilemmas` (136), `eval_balanced_refusal` (400),
+  `eval_daily_dilemmas` (196), `eval_ant_hh` (134); labels `harmful_to_human` /
+  `not_harmful_to_human`; three of four splits are paired (same prompt, both classes).
+- **`eval_sets/instructions/`** — seven splits (`anthropic_harmless_refusal`,
+  `bbq_substitution`, `hc_context_drift`, `hc_contradiction`, `mm_substitution`,
+  `oig_context_drift`, `oig_omission`); labels `assistant_follows_the_instruction` /
+  `assistant_does_not_follow_the_instruction`.
 
-**`dev_samples/`** holds the matching **dev** (validation) sets — one dir per concept,
-same schema and same `labels` strings as that concept's eval dir, and **verified disjoint
-from it**: `highstakes/` (1908 rows: 1028/278/274/328), `hu_ha/` (290: 46/44/134/66),
-`instructions/` (436, 68/68/66/68/68/66/32). Pass the dir to `--dev-data` /
-`validation.dev_data` and it becomes the whole validation set (see the `--dev-data`
-paragraph under "Common commands"). `dev_samples/instructions/` was converted in place
-from the same raw `{conversation, follows_the_instruction}` form `eval_sets/instructions/` was.
-Anything added here must stay disjoint from the concept's eval dir — a dev row that also
-sits in eval means the probe's best-epoch checkpoint is chosen on the test set, which no
-downstream eval number would reveal.
+**`dev_samples/`** holds the matching dev sets, **verified disjoint** from eval:
+`highstakes/` (1908: 1028/278/274/328), `hu_ha/` (290), `instructions/` (436). Anything
+added here must stay disjoint from the concept's eval dir — a dev row in eval means the
+best-epoch checkpoint *and every acceptance decision* are made on the test set.
+
+Base training sets under `data/` (`highstakes_llama70b_50.jsonl`,
+`hu_harm_llama70b_50.jsonl`, `instructions_llama70b_50.jsonl`, …) are `{inputs, labels}`
+JSONLs in the same schema. Note the **49-row optimizer-step threshold**: under ~49
+training rows the pytorch probe never takes an optimizer step; the 50-row base sets sit
+right at it, so keep `base_data_fraction` at 1.0 with them.
 
 ### `agentic_redteam/cli.py`
-Two entry points: `run_redteam_main` (one round against an existing probe) and
-`iterative_retrain_main`. The latter runs the full pipeline: **(1)** obtain the
-initial probe — warm-start from `config.probe.path` if it points to an existing
-file, else `train_initial_probe` from `--base-training-data`; **(2)** red-team it
-across all `error_types`; **(3)** `retrain_probe` on base data ∪ successes;
-**(4)** optionally `evaluate_probe` (gated by `--eval`); then repeat 2–4 for
-`--iterations` n. It rewrites `config.probe.path` to the freshest probe before
-each round, and (with `--eval`) writes the cross-round comparison CSV. That CSV
-path and the eval-activations cache dir each resolve by the precedence **CLI flag
-(`--comparison-csv` / `--activations-cache-dir`) > config `output:`
-(`comparison_csv` / `activations_cache_dir`) > `<results-dir>`-derived default**
-(`<results-dir>/iter_run_comparison.csv`, `<results-dir>/eval_activations`); the
-config paths resolve relative to the config file. It calls
-`seed_everything(--seed)` up front, threads `config.preprocessing` +
-`<probe-out-dir>/contrastive_cache.jsonl` + `--test-size` / `--split-field` / `--seed`
-into the train/retrain calls. The ensemble size resolves by **`--ensemble-size` flag >
-config `probe.ensemble_size` > `None`**, and `None` is threaded through *unchanged* to
-`retrain_probe` (which reads the size off the probe it is retraining) while
-`train_initial_probe`, having nothing to inherit from, gets `or 1`. The base (training) activation cache dir resolves by
-precedence **`--base-activation-cache-dir` flag > config `output.base_activation_cache_dir`
-> `<probe-out-dir>/base_activation_cache` default**, and passes `--eval-max-samples` / `--seed` into
-`evaluate_probe`. `_free_gpu()` (`gc.collect()` + `torch.cuda.empty_cache()`) is
-called after the initial training, after each `_maybe_eval`, and after each retrain
-so reserved GPU memory is returned between heavy phases (each tuberlens
-`device_map="auto"` load re-infers its layer split from *free* GPU memory). The
-`combine_consecutive_messages` / `convert_tool_to_assistant` config knobs are
-resolved against the `--[no-]…` CLI flags (`BooleanOptionalAction`, default `None`
-→ config value) and forwarded into **both** the train/retrain calls and
-`evaluate_probe`.
-
-**`--resume` (default on) is three-tiered**, coarsest first, all keyed off
-`--probe-out-dir` / the JSONL sidecars so nothing extra needs threading through:
-
-1. **Iteration** — `_latest_probe_iteration` finds the highest `probe_iter{N}.pkl`
-   (written only once a *retrain* finishes) and starts at iteration N.
-2. **`(iteration, error_type)` phase** — `redteam_done_iter{N}_{et}.marker`, written
-   after each rotation returns, skips that rotation entirely (its successes are
-   already in the append-only JSONL, so the retrain still sees them). Gated on
-   `args.resume and i == start_iter` — **not** on a probe having been found, because
-   a warm-started run that died inside iteration 0 has no `probe_iter{N}.pkl` yet
-   while its markers are still valid (its input probe is `config.probe.path` either
-   way).
-3. **Round** — `run_redteam(resume=…)` skips individual finished rounds and restores
-   the rolling memo (see "Round-level resume" above).
-
-`--no-resume` ignores all three and re-runs from scratch (stale markers and progress
-rows are not consulted, and new ones simply append). Note the eval comparison CSV does
-**not** resume: `eval_results` is in-process and the CSV is rewritten at the end, so a
-resumed run's CSV covers only the iterations that run actually executed.
+`iterative_generate_main` (script `scripts/iterative_generate.py`, console script
+`iterative-generate`). Resolves flags > config > defaults exactly as before
+(`--ensemble-size` > `probe.ensemble_size` > inherit; cache dirs; transforms), requires
+a dev set, does the optional Kaggle dev prefetch, obtains the initial probe (resume >
+warm start > `train_initial_probe`), scores the baseline (from the fresh fit's
+`dev_auroc`, else `score_probe_on_dev`), builds `Generator` + `LLMJudge` from the
+**probe's** metadata, then runs the loop described at the top. Per iteration it writes:
+`batches.jsonl` rows (`generated` then `scored`), `candidates/probe_iter{i}_batch{k}.pkl`,
+`accepted_iter{i+1}.jsonl`, `probe_iter{i+1}.pkl`, `auroc_history.csv`, a
+`GuidanceRecord` for `i+1`, and (with `--eval`) the comparison CSV. `_free_gpu()` runs
+after every fit, scoring and eval.
 
 ## Conventions to preserve
 
-- **Probe metadata is the source of truth.** Don't pass `pos_class_label` /
-  `neg_class_label` / `description` separately — read them off the loaded probe.
-- **A probe pickle may be an `EnsembleProbe`, and that must stay invisible below
-  `ProbeJudge.score`.** The ensemble averages its members' probabilities and exposes
-  the same probe surface, so red-teaming, the judge, the JSONL row and the eval all
-  keep seeing one score and one prediction. Anything that reaches *inside* a probe
-  (moving `_classifier.model` to a device, inferring a `ProbeSpec`) must go through
-  `ensemble.iter_probe_members` or unwrap explicitly — a `getattr(probe,
-  "_classifier")` on an ensemble silently returns `None`. And anything that scores raw
-  conversations must extract activations once for all members, never once per member.
-- **The attacker must never get filesystem/shell access.** For the Claude SDK
-  driver, always carry both `allowed_tools=` and `disallowed_tools=` plus
-  `setting_sources=[]` when constructing `ClaudeAgentOptions`. For the
-  OpenRouter driver, the only tools the model can see are the three exposed
-  by `openai_tool_definitions()` — there is no analog of "built-in tools"
-  there. Adding a new tool means **all three** of: appending to
-  `allowed_tool_names()`, adding to `openai_tool_definitions()`, and writing
-  a handler in `tools.HANDLERS`.
-- **The judge always runs, and is unbiased.** Whether the probe predicted the
-  wrong class can only be established by comparing the probe's prediction to
-  the judge's label — there is no probe-prediction-only short-circuit. The
-  judge is told the two candidate labels — and the probe's `description`, so it
-  knows what concept they name — but is **not** told which one the caller is
-  hoping for, nor what the probe scored, so it acts as an independent
-  classifier. `success` is computed in `tools.py` after both run. Note what the
-  *classification* prompt is allowed to carry: the concept description belongs there
-  (the judge defines the labels), `eval.data_description` does not (describing the
-  test set to the labeller can only move the labelling function — it is summarizer-only
-  by construction, see `llm_judge`).
-- **Count tokens through `token_budget`, never by hand.** Both traps in
-  `tokenize_inputs` (the no-op `<bos>` strip ⇒ never subtract 1; the chat template's
-  own special tokens ⇒ `add_special_tokens=False`) are baked into `count_tokens`, and
-  a new counter that re-derives them from a reading of the source will be off by one
-  exactly where it matters — at the 1024 cap. Any new *producer* of red-team data
-  (a new attacker driver, another generation step) needs the same guard: the probe
-  reads at most `MAX_ACTIVATION_TOKENS`, so anything longer is scored and trained on
-  truncated. The guard must fail **open** — an uncountable conversation is allowed
-  through, never dropped.
-- **`OpenRouterOutageError` must never be swallowed.** Every `except Exception`
-  around an OpenRouter call (`run_one_model`, `_summarize_round`,
-  `_write_iteration_memo`, `_ContrastiveLLM.generate`) is there to absorb a
-  *single* failure so the run continues — so each one needs an explicit
-  `except OpenRouterOutageError: raise` **before** it, mirroring how
-  `JudgeRefusalError` is handled. New OpenRouter call sites must report to the
-  breaker (`record_success` / `record_failure`) or the "consecutive" count
-  silently under-counts. The CLI mains carry `@_exit_on_outage`, which turns
-  the error into a clean message plus `OUTAGE_EXIT_CODE` (3) instead of a
-  traceback; nothing is lost by stopping, since the JSONL is append-only and
-  the phase markers and per-round progress sidecar let `--resume` continue from
-  the round it stopped on.
-- **JSONL is append-only and dedup-by-canonical-text.** `JsonlStore` rejects
-  duplicate conversations silently — the agent's `submit_conversation`
-  response surfaces `duplicate=True` so it can move on.
-- **Tool functions return the `{"content": [{"type": "text", "text": ...}]}`
-  shape exactly.** Anything else breaks the Claude Agent SDK's tool result
-  streaming.
-- **Load the extraction LLM through `model_loading.load_extraction_model`.** Never call
-  `LLMModel.load` directly for activation extraction. It is the one place that knows the
-  model only needs layers `0..probe.layer` — tuberlens truncates the *executed* stack
-  inside `HookedModel` but places the whole model first, so a direct load dispatches
-  ~24 GB of gemma-3-27b weights that never run a forward and pushes the executed tail
-  onto disk. Truncation is exact (causal stack), so it does **not** belong in any
-  activation cache key. It is also the only one of the three placement controls that
-  tuberlens' own settings can't supply — `MAX_MEMORY` and `OFFLOAD_BUFFERS` now reach
-  every load, the layer count does not.
-- **Free GPU memory between heavy phases.** Every tuberlens load uses
-  `device_map="auto"` and, unless the budget is pinned, re-infers the layer split from
-  *free* GPU memory at load time; torch's caching allocator holds freed memory as
-  reserved. So a model left resident from a previous phase forces the next load
-  into CPU/disk offload (~5-10x slower). Release models and clear the cache
-  between phases: `ProbeJudge.release()` after red-teaming, `cli._free_gpu()`
-  after train/eval/retrain.
-- **Activation caches load by path without validating inputs.** The eval cache
-  (`evaluation.py`, key embeds `max_samples`/`seed`), the base-blob training cache
-  (`retrain._base_activation_cache_paths`, key embeds the base file hash +
-  `model`/`layer`/`seed`/`test_size`/`split_field`/transform flags), and the
-  per-conversation red-team cache (`retrain._redteam_activation_cache_path`, key
-  embeds the conversation's own messages + `model`/`layer`/transform flags) all
-  rely on the **key** to prevent silent stale reuse. Anything new that changes
-  which samples are selected or how they're tokenized must be folded into the key.
-  Red-team caching is per-conversation, not a whole-set blob, **specifically so it
-  survives the set growing each iteration** — don't "simplify" it to a single blob.
-- **Use `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`** as
-  the canonical model IDs for the rotation. Don't append date suffixes to opus
-  or sonnet — only Haiku 4.5 currently requires the dated form.
+- **Probe metadata is the source of truth.** Read `pos_class_label` / `neg_class_label` /
+  `description` / `model_name` / `layer` off the loaded probe (`read_probe_metadata`);
+  the config's `probe:` fields only describe a from-scratch probe.
+- **The generator labels; the probe decides.** No judge labelling, no confidence gate:
+  a batch is kept or dropped purely on its dev ΔAUROC against the current probe, and
+  every batch of an iteration is scored against the **same** baseline (independent, not
+  greedy). Don't reintroduce per-sample verdicts into the generator loop — the generator
+  is deliberately blind within an iteration and steered only by the judge's memo.
+- **Never tell the generator a quota it can satisfy early.** The batch size is a
+  workload, not a target; there is no success count anywhere in a prompt.
+- **A probe pickle may be an `EnsembleProbe`**, and that must stay invisible below
+  `predict_proba`. Reach inside only through `iter_probe_members`.
+- **Count tokens through `token_budget`, never by hand**, and any new producer of
+  training samples needs the same guard, failing **open**.
+- **`OpenRouterOutageError` must never be swallowed.** Every `except Exception` around an
+  OpenRouter call (`Generator.generate_batch`, `propose_directions`, the judge call in
+  `cli`) has an explicit `except OpenRouterOutageError: raise` before it, mirroring
+  `JudgeRefusalError`. New call sites must report to the breaker.
+- **Sidecars are append-only; newest row per key wins.** A batch is re-scored by
+  appending, never by rewriting.
+- **Load the extraction LLM through `model_loading.load_extraction_model`**, free GPU
+  memory between heavy phases (`_free_gpu`), and fold anything that changes activations
+  into the cache keys — the caches load by path without validating inputs.
+- **Use `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5-20251001`** as the
+  canonical Anthropic model ids.
