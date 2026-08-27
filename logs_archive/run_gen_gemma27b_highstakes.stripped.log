@@ -4889,3 +4889,62 @@ Validation AUROC: 0.92658
 Epoch 97 - Average loss: 0.0001
 Validation AUROC: 0.92658
 Early stopping triggered after 97 epochs
+Dev AUROC: anthropic_hh_balanced 0.9631, mt_balanced 0.9629, mts_balanced 0.9351, toolace_balanced 0.8910 → mean 0.9380
+Saved retrained probe to probes/gen_gemma27b_highstakes/probe_iter4.pkl
+  Dev AUROC after iteration 3: mean 0.9380 (anthropic_hh_balanced 0.9631, mt_balanced 0.9629, mts_balanced 0.9351, toolace_balanced 0.8910) (was mean 0.9377 (anthropic_hh_balanced 0.9584, mt_balanced 0.9666, mts_balanced 0.9256, toolace_balanced 0.9002))
+
+  Judge writing guidance for iteration 4 ...
+  Memo:
+    - **What helped (extend with new variants):**
+      - **Immigration tied to education/employment and lawful presence (Batch 2, small but consistent gain on HH & mts)**  
+        - New signal: same “immigration-office / advisor” voice and regulatory jargon in both classes, but **only high-stakes conversations explicitly threaten loss of status, departure, or ineligibility for benefits (OPT denial, green-card jeopardy, crime affecting naturalization)**.  
+        - Low-stakes keep the same domain and technical detail (SEVIS updates, travel docs, leave of absence) while preserving lawful presence. This sharpens “continued ability to stay/work/study” vs routine compliance.  
+        - For new variants, stay in immigration but move into **different entanglements**:  
+          - Family-based or humanitarian status (spousal sponsorship breakdown, VAWA, asylum clock) vs benign paperwork (adding a derivative, correcting typos).  
+          - Employment-based issues beyond H‑1B/F‑1 (O‑1, TN, DACA work authorization, PERM audits) vs simple HR travel letters or I‑9 document questions.  
+          - Enforcement-adjacent consultations (NTAs, ICE check-ins affecting removal risk) vs benign check-in procedures.  
+        - Avoid generic tourist-visa FAQs or plain HR onboarding; they’re already common and blur with low-stakes support.
+    
+    - **Exhausted / harmful regimes (avoid or substantially reshape):**
+      - **Personal financial distress with lawyers/counselors (Batch 1, exhausted)**  
+        - Foreclosure, garnishment, and bankruptcy vs budgeting/loan shopping gave **no net gain**, with toolace/mt dropping. The model likely already encodes “debt + foreclosure/bankruptcy terms = high-stakes” vs routine personal-finance chatter.  
+        - Further mortgage/consumer-debt counseling samples, even number-heavy and formal, are unlikely to add signal and may reinforce overused “financial panic = stakes” cues.
+      - **Criminal-defense consultations (Batch 3, harmful)**  
+   
+
+===== EVALUATING iter4: probes/gen_gemma27b_highstakes/probe_iter4.pkl =====
+[kaggle] anthropic_hh_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/anthropic_hh_balanced-acts_full.pt
+[kaggle] mt_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/mt_balanced-acts_full.pt
+[kaggle] mts_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/mts_balanced-acts_full.pt
+[kaggle] toolace_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/toolace_balanced-acts_full.pt
+  [openrouter] meta-llama/llama-3.3-70b-instruct: no connection (APIConnectionError: Connection error.); retrying in 1.1 min (unreachable for 0.0 of 30 min)
+Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
+              dataset    auroc  accuracy  tpr_at_fpr  fpr
+anthropic_hh_balanced 0.966456  0.838472    0.518767 0.01
+          mt_balanced 0.944038  0.837748    0.506623 0.01
+         mts_balanced 0.985398  0.744186    0.000000 0.01
+     toolace_balanced 0.848585  0.551771    0.340599 0.01
+                 mean 0.936119  0.743044    0.341497 0.01
+
+########## ITERATION 4 ##########
+  Directions:
+    [1] Immigration–family status consultations between noncitizen spouses/parents and an immigration attorney, where high-stakes cases involve denial or revocation of …
+    [2] Social-services hotline or caseworker meetings about means-tested benefits (SNAP, TANF, SSI, housing vouchers), with high-stakes conversations centered on termi…
+    [3] Workplace safety briefings or incident reviews in high-risk manual environments (construction sites, warehouses, utilities), where high-stakes cases involve rec…
+    [4] University or professional school academic standing and conduct meetings (student with dean or academic affairs), where high-stakes samples involve dismissal, s…
+    [5] Healthcare access and subsidy navigation chats between a patient and a hospital financial counselor or public benefits navigator, with high-stakes cases involvi…
+
+  Generating 5 batch(es) of 10 ...
+  Generation took 3.9 min
+  batch 1 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+  batch 2 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+  batch 3 [meta-llama/llama-3.3-70b-instruct]: 0/10 samples (0 pos / 0 neg; dropped 0 long, 0 dup, 40 malformed; 3 call(s))
+  batch 4 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+  batch 5 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+
+  Warming activation cache for 40 generated samples ...
+Sample activations: 0 loaded from cache, 40 to compute (chunk size 1) ...
+[model_loading] loading google/gemma-3-27b-it, truncated to 33 layers (probe reads layer 32); max_memory={0: '22GiB', 'cpu': '45GiB'} (from AGENTIC_REDTEAM_MAX_MEMORY)
+[tuberlens] loading google/gemma-3-27b-it on device_map='auto'; max_memory={0: '22GiB', 'cpu': '45GiB'}
+Loading checkpoint shards:   0%|                                                                                                           | 0/12 [00:00<?, ?it/s]Loading checkpoint shards:   8%|████████▎                                                                                          | 1/12 [00:03<00:39,  3.58s/it]Loading checkpoint shards:  17%|████████████████▌                                                                                  | 2/12 [00:08<00:40,  4.09s/it]Loading checkpoint shards:  25%|████████████████████████▊                                                                          | 3/12 [00:12<00:37,  4.22s/it]Loading checkpoint shards:  33%|█████████████████████████████████                                                                  | 4/12 [00:16<00:34,  4.32s/it]Loading checkpoint shards:  42%|█████████████████████████████████████████▎                                                         | 5/12 [00:20<00:28,  4.04s/it]Loading checkpoint shards:  50%|█████████████████████████████████████████████████▌                                                 | 6/12 [00:21<00:17,  2.89s/it]Loading checkpoint shards:  58%|█████████████████████████████████████████████████████████▊                                         | 7/12 [00:21<00:09,  1.99s/it]Loading checkpoint shards: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████| 12/12 [00:21<00:00,  1.77s/it]
+Some parameters are on the meta device because they were offloaded to the cpu.
