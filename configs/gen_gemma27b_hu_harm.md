@@ -30,7 +30,14 @@ generator:
 
 judge:
   provider: openrouter
-  model: openai/gpt-5.1-chat
+  # example_generate.md names openai/gpt-5.1-chat. That model returns 404 "No endpoints
+  # found" on OpenRouter as of 2026-08-27, and a dead judge does not stop the run — cli.py
+  # logs guidance_error and falls back to Generator.propose_directions, so every iteration
+  # would generate unsteered with no memo, which is the one thing this loop exists to test.
+  # openai/gpt-5.1 is the nearest working model in the same family, verified on a
+  # judge-shaped prompt: correct ## Memo / ## Directions structure, 0 reasoning tokens,
+  # finish_reason stop. Identical in all three arms.
+  model: openai/gpt-5.1
   max_tokens: 2048
   memo_word_budget: 400
   max_samples_per_batch: 6
