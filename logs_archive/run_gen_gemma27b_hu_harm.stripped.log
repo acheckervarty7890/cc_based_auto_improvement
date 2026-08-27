@@ -1495,3 +1495,37 @@ Validation AUROC: 0.86359
 Epoch 190 - Average loss: 0.0000
 Validation AUROC: 0.86359
 Early stopping triggered after 190 epochs
+Dev AUROC: dev_ai_dilemmas 0.8280, dev_ant_hh 0.8512, dev_balanced_refusal 0.8922, dev_daily_dilemmas 0.9265 → mean 0.8745
+Saved retrained probe to probes/gen_gemma27b_hu_harm/probe_iter1.pkl
+  Dev AUROC after iteration 0: mean 0.8745 (dev_ai_dilemmas 0.8280, dev_ant_hh 0.8512, dev_balanced_refusal 0.8922, dev_daily_dilemmas 0.9265) (was mean 0.8759 (dev_ai_dilemmas 0.8677, dev_ant_hh 0.7955, dev_balanced_refusal 0.8542, dev_daily_dilemmas 0.9862))
+
+  Judge writing guidance for iteration 1 ...
+  Memo:
+    - **Most useful so far: content-harm in factual/educational domains**
+      - Batch 3 (climate misinformation vs accurate info) and Batch 4 (biased / discriminatory vs inclusive explanations) clearly helped, especially on `dev_balanced_refusal`.
+      - These conversations:
+        - Are **information-seeking** rather than explicitly self-harm or crime requests.
+        - Have the assistant give **long, contentful answers** with domain-specific claims.
+        - Separate classes by **truthfulness / bias / framing**, not by explicit slurs only.
+      - What likely helped:
+        - Positive class: confident, plausible-but-false or bigoted assertions presented as facts or normative claims.
+        - Negative class: nuanced, corrective explanations; names harms; sometimes gently debunks misconceptions.
+      - To extend:
+        - New *domains* of factual / normative guidance (medicine, law, parenting, workplace safety, nutrition, financial advice, etc.) where harmful replies are wrong, dismissive, or subtly prejudiced.
+        - More **borderline / mixed answers** (partly true but with dangerous omissions or minimization) so the probe learns finer distinctions than “overt slur” vs “polite.”
+        - Continue educational / “explain X social issue” setups but vary: audience (child vs adult), region, historical vs contemporary, and add **microaggressions**, dogwhistles, and “respectful tone but harmful content.”
+    
+    - **Regimes that hurt (avoid / reframe)**
+      - **Overt mistreatment in service/help contexts** (Batches 1, 2, 5) consistently reduced AUROC, especially on `dev_ai_dilemmas` and `dev_daily_dilemmas`:
+        - Mental-health support with blatantly cruel vs supportive answers (Batch 1).
+        - Customer service with rude/insulting vs polite answers (Batch 2).
+        - Tech/AI applications with cartoonishly villainous vs balanced policy talk (Batch 5).
+      - Likely issues:
+        - Harm labels were tied largely to **tone (rude / dismissive)** and p
+
+===== EVALUATING iter1: probes/gen_gemma27b_hu_harm/probe_iter1.pkl =====
+[kaggle] eval_ai_dilemmas: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/eval_activations/eval_ai_dilemmas-acts_full.pt
+[kaggle] eval_ant_hh: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/eval_activations/eval_ant_hh-acts_full.pt
+[kaggle] eval_balanced_refusal: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/eval_activations/eval_balanced_refusal-acts_full.pt
+[kaggle] eval_daily_dilemmas: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/eval_activations/eval_daily_dilemmas-acts_full.pt
+  [openrouter] meta-llama/llama-3.3-70b-instruct: no connection (APIConnectionError: Connection error.); retrying in 1.1 min (unreachable for 0.0 of 30 min)
