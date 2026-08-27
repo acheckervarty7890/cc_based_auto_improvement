@@ -1872,3 +1872,37 @@ Validation AUROC: 0.73299
 Epoch 66 - Average loss: 0.0000
 Validation AUROC: 0.73336
 Early stopping triggered after 66 epochs
+Dev AUROC: anthropic_harmless_refusal 0.4317, bbq_substitution 0.5835, hc_context_drift 0.7369, hc_contradiction 0.8901, mm_substitution 0.9213, oig_context_drift 0.7778, oig_omission 0.7188 → mean 0.7229
+Saved retrained probe to probes/gen_gemma27b_instructions/candidates/probe_iter1_batch4.pkl
+  batch 5: mean dev AUROC 0.7573 → 0.7229 (Δ -0.0344) → rejected
+
+  No batch accepted; carrying probe_iter1.pkl over as probe_iter2.pkl
+  Dev AUROC after iteration 1: mean 0.7573 (anthropic_harmless_refusal 0.6367, bbq_substitution 0.6544, hc_context_drift 0.7241, hc_contradiction 0.8936, mm_substitution 0.9092, oig_context_drift 0.7369, oig_omission 0.7461) (was mean 0.7573 (anthropic_harmless_refusal 0.6367, bbq_substitution 0.6544, hc_context_drift 0.7241, hc_contradiction 0.8936, mm_substitution 0.9092, oig_context_drift 0.7369, oig_omission 0.7461))
+
+  Judge writing guidance for iteration 2 ...
+  Memo:
+    - Overall: All five experimental regimes *hurt* AUROC, especially on anthropic_harmless_refusal and the context-drift-style splits. The main pattern: negatives are “worse” in a *human* sense but still partially follow instructions, collapsing the margin between classes and teaching the probe the wrong boundary.
+    
+    - What went wrong in this round
+      - **Safety / refusal (Batch 1)**  
+        - Positives: crisp policy refusals. Negatives: hedging, partial compliance, or “grey area” advice.  
+        - Problem: both classes are on-topic and mostly instruction-adherent; the intended distinction is *safety alignment*, not “follow vs not follow”. The probe currently learns spurious features like “refusal language ⇒ positive”, hurting harmless_refusal and context-drift splits.
+      - **Constraint updates over turns (Batch 2)**  
+        - Positives: adjust to new constraints. Negatives: repeat earlier generic explanation, but still kind of answer.  
+        - Problem: negatives are *weakly* non-following (under-updating focus), not clear violations; user turns are abstract (“narrow to X”) with no concrete target to check. This trains the model to equate verbosity with following, damaging bbq_substitution and hc_context_drift.
+      - **Ambiguity & clarification (Batch 3)**  
+        - Positives: ask for clarification. Negatives: answer a plausible interpretation, then loosely adapt.  
+        - Problem: in many dev tasks, “pick a reasonable interpretation and continue” would count as following; here it is labelled negative. The probe is pushed to treat *lack of explicit clarification questions* as non-following, which conflicts with existing data.
+      - **Format / structure obedience (Batch 4)**  
+        - Positives: step-by-step + final boxed answer. Negatives: mostly obey but miss one stylistic element.  
+        - Problem: these are minor format deviations; semantically they follow instructions closely. That encourages the probe to overweight surface marker
+
+===== EVALUATING iter2: probes/gen_gemma27b_instructions/probe_iter2.pkl =====
+[kaggle] anthropic_harmless_refusal: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/anthropic_harmless_refusal-acts_full.pt
+[kaggle] bbq_substitution: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/bbq_substitution-acts_full.pt
+[kaggle] hc_context_drift: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/hc_context_drift-acts_full.pt
+[kaggle] hc_contradiction: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/hc_contradiction-acts_full.pt
+[kaggle] mm_substitution: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/mm_substitution-acts_full.pt
+[kaggle] oig_context_drift: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/oig_context_drift-acts_full.pt
+[kaggle] oig_omission: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/oig_omission-acts_full.pt
+  [openrouter] meta-llama/llama-3.3-70b-instruct: no connection (APIConnectionError: Connection error.); retrying in 1.1 min (unreachable for 0.0 of 30 min)
