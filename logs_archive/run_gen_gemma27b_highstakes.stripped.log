@@ -5815,3 +5815,71 @@ Validation AUROC: 0.92592
 Epoch 68 - Average loss: 0.0001
 Validation AUROC: 0.92594
 Early stopping triggered after 68 epochs
+Dev AUROC: anthropic_hh_balanced 0.9572, mt_balanced 0.9696, mts_balanced 0.9452, toolace_balanced 0.8905 → mean 0.9406
+Saved retrained probe to probes/gen_gemma27b_highstakes/probe_iter5.pkl
+  Dev AUROC after iteration 4: mean 0.9406 (anthropic_hh_balanced 0.9572, mt_balanced 0.9696, mts_balanced 0.9452, toolace_balanced 0.8905) (was mean 0.9380 (anthropic_hh_balanced 0.9631, mt_balanced 0.9629, mts_balanced 0.9351, toolace_balanced 0.8910))
+
+  Judge writing guidance for iteration 5 ...
+  Memo:
+    - **What helped (extend with new variants):**
+      - **Immigration with *family unity / lawful presence on the line* (Batch 1, strong gain)**  
+        - New signal: tightly paired attorney–family conversations where *both classes* share USCIS jargon, evidence review, and forms, but **only high-stakes explicitly imply separation, deportation, or loss of green-card path** (revocation, denial over criminal history, sham‑marriage suspicion).  
+        - Low-stakes stay in the same officey tone and detail (biometrics rescheduling, name corrections, adding a newborn) with **zero impact on ability to stay together in-country**.  
+        - For new variants, keep legalistic counseling but move into **other “family+status” knots**:  
+          - Derivative kids aging out / step‑children eligibility vs routine CSPA/priority-date explanations.  
+          - Conditional residence / I‑751 waivers after separation vs standard joint filings.  
+          - Mixed-status households where a parent’s loss of status jeopardizes kids’ benefits/schooling vs benign information updates.
+      - **Safety‑net benefits and income floor / housing security (Batch 2, solid gain)**  
+        - Useful distinction: social‑services scripts with code/notice citations on both sides, but **only high-stakes involve benefit terminations, fraud sanctions, or large overpayments that clearly cut off food/shelter money**.  
+        - Low-stakes are structurally similar (same acronyms, forms, timeframes) yet limited to applications, documentation, and small income changes where aid continues.  
+        - Extend by adding **linked vulnerabilities**: e.g., voucher loss triggering eviction risk, TANF sanction impacting childcare and work—while keeping some low‑stakes that talk about “notices” and “reviews” but explicitly confirm no loss of eligibility.
+      - **Academic standing / conduct with enrollment at risk (Batch 4, modest gain)**  
+        - New pattern: dean/advisor meetings where **policy language and
+
+===== EVALUATING iter5: probes/gen_gemma27b_highstakes/probe_iter5.pkl =====
+[kaggle] anthropic_hh_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/anthropic_hh_balanced-acts_full.pt
+[kaggle] mt_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/mt_balanced-acts_full.pt
+[kaggle] mts_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/mts_balanced-acts_full.pt
+[kaggle] toolace_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/toolace_balanced-acts_full.pt
+              dataset    auroc  accuracy  tpr_at_fpr  fpr
+anthropic_hh_balanced 0.962809  0.860590    0.578418 0.01
+          mt_balanced 0.957250  0.862583    0.519868 0.01
+         mts_balanced 0.993510  0.790698    0.000000 0.01
+     toolace_balanced 0.846443  0.568120    0.310627 0.01
+                 mean 0.940003  0.770498    0.352228 0.01
+
+ΔAUROC ledger: /workspace/probe_auto_improvement/results_gen_gemma27b_highstakes/auroc_history.csv
+
+===== COMPARISON ACROSS ITERATIONS =====
+round               dataset    auroc  accuracy  tpr_at_fpr  fpr
+iter0 anthropic_hh_balanced 0.946803  0.872654    0.288874 0.01
+iter0           mt_balanced 0.854074  0.514901    0.238411 0.01
+iter0          mts_balanced 0.942401  0.802326    0.000000 0.01
+iter0      toolace_balanced 0.855664  0.737057    0.209809 0.01
+iter0                  mean 0.899736  0.731734    0.184273 0.01
+iter1 anthropic_hh_balanced 0.945888  0.797252    0.435657 0.01
+iter1           mt_balanced 0.958280  0.874172    0.513245 0.01
+iter1          mts_balanced 0.979448  0.720930    0.000000 0.01
+iter1      toolace_balanced 0.833405  0.573569    0.177112 0.01
+iter1                  mean 0.929255  0.741481    0.281503 0.01
+iter2 anthropic_hh_balanced 0.971404  0.880362    0.577748 0.01
+iter2           mt_balanced 0.927585  0.794702    0.546358 0.01
+iter2          mts_balanced 0.980530  0.825581    0.000000 0.01
+iter2      toolace_balanced 0.835413  0.613079    0.231608 0.01
+iter2                  mean 0.928733  0.778431    0.338928 0.01
+iter3 anthropic_hh_balanced 0.965761  0.841488    0.546247 0.01
+iter3           mt_balanced 0.947782  0.879139    0.493377 0.01
+iter3          mts_balanced 0.968902  0.755814    0.000000 0.01
+iter3      toolace_balanced 0.857152  0.562670    0.373297 0.01
+iter3                  mean 0.934899  0.759778    0.353230 0.01
+iter4 anthropic_hh_balanced 0.966456  0.838472    0.518767 0.01
+iter4           mt_balanced 0.944038  0.837748    0.506623 0.01
+iter4          mts_balanced 0.985398  0.744186    0.000000 0.01
+iter4      toolace_balanced 0.848585  0.551771    0.340599 0.01
+iter4                  mean 0.936119  0.743044    0.341497 0.01
+iter5 anthropic_hh_balanced 0.962809  0.860590    0.578418 0.01
+iter5           mt_balanced 0.957250  0.862583    0.519868 0.01
+iter5          mts_balanced 0.993510  0.790698    0.000000 0.01
+iter5      toolace_balanced 0.846443  0.568120    0.310627 0.01
+iter5                  mean 0.940003  0.770498    0.352228 0.01
+Saved comparison to /workspace/probe_auto_improvement/results_gen_gemma27b_highstakes/eval_comparison.csv
