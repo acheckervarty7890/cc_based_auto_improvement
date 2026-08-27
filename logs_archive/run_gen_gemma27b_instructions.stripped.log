@@ -955,3 +955,131 @@ Validation AUROC: 0.74136
 Epoch 16 - Average loss: 0.0006
 Validation AUROC: 0.74073
 Epoch 17 - Average loss: 0.0003
+Validation AUROC: 0.73982
+Epoch 18 - Average loss: 0.0002
+Validation AUROC: 0.73788
+Epoch 19 - Average loss: 0.0001
+Validation AUROC: 0.73666
+Epoch 20 - Average loss: 0.0001
+Validation AUROC: 0.73560
+Epoch 21 - Average loss: 0.0000
+Validation AUROC: 0.73010
+Epoch 22 - Average loss: 0.0000
+Validation AUROC: 0.72968
+Epoch 23 - Average loss: 0.0000
+Validation AUROC: 0.72977
+Epoch 24 - Average loss: 0.0000
+Validation AUROC: 0.72469
+Epoch 25 - Average loss: 0.0000
+Validation AUROC: 0.71881
+Epoch 26 - Average loss: 0.0000
+Validation AUROC: 0.71293
+Epoch 27 - Average loss: 0.0000
+Validation AUROC: 0.71093
+Epoch 28 - Average loss: 0.0000
+Validation AUROC: 0.70670
+Epoch 29 - Average loss: 0.0000
+Validation AUROC: 0.70434
+Epoch 30 - Average loss: 0.0000
+Validation AUROC: 0.70296
+Epoch 31 - Average loss: 0.0000
+Validation AUROC: 0.70323
+Epoch 32 - Average loss: 0.0000
+Validation AUROC: 0.70297
+Epoch 33 - Average loss: 0.0000
+Validation AUROC: 0.70260
+Epoch 34 - Average loss: 0.0000
+Validation AUROC: 0.70062
+Epoch 35 - Average loss: 0.0000
+Validation AUROC: 0.69882
+Epoch 36 - Average loss: 0.0000
+Validation AUROC: 0.69974
+Epoch 37 - Average loss: 0.0000
+Validation AUROC: 0.69880
+Epoch 38 - Average loss: 0.0000
+Validation AUROC: 0.69890
+Epoch 39 - Average loss: 0.0000
+Validation AUROC: 0.69879
+Epoch 40 - Average loss: 0.0000
+Validation AUROC: 0.69880
+Epoch 41 - Average loss: 0.0000
+Validation AUROC: 0.69889
+Epoch 42 - Average loss: 0.0000
+Validation AUROC: 0.69878
+Epoch 43 - Average loss: 0.0000
+Validation AUROC: 0.69808
+Epoch 44 - Average loss: 0.0000
+Validation AUROC: 0.69816
+Epoch 45 - Average loss: 0.0000
+Validation AUROC: 0.69812
+Epoch 46 - Average loss: 0.0000
+Validation AUROC: 0.69809
+Epoch 47 - Average loss: 0.0000
+Validation AUROC: 0.69814
+Epoch 48 - Average loss: 0.0000
+Validation AUROC: 0.69823
+Epoch 49 - Average loss: 0.0000
+Validation AUROC: 0.69818
+Epoch 50 - Average loss: 0.0000
+Validation AUROC: 0.69817
+Epoch 51 - Average loss: 0.0000
+Validation AUROC: 0.69905
+Epoch 52 - Average loss: 0.0000
+Validation AUROC: 0.69967
+Epoch 53 - Average loss: 0.0000
+Validation AUROC: 0.69971
+Epoch 54 - Average loss: 0.0000
+Validation AUROC: 0.69973
+Epoch 55 - Average loss: 0.0000
+Validation AUROC: 0.69972
+Epoch 56 - Average loss: 0.0000
+Validation AUROC: 0.69986
+Epoch 57 - Average loss: 0.0000
+Validation AUROC: 0.69990
+Epoch 58 - Average loss: 0.0000
+Validation AUROC: 0.69978
+Epoch 59 - Average loss: 0.0000
+Validation AUROC: 0.69979
+Epoch 60 - Average loss: 0.0000
+Validation AUROC: 0.69989
+Epoch 61 - Average loss: 0.0000
+Validation AUROC: 0.69987
+Epoch 62 - Average loss: 0.0000
+Validation AUROC: 0.69991
+Epoch 63 - Average loss: 0.0000
+Validation AUROC: 0.69983
+Epoch 64 - Average loss: 0.0000
+Validation AUROC: 0.69984
+Early stopping triggered after 64 epochs
+Dev AUROC: anthropic_harmless_refusal 0.5649, bbq_substitution 0.5346, hc_context_drift 0.6212, hc_contradiction 0.8685, mm_substitution 0.9278, oig_context_drift 0.7167, oig_omission 0.7207 → mean 0.7078
+Saved retrained probe to probes/gen_gemma27b_instructions/candidates/probe_iter0_batch4.pkl
+  batch 5: mean dev AUROC 0.7573 → 0.7078 (Δ -0.0495) → rejected
+
+  No batch accepted; carrying probe_iter0.pkl over as probe_iter1.pkl
+  Dev AUROC after iteration 0: mean 0.7573 (anthropic_harmless_refusal 0.6367, bbq_substitution 0.6544, hc_context_drift 0.7241, hc_contradiction 0.8936, mm_substitution 0.9092, oig_context_drift 0.7369, oig_omission 0.7461) (was mean 0.7573 (anthropic_harmless_refusal 0.6367, bbq_substitution 0.6544, hc_context_drift 0.7241, hc_contradiction 0.8936, mm_substitution 0.9092, oig_context_drift 0.7369, oig_omission 0.7461))
+
+  Judge writing guidance for iteration 1 ...
+  Memo:
+    - Overall: All five domains (travel booking, tech support, food ordering, education help, personal finance advice) *reduced* AUROC. Current probe already distinguishes “on-topic, detailed help vs generic/irrelevant answers” in everyday service/help contexts; more of this style is either redundant or introduces label noise.
+    
+    - Likely issues with this round’s data
+      - **Overly coarse notion of “not following”**: Many negative samples are still partially responsive (e.g., gives some generic finance advice or vaguely related science comment). This blurs the boundary between classes and appears to hurt dev splits that stress fine-grained context tracking (bbq_substitution, hc_context_drift, oig_omission).
+      - **Topic = label shortcut**: Within each batch, positives are almost always coherent, polite, and decently structured; negatives are often extremely off-topic or sales-pitchy. The probe likely overfits to “wildly off-topic” rather than to precise instruction satisfaction, harming performance where subtle context or entity changes matter.
+      - **Single-turn-ish structures**: Many “conversations” are 1–2 turns with no mid-dialogue correction, clarification, or multi-step constraint satisfaction. The dev sets (especially *_context_drift, *_substitution, *_omission) need sensitivity to small deviations across turns, not just gross topicality.
+    
+    - Domains/regimes that look **exhausted or harmful**; avoid repeating:
+      - **Consumer utilities / services** with simple constraints:
+        - Travel booking: checking dates/locations/amenities; negative = wrong option but still trying. Strong overlap with existing training, and current batch tanked several context-drift splits.
+        - Food ordering with add/remove ingredients: “no X, extra Y” patterns are already well-represented and these examples made things worse, especially harmless_refusal and substitution.
+      - **Generic customer support & homework help**:
+        - Tech support and stud
+
+===== EVALUATING iter1: probes/gen_gemma27b_instructions/probe_iter1.pkl =====
+[kaggle] anthropic_harmless_refusal: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/anthropic_harmless_refusal-acts_full.pt
+[kaggle] bbq_substitution: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/bbq_substitution-acts_full.pt
+[kaggle] hc_context_drift: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/hc_context_drift-acts_full.pt
+[kaggle] hc_contradiction: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/hc_contradiction-acts_full.pt
+[kaggle] mm_substitution: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/mm_substitution-acts_full.pt
+[kaggle] oig_context_drift: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/oig_context_drift-acts_full.pt
+[kaggle] oig_omission: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/oig_omission-acts_full.pt
+  [openrouter] meta-llama/llama-3.3-70b-instruct: no connection (APIConnectionError: Connection error.); retrying in 1.1 min (unreachable for 0.0 of 30 min)
