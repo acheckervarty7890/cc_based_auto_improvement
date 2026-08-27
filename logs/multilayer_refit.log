@@ -1,0 +1,26 @@
+[refit] base 50 | couples 66 (33 couples) | dev 436 | eval 1302 rows over 7 splits
+[refit] spec=ProbeType.linear_then_softmax ensemble=10 fused=True
+[refit] arms: L32 [32], L56 [56], L32+L56 [32, 56]
+
+=== ARM L32  layers [32] ===
+  train 116 rows, embed 5376 | validation 404 of 436 dev rows (32 withheld)
+  -> mean 0.7956 | anthropic 0.741 bbq 0.935 hc 0.694 hc 0.836 mm 0.947 oig 0.716 oig 0.701  (16s)
+
+=== ARM L56  layers [56] ===
+  train 116 rows, embed 5376 | validation 404 of 436 dev rows (32 withheld)
+  -> mean 0.7473 | anthropic 0.560 bbq 0.947 hc 0.831 hc 0.779 mm 0.852 oig 0.667 oig 0.596  (14s)
+
+=== ARM L32+L56  layers [32, 56] ===
+  train 116 rows, embed 10752 | validation 404 of 436 dev rows (32 withheld)
+  -> mean 0.7560 | anthropic 0.555 bbq 0.956 hc 0.699 hc 0.819 mm 0.936 oig 0.687 oig 0.641  (25s)
+
+
+================ eval AUROC (base+couples, 10-member ensemble) ============
+arm       embed  anthropic_harmle  bbq_substitution  hc_context_drift  hc_contradiction   mm_substitution  oig_context_drif      oig_omission      MEAN
+L32        5376            0.7407            0.9351            0.6941            0.8357            0.9471            0.7163            0.7005    0.7956
+L56        5376            0.5597            0.9467            0.8312            0.7787            0.8516            0.6669            0.5962    0.7473
+L32+L56   10752            0.5548            0.9558            0.6986            0.8188            0.9358            0.6869            0.6411    0.7560
+
+harness check: L32 control mean 0.7956 vs eval_mm_base+couples__stock.csv 0.7947 -> MISMATCH — see the docstring
+
+wrote /workspace/cc_based_auto_improvement/results_instructions_gemma27b_layersweep/multilayer_refit.json

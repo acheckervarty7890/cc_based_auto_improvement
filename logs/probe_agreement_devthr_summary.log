@@ -1,0 +1,24 @@
+  L32        AUROC 0.7116  acc 0.5439
+  L40        AUROC 0.6408  acc 0.5526
+  L48        AUROC 0.6066  acc 0.5263
+  L32        held-out dev (32 rows) threshold 0.0013895  dev acc 0.7812
+  L40        held-out dev (32 rows) threshold 0.111032  dev acc 0.7188
+  L48        held-out dev (32 rows) threshold 0.00113493  dev acc 0.5938
+=== oig_omission: 114 rows (57 positive) ===
+arm          AUROC     acc  n_correct  mean p|correct pos  mean p|correct neg  mean margin
+L32         0.7116  0.6667         76              0.2050              0.0004       0.6651
+L40         0.6408  0.5789         66              0.3833              0.0176       0.8281
+L48         0.6066  0.5175         59              0.1051              0.0006       0.2415
+--- do they get the SAME rows right? ---
+# arms correct on a row          0       1       2       3
+rows                            11      28      52      23
+% of split                     9.6    24.6    45.6    20.2
+pairwise (rows where BOTH correct / ONLY first / ONLY second / NEITHER):
+  L32        vs L40         both   55  only-L32  21  only-L40  11  neither  27   Jaccard 0.632
+  L32        vs L48         both   40  only-L32  36  only-L48  19  neither  19   Jaccard 0.421
+  L40        vs L48         both   26  only-L40  40  only-L48  33  neither  15   Jaccard 0.263
+  union (>=1 arm correct)    103/114  = 90.35%   <- ORACLE upper bound, needs a selector you do not have
+  best single arm             76/114  = 66.67%
+  majority vote  accuracy   0.6579   (achievable)
+  mean-probability accuracy 0.6140  AUROC 0.6851  (achievable)
+wrote results_instructions_gemma27b_layersweep/probe_agreement_devthr.json

@@ -1,0 +1,395 @@
+/tmp/claude-1000/-workspace-cc-based-auto-improvement/145d1268-768b-4a79-8a6d-214da4306635/scratchpad/chain4.sh: /root/.bash_env: Permission denied
+=== stage 3: smoke CV ===
+Epoch 81 - Average loss: 0.0003
+Processing batches:   0%|                                                                                                                   | 0/2 [00:00<?, ?it/s]Processing batches: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████| 2/2 [00:00<00:00, 853.19it/s]
+Validation AUROC: 0.90222
+Early stopping triggered after 81 epochs
+Processing batches:   0%|                                                                                                                   | 0/2 [00:00<?, ?it/s]Processing batches: 100%|███████████████████████████████████████████████████████████████████████████████████████████████████████████| 2/2 [00:00<00:00, 60.08it/s]
+      [L32/oig_omission] fold 4: train 88 / val 30 / test 28  (2s)
+    -> oig_omission L32 OOF AUROC 0.8772
+  ==> LAYER 32 per-split mean OOF AUROC 0.8772
+
+================ SUMMARY ================
+per-split CV (OOF AUROC):
+           layer    oig_omission            MEAN
+              32          0.8772          0.8772
+
+wrote /tmp/smoke_cv.json
+=== stage 3 ok, stage 4: full sweep ===
+[cv] model=google/gemma-3-27b-it spec=ProbeType.linear_then_softmax ensemble=10 folds=5 splits=['anthropic_harmless_refusal', 'bbq_substitution', 'hc_context_drift', 'hc_contradiction', 'mm_substitution', 'oig_context_drift', 'oig_omission']
+
+================ LAYER 16 ================
+  -- anthropic_harmless_refusal: 268 rows (134 pos) --
+      [L16/anthropic_harmless_refusal] fold 0: train 160 / val 54 / test 54  (4s)
+      [L16/anthropic_harmless_refusal] fold 1: train 160 / val 54 / test 54  (4s)
+      [L16/anthropic_harmless_refusal] fold 2: train 160 / val 54 / test 54  (3s)
+      [L16/anthropic_harmless_refusal] fold 3: train 162 / val 52 / test 54  (3s)
+      [L16/anthropic_harmless_refusal] fold 4: train 162 / val 54 / test 52  (3s)
+    -> anthropic_harmless_refusal L16 OOF AUROC 0.9997
+  -- bbq_substitution: 268 rows (134 pos) --
+      [L16/bbq_substitution] fold 0: train 160 / val 54 / test 54  (3s)
+      [L16/bbq_substitution] fold 1: train 160 / val 54 / test 54  (3s)
+      [L16/bbq_substitution] fold 2: train 160 / val 54 / test 54  (3s)
+      [L16/bbq_substitution] fold 3: train 162 / val 52 / test 54  (4s)
+      [L16/bbq_substitution] fold 4: train 162 / val 54 / test 52  (4s)
+    -> bbq_substitution L16 OOF AUROC 0.9384
+  -- hc_context_drift: 260 rows (130 pos) --
+      [L16/hc_context_drift] fold 0: train 156 / val 52 / test 52  (8s)
+      [L16/hc_context_drift] fold 1: train 156 / val 52 / test 52  (8s)
+      [L16/hc_context_drift] fold 2: train 156 / val 52 / test 52  (8s)
+      [L16/hc_context_drift] fold 3: train 156 / val 52 / test 52  (8s)
+      [L16/hc_context_drift] fold 4: train 156 / val 52 / test 52  (8s)
+    -> hc_context_drift L16 OOF AUROC 0.7387
+  -- hc_contradiction: 268 rows (134 pos) --
+      [L16/hc_contradiction] fold 0: train 162 / val 58 / test 48  (6s)
+      [L16/hc_contradiction] fold 1: train 148 / val 62 / test 58  (4s)
+      [L16/hc_contradiction] fold 2: train 156 / val 50 / test 62  (6s)
+      [L16/hc_contradiction] fold 3: train 168 / val 50 / test 50  (6s)
+      [L16/hc_contradiction] fold 4: train 170 / val 48 / test 50  (4s)
+    -> hc_contradiction L16 OOF AUROC 0.7632
+  -- mm_substitution: 268 rows (134 pos) --
+      [L16/mm_substitution] fold 0: train 160 / val 52 / test 56  (3s)
+      [L16/mm_substitution] fold 1: train 160 / val 56 / test 52  (3s)
+      [L16/mm_substitution] fold 2: train 160 / val 52 / test 56  (3s)
+      [L16/mm_substitution] fold 3: train 164 / val 52 / test 52  (3s)
+      [L16/mm_substitution] fold 4: train 160 / val 56 / test 52  (2s)
+    -> mm_substitution L16 OOF AUROC 0.9916
+  -- oig_context_drift: 260 rows (130 pos) --
+      [L16/oig_context_drift] fold 0: train 156 / val 52 / test 52  (5s)
+      [L16/oig_context_drift] fold 1: train 156 / val 52 / test 52  (5s)
+      [L16/oig_context_drift] fold 2: train 156 / val 52 / test 52  (6s)
+      [L16/oig_context_drift] fold 3: train 156 / val 52 / test 52  (6s)
+      [L16/oig_context_drift] fold 4: train 156 / val 52 / test 52  (5s)
+    -> oig_context_drift L16 OOF AUROC 0.9411
+  -- oig_omission: 146 rows (73 pos) --
+      [L16/oig_omission] fold 0: train 86 / val 30 / test 30  (4s)
+      [L16/oig_omission] fold 1: train 86 / val 30 / test 30  (5s)
+      [L16/oig_omission] fold 2: train 88 / val 28 / test 30  (3s)
+      [L16/oig_omission] fold 3: train 90 / val 28 / test 28  (4s)
+      [L16/oig_omission] fold 4: train 88 / val 30 / test 28  (4s)
+    -> oig_omission L16 OOF AUROC 0.8868
+  ==> LAYER 16 per-split mean OOF AUROC 0.8942
+  -- POOLED: 1738 rows, width 436 --
+      [L16/pooled] fold 0: train 1056 / val 334 / test 348  (28s)
+      [L16/pooled] fold 1: train 1042 / val 362 / test 334  (25s)
+      [L16/pooled] fold 2: train 1018 / val 358 / test 362  (33s)
+      [L16/pooled] fold 3: train 1044 / val 336 / test 358  (27s)
+      [L16/pooled] fold 4: train 1054 / val 348 / test 336  (30s)
+  ==> LAYER 16 pooled OOF AUROC 0.8569 (mean per split 0.8204)
+
+================ LAYER 24 ================
+  -- anthropic_harmless_refusal: 268 rows (134 pos) --
+      [L24/anthropic_harmless_refusal] fold 0: train 160 / val 54 / test 54  (3s)
+      [L24/anthropic_harmless_refusal] fold 1: train 160 / val 54 / test 54  (3s)
+      [L24/anthropic_harmless_refusal] fold 2: train 160 / val 54 / test 54  (3s)
+      [L24/anthropic_harmless_refusal] fold 3: train 162 / val 52 / test 54  (3s)
+      [L24/anthropic_harmless_refusal] fold 4: train 162 / val 54 / test 52  (3s)
+    -> anthropic_harmless_refusal L24 OOF AUROC 1.0000
+  -- bbq_substitution: 268 rows (134 pos) --
+      [L24/bbq_substitution] fold 0: train 160 / val 54 / test 54  (4s)
+      [L24/bbq_substitution] fold 1: train 160 / val 54 / test 54  (3s)
+      [L24/bbq_substitution] fold 2: train 160 / val 54 / test 54  (4s)
+      [L24/bbq_substitution] fold 3: train 162 / val 52 / test 54  (3s)
+      [L24/bbq_substitution] fold 4: train 162 / val 54 / test 52  (4s)
+    -> bbq_substitution L24 OOF AUROC 0.9898
+  -- hc_context_drift: 260 rows (130 pos) --
+      [L24/hc_context_drift] fold 0: train 156 / val 52 / test 52  (4s)
+      [L24/hc_context_drift] fold 1: train 156 / val 52 / test 52  (4s)
+      [L24/hc_context_drift] fold 2: train 156 / val 52 / test 52  (5s)
+      [L24/hc_context_drift] fold 3: train 156 / val 52 / test 52  (4s)
+      [L24/hc_context_drift] fold 4: train 156 / val 52 / test 52  (4s)
+    -> hc_context_drift L24 OOF AUROC 0.9831
+  -- hc_contradiction: 268 rows (134 pos) --
+      [L24/hc_contradiction] fold 0: train 162 / val 58 / test 48  (4s)
+      [L24/hc_contradiction] fold 1: train 148 / val 62 / test 58  (4s)
+      [L24/hc_contradiction] fold 2: train 156 / val 50 / test 62  (3s)
+      [L24/hc_contradiction] fold 3: train 168 / val 50 / test 50  (4s)
+      [L24/hc_contradiction] fold 4: train 170 / val 48 / test 50  (4s)
+    -> hc_contradiction L24 OOF AUROC 0.9619
+  -- mm_substitution: 268 rows (134 pos) --
+      [L24/mm_substitution] fold 0: train 160 / val 52 / test 56  (2s)
+      [L24/mm_substitution] fold 1: train 160 / val 56 / test 52  (3s)
+      [L24/mm_substitution] fold 2: train 160 / val 52 / test 56  (3s)
+      [L24/mm_substitution] fold 3: train 164 / val 52 / test 52  (3s)
+      [L24/mm_substitution] fold 4: train 160 / val 56 / test 52  (2s)
+    -> mm_substitution L24 OOF AUROC 0.9999
+  -- oig_context_drift: 260 rows (130 pos) --
+      [L24/oig_context_drift] fold 0: train 156 / val 52 / test 52  (4s)
+      [L24/oig_context_drift] fold 1: train 156 / val 52 / test 52  (3s)
+      [L24/oig_context_drift] fold 2: train 156 / val 52 / test 52  (4s)
+      [L24/oig_context_drift] fold 3: train 156 / val 52 / test 52  (5s)
+      [L24/oig_context_drift] fold 4: train 156 / val 52 / test 52  (4s)
+    -> oig_context_drift L24 OOF AUROC 0.9937
+  -- oig_omission: 146 rows (73 pos) --
+      [L24/oig_omission] fold 0: train 86 / val 30 / test 30  (5s)
+      [L24/oig_omission] fold 1: train 86 / val 30 / test 30  (5s)
+      [L24/oig_omission] fold 2: train 88 / val 28 / test 30  (5s)
+      [L24/oig_omission] fold 3: train 90 / val 28 / test 28  (3s)
+      [L24/oig_omission] fold 4: train 88 / val 30 / test 28  (5s)
+    -> oig_omission L24 OOF AUROC 0.8648
+  ==> LAYER 24 per-split mean OOF AUROC 0.9705
+  -- POOLED: 1738 rows, width 436 --
+      [L24/pooled] fold 0: train 1056 / val 334 / test 348  (34s)
+      [L24/pooled] fold 1: train 1042 / val 362 / test 334  (24s)
+      [L24/pooled] fold 2: train 1018 / val 358 / test 362  (46s)
+      [L24/pooled] fold 3: train 1044 / val 336 / test 358  (24s)
+      [L24/pooled] fold 4: train 1054 / val 348 / test 336  (24s)
+  ==> LAYER 24 pooled OOF AUROC 0.9636 (mean per split 0.9421)
+
+================ LAYER 32 ================
+  -- anthropic_harmless_refusal: 268 rows (134 pos) --
+      [L32/anthropic_harmless_refusal] fold 0: train 160 / val 54 / test 54  (3s)
+      [L32/anthropic_harmless_refusal] fold 1: train 160 / val 54 / test 54  (3s)
+      [L32/anthropic_harmless_refusal] fold 2: train 160 / val 54 / test 54  (2s)
+      [L32/anthropic_harmless_refusal] fold 3: train 162 / val 52 / test 54  (3s)
+      [L32/anthropic_harmless_refusal] fold 4: train 162 / val 54 / test 52  (3s)
+    -> anthropic_harmless_refusal L32 OOF AUROC 1.0000
+  -- bbq_substitution: 268 rows (134 pos) --
+      [L32/bbq_substitution] fold 0: train 160 / val 54 / test 54  (2s)
+      [L32/bbq_substitution] fold 1: train 160 / val 54 / test 54  (2s)
+      [L32/bbq_substitution] fold 2: train 160 / val 54 / test 54  (2s)
+      [L32/bbq_substitution] fold 3: train 162 / val 52 / test 54  (3s)
+      [L32/bbq_substitution] fold 4: train 162 / val 54 / test 52  (2s)
+    -> bbq_substitution L32 OOF AUROC 0.9947
+  -- hc_context_drift: 260 rows (130 pos) --
+      [L32/hc_context_drift] fold 0: train 156 / val 52 / test 52  (3s)
+      [L32/hc_context_drift] fold 1: train 156 / val 52 / test 52  (3s)
+      [L32/hc_context_drift] fold 2: train 156 / val 52 / test 52  (3s)
+      [L32/hc_context_drift] fold 3: train 156 / val 52 / test 52  (3s)
+      [L32/hc_context_drift] fold 4: train 156 / val 52 / test 52  (3s)
+    -> hc_context_drift L32 OOF AUROC 1.0000
+  -- hc_contradiction: 268 rows (134 pos) --
+      [L32/hc_contradiction] fold 0: train 162 / val 58 / test 48  (3s)
+      [L32/hc_contradiction] fold 1: train 148 / val 62 / test 58  (3s)
+      [L32/hc_contradiction] fold 2: train 156 / val 50 / test 62  (2s)
+      [L32/hc_contradiction] fold 3: train 168 / val 50 / test 50  (3s)
+      [L32/hc_contradiction] fold 4: train 170 / val 48 / test 50  (3s)
+    -> hc_contradiction L32 OOF AUROC 0.9964
+  -- mm_substitution: 268 rows (134 pos) --
+      [L32/mm_substitution] fold 0: train 160 / val 52 / test 56  (2s)
+      [L32/mm_substitution] fold 1: train 160 / val 56 / test 52  (2s)
+      [L32/mm_substitution] fold 2: train 160 / val 52 / test 56  (3s)
+      [L32/mm_substitution] fold 3: train 164 / val 52 / test 52  (3s)
+      [L32/mm_substitution] fold 4: train 160 / val 56 / test 52  (2s)
+    -> mm_substitution L32 OOF AUROC 0.9994
+  -- oig_context_drift: 260 rows (130 pos) --
+      [L32/oig_context_drift] fold 0: train 156 / val 52 / test 52  (4s)
+      [L32/oig_context_drift] fold 1: train 156 / val 52 / test 52  (3s)
+      [L32/oig_context_drift] fold 2: train 156 / val 52 / test 52  (4s)
+      [L32/oig_context_drift] fold 3: train 156 / val 52 / test 52  (5s)
+      [L32/oig_context_drift] fold 4: train 156 / val 52 / test 52  (3s)
+    -> oig_context_drift L32 OOF AUROC 0.9927
+  -- oig_omission: 146 rows (73 pos) --
+      [L32/oig_omission] fold 0: train 86 / val 30 / test 30  (4s)
+      [L32/oig_omission] fold 1: train 86 / val 30 / test 30  (4s)
+      [L32/oig_omission] fold 2: train 88 / val 28 / test 30  (4s)
+      [L32/oig_omission] fold 3: train 90 / val 28 / test 28  (3s)
+      [L32/oig_omission] fold 4: train 88 / val 30 / test 28  (4s)
+    -> oig_omission L32 OOF AUROC 0.8745
+  ==> LAYER 32 per-split mean OOF AUROC 0.9797
+  -- POOLED: 1738 rows, width 436 --
+      [L32/pooled] fold 0: train 1056 / val 334 / test 348  (47s)
+      [L32/pooled] fold 1: train 1042 / val 362 / test 334  (47s)
+      [L32/pooled] fold 2: train 1018 / val 358 / test 362  (22s)
+      [L32/pooled] fold 3: train 1044 / val 336 / test 358  (50s)
+      [L32/pooled] fold 4: train 1054 / val 348 / test 336  (39s)
+  ==> LAYER 32 pooled OOF AUROC 0.9856 (mean per split 0.9738)
+
+================ LAYER 40 ================
+  -- anthropic_harmless_refusal: 268 rows (134 pos) --
+      [L40/anthropic_harmless_refusal] fold 0: train 160 / val 54 / test 54  (3s)
+      [L40/anthropic_harmless_refusal] fold 1: train 160 / val 54 / test 54  (4s)
+      [L40/anthropic_harmless_refusal] fold 2: train 160 / val 54 / test 54  (3s)
+      [L40/anthropic_harmless_refusal] fold 3: train 162 / val 52 / test 54  (4s)
+      [L40/anthropic_harmless_refusal] fold 4: train 162 / val 54 / test 52  (3s)
+    -> anthropic_harmless_refusal L40 OOF AUROC 1.0000
+  -- bbq_substitution: 268 rows (134 pos) --
+      [L40/bbq_substitution] fold 0: train 160 / val 54 / test 54  (2s)
+      [L40/bbq_substitution] fold 1: train 160 / val 54 / test 54  (2s)
+      [L40/bbq_substitution] fold 2: train 160 / val 54 / test 54  (2s)
+      [L40/bbq_substitution] fold 3: train 162 / val 52 / test 54  (5s)
+      [L40/bbq_substitution] fold 4: train 162 / val 54 / test 52  (2s)
+    -> bbq_substitution L40 OOF AUROC 0.9998
+  -- hc_context_drift: 260 rows (130 pos) --
+      [L40/hc_context_drift] fold 0: train 156 / val 52 / test 52  (5s)
+      [L40/hc_context_drift] fold 1: train 156 / val 52 / test 52  (4s)
+      [L40/hc_context_drift] fold 2: train 156 / val 52 / test 52  (4s)
+      [L40/hc_context_drift] fold 3: train 156 / val 52 / test 52  (6s)
+      [L40/hc_context_drift] fold 4: train 156 / val 52 / test 52  (6s)
+    -> hc_context_drift L40 OOF AUROC 0.9998
+  -- hc_contradiction: 268 rows (134 pos) --
+      [L40/hc_contradiction] fold 0: train 162 / val 58 / test 48  (3s)
+      [L40/hc_contradiction] fold 1: train 148 / val 62 / test 58  (3s)
+      [L40/hc_contradiction] fold 2: train 156 / val 50 / test 62  (3s)
+      [L40/hc_contradiction] fold 3: train 168 / val 50 / test 50  (3s)
+      [L40/hc_contradiction] fold 4: train 170 / val 48 / test 50  (3s)
+    -> hc_contradiction L40 OOF AUROC 0.9856
+  -- mm_substitution: 268 rows (134 pos) --
+      [L40/mm_substitution] fold 0: train 160 / val 52 / test 56  (4s)
+      [L40/mm_substitution] fold 1: train 160 / val 56 / test 52  (3s)
+      [L40/mm_substitution] fold 2: train 160 / val 52 / test 56  (4s)
+      [L40/mm_substitution] fold 3: train 164 / val 52 / test 52  (5s)
+      [L40/mm_substitution] fold 4: train 160 / val 56 / test 52  (4s)
+    -> mm_substitution L40 OOF AUROC 0.9928
+  -- oig_context_drift: 260 rows (130 pos) --
+      [L40/oig_context_drift] fold 0: train 156 / val 52 / test 52  (4s)
+      [L40/oig_context_drift] fold 1: train 156 / val 52 / test 52  (6s)
+      [L40/oig_context_drift] fold 2: train 156 / val 52 / test 52  (4s)
+      [L40/oig_context_drift] fold 3: train 156 / val 52 / test 52  (4s)
+      [L40/oig_context_drift] fold 4: train 156 / val 52 / test 52  (5s)
+    -> oig_context_drift L40 OOF AUROC 0.9620
+  -- oig_omission: 146 rows (73 pos) --
+      [L40/oig_omission] fold 0: train 86 / val 30 / test 30  (3s)
+      [L40/oig_omission] fold 1: train 86 / val 30 / test 30  (3s)
+      [L40/oig_omission] fold 2: train 88 / val 28 / test 30  (3s)
+      [L40/oig_omission] fold 3: train 90 / val 28 / test 28  (4s)
+      [L40/oig_omission] fold 4: train 88 / val 30 / test 28  (3s)
+    -> oig_omission L40 OOF AUROC 0.8874
+  ==> LAYER 40 per-split mean OOF AUROC 0.9753
+  -- POOLED: 1738 rows, width 436 --
+      [L40/pooled] fold 0: train 1056 / val 334 / test 348  (29s)
+      [L40/pooled] fold 1: train 1042 / val 362 / test 334  (29s)
+      [L40/pooled] fold 2: train 1018 / val 358 / test 362  (24s)
+      [L40/pooled] fold 3: train 1044 / val 336 / test 358  (27s)
+      [L40/pooled] fold 4: train 1054 / val 348 / test 336  (25s)
+  ==> LAYER 40 pooled OOF AUROC 0.9598 (mean per split 0.9464)
+
+================ LAYER 48 ================
+  -- anthropic_harmless_refusal: 268 rows (134 pos) --
+      [L48/anthropic_harmless_refusal] fold 0: train 160 / val 54 / test 54  (3s)
+      [L48/anthropic_harmless_refusal] fold 1: train 160 / val 54 / test 54  (4s)
+      [L48/anthropic_harmless_refusal] fold 2: train 160 / val 54 / test 54  (3s)
+      [L48/anthropic_harmless_refusal] fold 3: train 162 / val 52 / test 54  (3s)
+      [L48/anthropic_harmless_refusal] fold 4: train 162 / val 54 / test 52  (3s)
+    -> anthropic_harmless_refusal L48 OOF AUROC 0.9998
+  -- bbq_substitution: 268 rows (134 pos) --
+      [L48/bbq_substitution] fold 0: train 160 / val 54 / test 54  (3s)
+      [L48/bbq_substitution] fold 1: train 160 / val 54 / test 54  (2s)
+      [L48/bbq_substitution] fold 2: train 160 / val 54 / test 54  (2s)
+      [L48/bbq_substitution] fold 3: train 162 / val 52 / test 54  (2s)
+      [L48/bbq_substitution] fold 4: train 162 / val 54 / test 52  (3s)
+    -> bbq_substitution L48 OOF AUROC 0.9993
+  -- hc_context_drift: 260 rows (130 pos) --
+      [L48/hc_context_drift] fold 0: train 156 / val 52 / test 52  (6s)
+      [L48/hc_context_drift] fold 1: train 156 / val 52 / test 52  (4s)
+      [L48/hc_context_drift] fold 2: train 156 / val 52 / test 52  (4s)
+      [L48/hc_context_drift] fold 3: train 156 / val 52 / test 52  (8s)
+      [L48/hc_context_drift] fold 4: train 156 / val 52 / test 52  (8s)
+    -> hc_context_drift L48 OOF AUROC 0.9998
+  -- hc_contradiction: 268 rows (134 pos) --
+      [L48/hc_contradiction] fold 0: train 162 / val 58 / test 48  (3s)
+      [L48/hc_contradiction] fold 1: train 148 / val 62 / test 58  (3s)
+      [L48/hc_contradiction] fold 2: train 156 / val 50 / test 62  (3s)
+      [L48/hc_contradiction] fold 3: train 168 / val 50 / test 50  (3s)
+      [L48/hc_contradiction] fold 4: train 170 / val 48 / test 50  (4s)
+    -> hc_contradiction L48 OOF AUROC 0.9900
+  -- mm_substitution: 268 rows (134 pos) --
+      [L48/mm_substitution] fold 0: train 160 / val 52 / test 56  (3s)
+      [L48/mm_substitution] fold 1: train 160 / val 56 / test 52  (3s)
+      [L48/mm_substitution] fold 2: train 160 / val 52 / test 56  (3s)
+      [L48/mm_substitution] fold 3: train 164 / val 52 / test 52  (4s)
+      [L48/mm_substitution] fold 4: train 160 / val 56 / test 52  (5s)
+    -> mm_substitution L48 OOF AUROC 0.9917
+  -- oig_context_drift: 260 rows (130 pos) --
+      [L48/oig_context_drift] fold 0: train 156 / val 52 / test 52  (4s)
+      [L48/oig_context_drift] fold 1: train 156 / val 52 / test 52  (5s)
+      [L48/oig_context_drift] fold 2: train 156 / val 52 / test 52  (4s)
+      [L48/oig_context_drift] fold 3: train 156 / val 52 / test 52  (8s)
+      [L48/oig_context_drift] fold 4: train 156 / val 52 / test 52  (4s)
+    -> oig_context_drift L48 OOF AUROC 0.9576
+  -- oig_omission: 146 rows (73 pos) --
+      [L48/oig_omission] fold 0: train 86 / val 30 / test 30  (3s)
+      [L48/oig_omission] fold 1: train 86 / val 30 / test 30  (3s)
+      [L48/oig_omission] fold 2: train 88 / val 28 / test 30  (4s)
+      [L48/oig_omission] fold 3: train 90 / val 28 / test 28  (4s)
+      [L48/oig_omission] fold 4: train 88 / val 30 / test 28  (4s)
+    -> oig_omission L48 OOF AUROC 0.8587
+  ==> LAYER 48 per-split mean OOF AUROC 0.9710
+  -- POOLED: 1738 rows, width 436 --
+      [L48/pooled] fold 0: train 1056 / val 334 / test 348  (30s)
+      [L48/pooled] fold 1: train 1042 / val 362 / test 334  (28s)
+      [L48/pooled] fold 2: train 1018 / val 358 / test 362  (34s)
+      [L48/pooled] fold 3: train 1044 / val 336 / test 358  (25s)
+      [L48/pooled] fold 4: train 1054 / val 348 / test 336  (25s)
+  ==> LAYER 48 pooled OOF AUROC 0.9578 (mean per split 0.9438)
+
+================ LAYER 56 ================
+  -- anthropic_harmless_refusal: 268 rows (134 pos) --
+      [L56/anthropic_harmless_refusal] fold 0: train 160 / val 54 / test 54  (3s)
+      [L56/anthropic_harmless_refusal] fold 1: train 160 / val 54 / test 54  (4s)
+      [L56/anthropic_harmless_refusal] fold 2: train 160 / val 54 / test 54  (3s)
+      [L56/anthropic_harmless_refusal] fold 3: train 162 / val 52 / test 54  (3s)
+      [L56/anthropic_harmless_refusal] fold 4: train 162 / val 54 / test 52  (3s)
+    -> anthropic_harmless_refusal L56 OOF AUROC 1.0000
+  -- bbq_substitution: 268 rows (134 pos) --
+      [L56/bbq_substitution] fold 0: train 160 / val 54 / test 54  (2s)
+      [L56/bbq_substitution] fold 1: train 160 / val 54 / test 54  (2s)
+      [L56/bbq_substitution] fold 2: train 160 / val 54 / test 54  (2s)
+      [L56/bbq_substitution] fold 3: train 162 / val 52 / test 54  (2s)
+      [L56/bbq_substitution] fold 4: train 162 / val 54 / test 52  (2s)
+    -> bbq_substitution L56 OOF AUROC 0.9996
+  -- hc_context_drift: 260 rows (130 pos) --
+      [L56/hc_context_drift] fold 0: train 156 / val 52 / test 52  (4s)
+      [L56/hc_context_drift] fold 1: train 156 / val 52 / test 52  (3s)
+      [L56/hc_context_drift] fold 2: train 156 / val 52 / test 52  (3s)
+      [L56/hc_context_drift] fold 3: train 156 / val 52 / test 52  (3s)
+      [L56/hc_context_drift] fold 4: train 156 / val 52 / test 52  (3s)
+    -> hc_context_drift L56 OOF AUROC 1.0000
+  -- hc_contradiction: 268 rows (134 pos) --
+      [L56/hc_contradiction] fold 0: train 162 / val 58 / test 48  (5s)
+      [L56/hc_contradiction] fold 1: train 148 / val 62 / test 58  (4s)
+      [L56/hc_contradiction] fold 2: train 156 / val 50 / test 62  (2s)
+      [L56/hc_contradiction] fold 3: train 168 / val 50 / test 50  (3s)
+      [L56/hc_contradiction] fold 4: train 170 / val 48 / test 50  (3s)
+    -> hc_contradiction L56 OOF AUROC 0.9851
+  -- mm_substitution: 268 rows (134 pos) --
+      [L56/mm_substitution] fold 0: train 160 / val 52 / test 56  (2s)
+      [L56/mm_substitution] fold 1: train 160 / val 56 / test 52  (2s)
+      [L56/mm_substitution] fold 2: train 160 / val 52 / test 56  (4s)
+      [L56/mm_substitution] fold 3: train 164 / val 52 / test 52  (3s)
+      [L56/mm_substitution] fold 4: train 160 / val 56 / test 52  (3s)
+    -> mm_substitution L56 OOF AUROC 0.9973
+  -- oig_context_drift: 260 rows (130 pos) --
+      [L56/oig_context_drift] fold 0: train 156 / val 52 / test 52  (4s)
+      [L56/oig_context_drift] fold 1: train 156 / val 52 / test 52  (6s)
+      [L56/oig_context_drift] fold 2: train 156 / val 52 / test 52  (4s)
+      [L56/oig_context_drift] fold 3: train 156 / val 52 / test 52  (5s)
+      [L56/oig_context_drift] fold 4: train 156 / val 52 / test 52  (5s)
+    -> oig_context_drift L56 OOF AUROC 0.9719
+  -- oig_omission: 146 rows (73 pos) --
+      [L56/oig_omission] fold 0: train 86 / val 30 / test 30  (3s)
+      [L56/oig_omission] fold 1: train 86 / val 30 / test 30  (3s)
+      [L56/oig_omission] fold 2: train 88 / val 28 / test 30  (3s)
+      [L56/oig_omission] fold 3: train 90 / val 28 / test 28  (3s)
+      [L56/oig_omission] fold 4: train 88 / val 30 / test 28  (4s)
+    -> oig_omission L56 OOF AUROC 0.8695
+  ==> LAYER 56 per-split mean OOF AUROC 0.9748
+  -- POOLED: 1738 rows, width 436 --
+      [L56/pooled] fold 0: train 1056 / val 334 / test 348  (25s)
+      [L56/pooled] fold 1: train 1042 / val 362 / test 334  (61s)
+      [L56/pooled] fold 2: train 1018 / val 358 / test 362  (34s)
+      [L56/pooled] fold 3: train 1044 / val 336 / test 358  (23s)
+      [L56/pooled] fold 4: train 1054 / val 348 / test 336  (25s)
+  ==> LAYER 56 pooled OOF AUROC 0.9808 (mean per split 0.9721)
+
+================ SUMMARY ================
+per-split CV (OOF AUROC):
+           layer  anthropic_harm  bbq_substituti  hc_context_dri  hc_contradicti  mm_substitutio  oig_context_dr    oig_omission            MEAN
+              16          0.9997          0.9384          0.7387          0.7632          0.9916          0.9411          0.8868          0.8942
+              24          1.0000          0.9898          0.9831          0.9619          0.9999          0.9937          0.8648          0.9705
+              32          1.0000          0.9947          1.0000          0.9964          0.9994          0.9927          0.8745          0.9797
+              40          1.0000          0.9998          0.9998          0.9856          0.9928          0.9620          0.8874          0.9753
+              48          0.9998          0.9993          0.9998          0.9900          0.9917          0.9576          0.8587          0.9710
+              56          1.0000          0.9996          1.0000          0.9851          0.9973          0.9719          0.8695          0.9748
+
+pooled CV (one probe over all splits, OOF AUROC):
+           layer             ALL  anthropic_harm  bbq_substituti  hc_context_dri  hc_contradicti  mm_substitutio  oig_context_dr    oig_omission            MEAN
+              16          0.8569          0.9969          0.8999          0.6439          0.7498          0.9620          0.8252          0.6651          0.8204
+              24          0.9636          1.0000          0.9585          0.9520          0.9360          0.9830          0.9788          0.7865          0.9421
+              32          0.9856          0.9998          0.9914          0.9980          0.9862          0.9871          0.9825          0.8719          0.9738
+              40          0.9598          0.9929          0.9926          0.9882          0.9628          0.9500          0.9256          0.8129          0.9464
+              48          0.9578          0.9960          0.9921          0.9949          0.9402          0.9490          0.9448          0.7898          0.9438
+              56          0.9808          0.9993          0.9940          0.9994          0.9794          0.9787          0.9720          0.8819          0.9721
+
+wrote results_instructions_gemma27b_layersweep/layer_cv.json
+=== stage 4 done: CV sweep complete ===
