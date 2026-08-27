@@ -310,3 +310,93 @@ HF_HOME=$PWD/hf_cache HF_TOKEN=... AGENTIC_REDTEAM_MAX_MEMORY="0=22GiB,cpu=45GiB
     --probe probes/instructions_gemma27b_evaldesc_omission/probe_iter0.pkl \
     --combine-consecutive-messages --convert-tool-to-assistant
 ```
+
+---
+
+## Addendum: the short-and-precise couples, the ceilings, and the dev-lending control
+
+Added after the sections above, and it changes one of their conclusions.
+
+### A second couple set, pointing the other way
+
+`results_.../..._iter2_v4_shortprecise` peaked at `oig_omission` **0.8495** at iteration 2, on
+30 postprocessed rows = **15 couples** — less than half the v3 set. Re-running the same
+11-arch x 6-layer sweep on `base + those 15 couples` (`arch_layer_sweep_SP2.json`):
+
+| arch@layer | base only | base + 15 pairs | base + 33 pairs |
+| --- | --- | --- | --- |
+| linear_then_last@L32 | 0.8336 | 0.8393 | 0.7227 |
+| linear_then_last@L40 | 0.8381 | 0.8489 | 0.7867 |
+| linear_then_last@L56 | **0.8846** | 0.8575 | 0.7202 |
+| linear_then_softmax@L32 | 0.7966 | 0.8467 | 0.7116 |
+| linear_then_softmax@L56 | 0.7147 | 0.8227 | 0.5891 |
+
+The 15-couple set lifts the incumbent head (+0.050 at L32, +0.108 at L56); the 33-couple set is
+below base-only everywhere. **Half the rows, opposite sign.** Re-scoring the published
+`probe_iter2.pkl` through this harness returns **0.849492**, exactly its CSV value, so the
+scoring path is exact; the refit's 0.8467 differs only by the row-order floor.
+
+Anchored fusion on this set (`weighted_sweep_SP2.json`) reaches **0.9175** — the highest
+`oig_omission` figure anywhere in this work — with a bootstrap CI of [+0.0231, +0.1256] against
+the incumbent.
+
+### Ceilings, including for the fused recipe
+
+`scripts/cv_ceiling_fused.py` computes the grouped-CV ceiling for several components at once and
+fuses their **out-of-fold** predictions (legitimate: each component's prediction for a row comes
+from a fold that never saw it, and the weights are fixed in advance).
+
+| | pooled OOF ceiling |
+| --- | --- |
+| `linear_then_softmax` @ L32 | 0.9055 |
+| `linear_then_last` @ L56 | 0.9081 |
+| `linear_then_last` @ L16 | 0.8118 |
+| fused, fixed weights | **0.9187** |
+
+Two readings. The single-head 0.9055 against the **0.914** already on record is the same
+measurement — that run fit fused, this one sequentially, and the 0.0085 gap is inside the floor.
+And **fusion buys almost nothing at the ceiling** (+0.011 over its best component, i.e. at the
+floor) where it was worth +0.07 in transfer: it compensates for weak out-of-distribution training
+data rather than reaching information a single head cannot.
+
+The sharpest consequence: the 15-pair fused probe scores **0.9175 having never trained on this
+split**, against a **0.9187** ceiling for training on the split directly. It is already at its own
+ceiling — better training data has essentially nothing left to give this recipe.
+
+### The dev-lending control, and a correction
+
+`multimax_data_arms.py` ran `base`, `base+couples` and `base+couples+dev` but never `base+dev`,
+leaving its dev arm without a control. `scripts/base_plus_dev_fit.py` runs the fourth cell.
+
+**Four figures are now on record for "dev-mixed", and they are different measurements:**
+
+| | base+dev | + the 33 couples | couples' effect |
+| --- | --- | --- | --- |
+| `train_base_plus_dev.py` / `train_base_dev_couples.py` | 0.8695 | 0.8738 | **+0.0043** |
+| `base_plus_dev_fit.py` / `multimax_data_arms.py` | 0.8717 | 0.8643 | **-0.0074** |
+
+Plus `..._devmix`'s iter5 at **0.8972**, which is not comparable to either row: it is a
+five-iteration pipeline with a cumulative dose ladder and its own 86-row couple set.
+
+**Two matched pairs disagree in sign, and both magnitudes are far under the ~0.013 floor.** The
+defensible claim is only that *the couples add nothing measurable once in-distribution dev rows
+are present* — not that they subtract. An earlier draft of this work asserted the negative
+direction off one pair; the other pair is the check that should have been run first, and is the
+reason the floor section leads this document.
+
+### Artifact
+
+The interactive companion — both couple sets row by row, the 114 eval rows, all 50 base rows and
+the architecture survey — is published at
+`https://claude.ai/code/artifact/f02dbe98-c7db-4ce0-b6d5-2d7d8015b573`.
+
+### Added files
+
+| file | produced by |
+| --- | --- |
+| `arch_layer_sweep_SP2.json` | `scripts/arch_layer_sweep.py --couples .../redteam_postprocessed_iter2.jsonl --couples-name couples_sp2` |
+| `arch_layer_sweep_BASEONLY.json` | `scripts/arch_layer_sweep.py --train base` |
+| `weighted_sweep_SP2.json` | `scripts/weighted_combine_sweep.py --anchor linear_then_last@L56` |
+| `cv_ceiling_fused.json` | `scripts/cv_ceiling_fused.py` |
+| `base_plus_dev_nocouples.json` | `scripts/base_plus_dev_fit.py` |
+| `base_selection_oig_omission_base_only.json` | `scripts/base_selection_study.py` |
