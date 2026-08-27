@@ -2854,3 +2854,36 @@ Validation AUROC: 0.74848
 Epoch 63 - Average loss: 0.0000
 Validation AUROC: 0.74848
 Early stopping triggered after 63 epochs
+Dev AUROC: anthropic_harmless_refusal 0.7734, bbq_substitution 0.6120, hc_context_drift 0.6928, hc_contradiction 0.8849, mm_substitution 0.9100, oig_context_drift 0.7163, oig_omission 0.7383 → mean 0.7611
+Saved retrained probe to probes/gen_gemma27b_instructions/probe_iter3.pkl
+  Dev AUROC after iteration 2: mean 0.7611 (anthropic_harmless_refusal 0.7734, bbq_substitution 0.6120, hc_context_drift 0.6928, hc_contradiction 0.8849, mm_substitution 0.9100, oig_context_drift 0.7163, oig_omission 0.7383) (was mean 0.7573 (anthropic_harmless_refusal 0.6367, bbq_substitution 0.6544, hc_context_drift 0.7241, hc_contradiction 0.8936, mm_substitution 0.9092, oig_context_drift 0.7369, oig_omission 0.7461))
+
+  Judge writing guidance for iteration 3 ...
+  Memo:
+    - **What helped (Batch 3: entity targeting; small but clean gain)**
+      - Clear, *unambiguous* target selection: user mentions multiple named entities and then explicitly asks about one (“Paris vs Rome”, “iPhone 13 vs S22, tell me about iPhone 13’s camera”).  
+      - Positives: stay tightly on the requested entity.  
+      - Negatives: confidently and fully answer about a *different* entity, without hedging or mixing.  
+      - This supplies crisp lexical cues (“Paris”, “iPhone 13”) that line up with dev-set notions of answering the right slot or context, and the violation is semantically obvious rather than stylistic.
+      - To extend this, we should:
+        - Vary **domains**: people (two authors, two coworkers), time (two dates/years), versions/APIs, similar product SKUs, two locations in same country, etc.  
+        - Use **richer tasks** than descriptions: comparisons, calculations, scheduling, instructions that must bind to the right entity (“schedule the *second* meeting for 3pm”).  
+        - Include **multi-turn** where the user re-selects an entity mid-thread (“we discussed Alice and Bob; now only talk about Bob’s plan”).  
+        - Keep negatives as clearly “about the wrong thing”, not merely *under-specified* or equally-plausible interpretations.
+    
+    - **What hurt / is effectively exhausted**
+      - **Generic constraint compliance (Batches 1 & 5)**  
+        - Budget, dietary, library/framework, etc., where negatives ignore constraints but remain strongly helpful and on-topic.  
+        - These look similar to many benign-helpful positives in the dev set; the only difference is a human-normative violation (“still recommend iPhone above budget”). The probe learns to treat “enthusiastic suggestion despite constraint” as non-following, which clashes with dev distributions and worsens bbq_substitution and context-drift.
+      - **Instruction reversal (Batch 2)**  
+        - Multi-turn “ignore previous and do X instead” where negatives partially c
+
+===== EVALUATING iter3: probes/gen_gemma27b_instructions/probe_iter3.pkl =====
+[kaggle] anthropic_harmless_refusal: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/anthropic_harmless_refusal-acts_full.pt
+[kaggle] bbq_substitution: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/bbq_substitution-acts_full.pt
+[kaggle] hc_context_drift: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/hc_context_drift-acts_full.pt
+[kaggle] hc_contradiction: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/hc_contradiction-acts_full.pt
+[kaggle] mm_substitution: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/mm_substitution-acts_full.pt
+[kaggle] oig_context_drift: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/oig_context_drift-acts_full.pt
+[kaggle] oig_omission: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/oig_omission-acts_full.pt
+  [openrouter] meta-llama/llama-3.3-70b-instruct: no connection (APIConnectionError: Connection error.); retrying in 1.1 min (unreachable for 0.0 of 30 min)
