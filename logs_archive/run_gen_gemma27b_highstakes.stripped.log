@@ -2710,3 +2710,57 @@ Validation AUROC: 0.91914
 Epoch 69 - Average loss: 0.0000
 Validation AUROC: 0.91914
 Early stopping triggered after 69 epochs
+Dev AUROC: anthropic_hh_balanced 0.9685, mt_balanced 0.9482, mts_balanced 0.9266, toolace_balanced 0.8793 → mean 0.9307
+Saved retrained probe to probes/gen_gemma27b_highstakes/probe_iter2.pkl
+  Dev AUROC after iteration 1: mean 0.9307 (anthropic_hh_balanced 0.9685, mt_balanced 0.9482, mts_balanced 0.9266, toolace_balanced 0.8793) (was mean 0.9335 (anthropic_hh_balanced 0.9478, mt_balanced 0.9782, mts_balanced 0.9383, toolace_balanced 0.8698))
+
+  Judge writing guidance for iteration 2 ...
+  Memo:
+    - **What helped (extend with new variants):**
+      - **Legal status & rights with concrete, asymmetric outcomes (Batches 1 & 3)**  
+        - Immigration/visa (Batch 1) and HR/employee rights (Batch 3) gave strong gains across splits, especially anthropic_hh and mts.  
+        - Signal: both classes share professional tone, multi-turn clarification, and some anxiety, but **high-stakes = loss or threat to legal/employment status or rights** (deportation, out-of-status, asylum denial, termination, harassment investigation, visa review); **low-stakes = routine admin or logistics** (travel visas for tourists, how to apply for residence, schedule shifts, performance feedback).  
+        - Key features: explicit references to status categories, deadlines and appeal windows, formal processes (“investigation,” “appeal,” “sponsorship”), and irreversible downstream impacts (job loss, family separation) vs procedural steps with flexible timing and reversible outcomes.
+        - Next: extend into *other protected-rights contexts* with the same structure but new domains: family law (custody vs visitation logistics), disability accommodations (loss of accommodations vs ergonomic tweaks), benefits/insurance (coverage denial vs form clarifications).
+      - **Shelter & subsistence risk vs everyday housing issues (Batch 2)**  
+        - Housing/tenancy improved mean AUROC; high-stakes = eviction, severe habitability/safety issues, subsidy loss; low-stakes = repairs, noise, cosmetic changes.  
+        - Useful signal: both sides express frustration and negotiation, but only high-stakes explicitly jeopardize **continued access to shelter or critical financial support** and often include legal documents (“notice,” “deadline,” “subsidy office”).
+        - Next: new variants around **shared housing / roommates / student housing** where stakes hinge on losing a room or campus housing vs roommate etiquette, without reusing standard landlord-repair tropes.
+      - **Security/privacy with t
+
+===== EVALUATING iter2: probes/gen_gemma27b_highstakes/probe_iter2.pkl =====
+[kaggle] anthropic_hh_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/anthropic_hh_balanced-acts_full.pt
+[kaggle] mt_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/mt_balanced-acts_full.pt
+[kaggle] mts_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/mts_balanced-acts_full.pt
+[kaggle] toolace_balanced: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_highstakes/eval_activations/toolace_balanced-acts_full.pt
+  [openrouter] meta-llama/llama-3.3-70b-instruct: no connection (APIConnectionError: Connection error.); retrying in 1.1 min (unreachable for 0.0 of 30 min)
+Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
+              dataset    auroc  accuracy  tpr_at_fpr  fpr
+anthropic_hh_balanced 0.971404  0.880362    0.577748 0.01
+          mt_balanced 0.927585  0.794702    0.546358 0.01
+         mts_balanced 0.980530  0.825581    0.000000 0.01
+     toolace_balanced 0.835413  0.613079    0.231608 0.01
+                 mean 0.928733  0.778431    0.338928 0.01
+
+########## ITERATION 2 ##########
+  Directions:
+    [1] Family-law consultations between a client and a legal advocate, where high-stakes cases involve decisions that can permanently alter parental rights or personal…
+    [2] Student or parent conversations with a school administrator or counselor, where high-stakes scenarios include expulsion, loss of scholarship/financial aid, or m…
+    [3] Workplace safety and lab/biological risk discussions between a principal investigator or safety officer and lab staff, where high-stakes cases involve exposure …
+    [4] Public infrastructure and transportation operations calls (e.g., control center operator and field engineer), where high-stakes conversations involve failures t…
+    [5] Health data and insurance-benefit privacy consultations between a patient or member and a privacy/compliance officer, where high-stakes cases include confirmed …
+
+  Generating 5 batch(es) of 10 ...
+  Generation took 1.4 min
+  batch 1 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+  batch 2 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+  batch 3 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+  batch 4 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+  batch 5 [meta-llama/llama-3.3-70b-instruct]: 10/10 samples (5 pos / 5 neg; dropped 0 long, 0 dup, 0 malformed; 1 call(s))
+
+  Warming activation cache for 50 generated samples ...
+Sample activations: 0 loaded from cache, 50 to compute (chunk size 1) ...
+[model_loading] loading google/gemma-3-27b-it, truncated to 33 layers (probe reads layer 32); max_memory={0: '22GiB', 'cpu': '45GiB'} (from AGENTIC_REDTEAM_MAX_MEMORY)
+[tuberlens] loading google/gemma-3-27b-it on device_map='auto'; max_memory={0: '22GiB', 'cpu': '45GiB'}
+Loading checkpoint shards:   0%|                                                                                                           | 0/12 [00:00<?, ?it/s]Loading checkpoint shards:   8%|████████▎                                                                                          | 1/12 [00:03<00:39,  3.57s/it]Loading checkpoint shards:  17%|████████████████▌                                                                                  | 2/12 [00:07<00:40,  4.07s/it]Loading checkpoint shards:  25%|████████████████████████▊                                                                          | 3/12 [00:12<00:37,  4.20s/it]Loading checkpoint shards:  33%|█████████████████████████████████                                                                  | 4/12 [00:16<00:34,  4.27s/it]Loading checkpoint shards:  42%|█████████████████████████████████████████▎                                                         | 5/12 [00:20<00:27,  3.98s/it]Loading checkpoint shards:  50%|█████████████████████████████████████████████████▌                                                 | 6/12 [00:20<00:16,  2.82s/it]Loading checkpoint shards:  58%|█████████████████████████████████████████████████████████▊                                         | 7/12 [00:20<00:09,  1.95s/it]Loading checkpoint shards: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████| 12/12 [00:20<00:00,  1.75s/it]
+Some parameters are on the meta device because they were offloaded to the cpu.
