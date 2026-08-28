@@ -4906,3 +4906,95 @@ Validation AUROC: 0.79744
 Epoch 60 - Average loss: 0.0001
 Validation AUROC: 0.79713
 Early stopping triggered after 60 epochs
+Dev AUROC: anthropic_harmless_refusal 0.9299, bbq_substitution 0.7617, hc_context_drift 0.7525, hc_contradiction 0.9122, mm_substitution 0.9070, oig_context_drift 0.7388, oig_omission 0.7109 → mean 0.8161
+Saved retrained probe to probes/gen_gemma27b_instructions/probe_iter5.pkl
+  Dev AUROC after iteration 4: mean 0.8161 (anthropic_harmless_refusal 0.9299, bbq_substitution 0.7617, hc_context_drift 0.7525, hc_contradiction 0.9122, mm_substitution 0.9070, oig_context_drift 0.7388, oig_omission 0.7109) (was mean 0.7709 (anthropic_harmless_refusal 0.9273, bbq_substitution 0.5913, hc_context_drift 0.7149, hc_contradiction 0.8733, mm_substitution 0.9083, oig_context_drift 0.6433, oig_omission 0.7383))
+
+  Judge writing guidance for iteration 5 ...
+  Memo:
+    - **What helped this round (structured selection and focus control)**  
+      - **Spreadsheet-style table slicing (Batch 1, strong gain; bbq_substitution, oig_context_drift up)**  
+        - Users give 2–5 row / 3–5 column tables and then specify a *precise slice* (single column, one row, or one cell) plus an operation (sum, rewrite, compute).  
+        - Positives: obey the specified *axis and index* exactly; negatives: perform a plausible but wrong aggregation (wrong column, whole table).  
+        - This clearly taught the probe to tie “follow” to correctly binding a textual reference to a structured region, not just producing correct-looking math.  
+        - Extend with **more complex ops on clearly delimited subregions**: multi-column formulas (“add Tax to Price for row 3 only”), partial-row edits (“update only the Quantity for product B”), and column subsets (“show only Name and Revenue for rows 2–3”) while keeping headers and indices unambiguous.
+      - **Config/JSON key selection (Batch 2, strong gain; hc_context_drift, bbq_substitution up)**  
+        - Short JSON/config blobs with several keys; the user then singles out *one key* (possibly nested) for explanation or modification.  
+        - Positives: reason exclusively about the named key; negatives: swap to another key or the whole object.  
+        - The model improved at mapping a lexical mention (“timeout in server.http”) to a specific field in a structured object, a pattern that mirrors dev drift/substitution errors.  
+        - Extend with **nested and sibling keys** (“server.http.port” vs “server.https.port”), and **operations that combine reading + editing the same key** (“tell me the current timeout, then double it”), with negatives drifting to neighboring keys or global settings.
+      - **List filtering / exclusion (Batch 5, largest gain; big bbq_substitution win)**  
+        - Flat lists of 4–6 items with include/exclude rules by index or name.  
+        - Positives apply the rule exactly; 
+
+===== EVALUATING iter5: probes/gen_gemma27b_instructions/probe_iter5.pkl =====
+[kaggle] anthropic_harmless_refusal: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/anthropic_harmless_refusal-acts_full.pt
+[kaggle] bbq_substitution: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/bbq_substitution-acts_full.pt
+[kaggle] hc_context_drift: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/hc_context_drift-acts_full.pt
+[kaggle] hc_contradiction: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/hc_contradiction-acts_full.pt
+[kaggle] mm_substitution: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/mm_substitution-acts_full.pt
+[kaggle] oig_context_drift: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/oig_context_drift-acts_full.pt
+[kaggle] oig_omission: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_instructions/eval_activations/oig_omission-acts_full.pt
+                   dataset    auroc  accuracy  tpr_at_fpr  fpr
+anthropic_harmless_refusal 0.925250  0.665000        0.33 0.01
+          bbq_substitution 0.936950  0.870000        0.00 0.01
+          hc_context_drift 0.770805  0.690722        0.00 0.01
+          hc_contradiction 0.934100  0.830000        0.38 0.01
+           mm_substitution 0.898500  0.810000        0.34 0.01
+         oig_context_drift 0.664417  0.551546        0.00 0.01
+              oig_omission 0.609880  0.596491        0.00 0.01
+                      mean 0.819986  0.716251        0.15 0.01
+
+ΔAUROC ledger: /workspace/probe_auto_improvement/results_gen_gemma27b_instructions/auroc_history.csv
+
+===== COMPARISON ACROSS ITERATIONS =====
+round                    dataset    auroc  accuracy  tpr_at_fpr  fpr
+iter0 anthropic_harmless_refusal 0.534450  0.575000    0.130000 0.01
+iter0           bbq_substitution 0.862600  0.780000    0.000000 0.01
+iter0           hc_context_drift 0.714476  0.659794    0.000000 0.01
+iter0           hc_contradiction 0.908950  0.825000    0.000000 0.01
+iter0            mm_substitution 0.934100  0.875000    0.000000 0.01
+iter0          oig_context_drift 0.714157  0.659794    0.000000 0.01
+iter0               oig_omission 0.776393  0.701754    0.000000 0.01
+iter0                       mean 0.777875  0.725192    0.018571 0.01
+iter1 anthropic_harmless_refusal 0.534450  0.575000    0.130000 0.01
+iter1           bbq_substitution 0.862600  0.780000    0.000000 0.01
+iter1           hc_context_drift 0.714476  0.659794    0.000000 0.01
+iter1           hc_contradiction 0.908950  0.825000    0.000000 0.01
+iter1            mm_substitution 0.934100  0.875000    0.000000 0.01
+iter1          oig_context_drift 0.714157  0.659794    0.000000 0.01
+iter1               oig_omission 0.776393  0.701754    0.000000 0.01
+iter1                       mean 0.777875  0.725192    0.018571 0.01
+iter2 anthropic_harmless_refusal 0.534450  0.575000    0.130000 0.01
+iter2           bbq_substitution 0.862600  0.780000    0.000000 0.01
+iter2           hc_context_drift 0.714476  0.659794    0.000000 0.01
+iter2           hc_contradiction 0.908950  0.825000    0.000000 0.01
+iter2            mm_substitution 0.934100  0.875000    0.000000 0.01
+iter2          oig_context_drift 0.714157  0.659794    0.000000 0.01
+iter2               oig_omission 0.776393  0.701754    0.000000 0.01
+iter2                       mean 0.777875  0.725192    0.018571 0.01
+iter3 anthropic_harmless_refusal 0.686500  0.610000    0.180000 0.01
+iter3           bbq_substitution 0.886550  0.790000    0.000000 0.01
+iter3           hc_context_drift 0.672122  0.608247    0.000000 0.01
+iter3           hc_contradiction 0.906250  0.830000    0.000000 0.01
+iter3            mm_substitution 0.947600  0.880000    0.000000 0.01
+iter3          oig_context_drift 0.709268  0.634021    0.000000 0.01
+iter3               oig_omission 0.682672  0.622807    0.105263 0.01
+iter3                       mean 0.784423  0.710725    0.040752 0.01
+iter4 anthropic_harmless_refusal 0.917250  0.685000    0.380000 0.01
+iter4           bbq_substitution 0.905650  0.825000    0.000000 0.01
+iter4           hc_context_drift 0.748857  0.680412    0.000000 0.01
+iter4           hc_contradiction 0.914500  0.825000    0.000000 0.01
+iter4            mm_substitution 0.940950  0.865000    0.480000 0.01
+iter4          oig_context_drift 0.612977  0.582474    0.000000 0.01
+iter4               oig_omission 0.600492  0.552632    0.087719 0.01
+iter4                       mean 0.805811  0.716503    0.135388 0.01
+iter5 anthropic_harmless_refusal 0.925250  0.665000    0.330000 0.01
+iter5           bbq_substitution 0.936950  0.870000    0.000000 0.01
+iter5           hc_context_drift 0.770805  0.690722    0.000000 0.01
+iter5           hc_contradiction 0.934100  0.830000    0.380000 0.01
+iter5            mm_substitution 0.898500  0.810000    0.340000 0.01
+iter5          oig_context_drift 0.664417  0.551546    0.000000 0.01
+iter5               oig_omission 0.609880  0.596491    0.000000 0.01
+iter5                       mean 0.819986  0.716251    0.150000 0.01
+Saved comparison to /workspace/probe_auto_improvement/results_gen_gemma27b_instructions/eval_comparison.csv
