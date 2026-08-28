@@ -1,0 +1,35 @@
+{
+  "eval_rows": 100,
+  "dev_rows": 46,
+  "base_rows": 50,
+  "ensemble_size": 5,
+  "model": "google/gemma-3-27b-it",
+  "layer": 32,
+  "results": {
+    "base50": {
+      "auroc": 0.7782,
+      "accuracy": 0.68,
+      "n_train": 50,
+      "note": "trained on the 50-row base set, validated on dev"
+    },
+    "dev46": {
+      "auroc": 0.599,
+      "accuracy": 0.5,
+      "n_train": 46,
+      "note": "trained on the 46-row dev split, validated on base (dev is its training data)"
+    },
+    "base50+dev46": {
+      "auroc": 0.8044,
+      "accuracy": 0.71,
+      "n_train": 96,
+      "note": "trained on both, validated on dev (in-sample validation \u2014 see note)"
+    },
+    "ceiling": {
+      "auroc": 0.8222,
+      "accuracy": 0.72,
+      "folds": 5,
+      "n_groups": 66,
+      "note": "out-of-fold, group-aware CV inside the eval split"
+    }
+  }
+}

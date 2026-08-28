@@ -1,0 +1,38 @@
+{
+  "tag": "mixed102",
+  "eval_jsonl": "/workspace/probe_auto_improvement/eval_sets/oig_omission_mixed/oig_omission.jsonl",
+  "dev_jsonl": "/workspace/probe_auto_improvement/dev_samples/oig_omission_mixed/oig_omission.jsonl",
+  "eval_rows": 102,
+  "dev_rows": 44,
+  "base_rows": 50,
+  "ensemble_size": 10,
+  "model": "google/gemma-3-27b-it",
+  "layer": 32,
+  "results": {
+    "base50": {
+      "auroc": 0.7970011534025375,
+      "accuracy": 0.6764705882352942,
+      "n_train": 50,
+      "note": "trained on the 50-row base set, validated on dev"
+    },
+    "devset": {
+      "auroc": 0.4988465974625144,
+      "accuracy": 0.49019607843137253,
+      "n_train": 44,
+      "note": "trained on the dev split, validated on base (dev is its training data)"
+    },
+    "base50+dev": {
+      "auroc": 0.8904267589388697,
+      "accuracy": 0.7549019607843137,
+      "n_train": 94,
+      "note": "trained on both, validated on dev (in-sample validation \u2014 see note)"
+    },
+    "ceiling": {
+      "auroc": 0.8715878508266052,
+      "accuracy": 0.7745098039215687,
+      "folds": 5,
+      "n_groups": 51,
+      "note": "out-of-fold, group-aware CV inside the eval split"
+    }
+  }
+}
