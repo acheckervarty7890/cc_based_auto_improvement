@@ -1,0 +1,177 @@
+Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
+Loop: 5 iteration(s) × 5 batches × 10 samples; accept if Δ mean dev AUROC > 0.0000; exhausted if |Δ| <= 0.0020
+Generator models: ['nvidia/nemotron-3-ultra-550b-a55b']; judge: openai/gpt-5.1
+Dev set: /workspace/probe_auto_improvement/dev_samples/hu_ha; run dir: /workspace/probe_auto_improvement/results_gen_gemma27b_hu_harm_nemotron
+Message transforms: combine_consecutive_messages=True, convert_tool_to_assistant=True
+[kaggle] dev: already assembled at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/base_activations/dev_acts_google_gemma-3-27b-it_L32_9f7bf2f55069bbf8.pt (290 rows)
+Training initial probe → probes/gen_gemma27b_hu_harm_nemotron/probe_iter0.pkl
+Initial samples before split: 50
+Label distribution (total: 50 examples):
+  negative: 25 examples (50.00%)
+  positive: 25 examples (50.00%)
+Validation set: held-out dev data at /workspace/probe_auto_improvement/dev_samples/hu_ha
+  dev split dev_ai_dilemmas.jsonl: 46 samples
+  dev split dev_ant_hh.jsonl: 44 samples
+  dev split dev_balanced_refusal.jsonl: 134 samples
+  dev split dev_daily_dilemmas.jsonl: 66 samples
+Dev validation samples: 290 (base data all trains, nothing held out)
+Loading model for activation extraction ...
+[model_loading] loading google/gemma-3-27b-it, truncated to 33 layers (probe reads layer 32); max_memory={0: '22GiB', 'cpu': '45GiB'} (from AGENTIC_REDTEAM_MAX_MEMORY)
+[tuberlens] loading google/gemma-3-27b-it on device_map='auto'; max_memory={0: '22GiB', 'cpu': '45GiB'}
+Loading checkpoint shards:   0%|                                                                                                           | 0/12 [00:00<?, ?it/s]Loading checkpoint shards:   8%|████████▎                                                                                          | 1/12 [00:11<02:01, 11.02s/it]Loading checkpoint shards:  17%|████████████████▌                                                                                  | 2/12 [00:20<01:41, 10.18s/it]Loading checkpoint shards:  25%|████████████████████████▊                                                                          | 3/12 [00:29<01:27,  9.73s/it]Loading checkpoint shards:  33%|█████████████████████████████████                                                                  | 4/12 [00:38<01:16,  9.52s/it]Loading checkpoint shards:  42%|█████████████████████████████████████████▎                                                         | 5/12 [00:46<01:01,  8.74s/it]Loading checkpoint shards:  50%|█████████████████████████████████████████████████▌                                                 | 6/12 [00:48<00:38,  6.47s/it]Loading checkpoint shards:  58%|█████████████████████████████████████████████████████████▊                                         | 7/12 [00:48<00:22,  4.49s/it]Loading checkpoint shards:  92%|█████████████████████████████████████████████████████████████████████████████████████████▊        | 11/12 [00:48<00:01,  1.58s/it]Loading checkpoint shards: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████| 12/12 [00:48<00:00,  4.08s/it]
+Some parameters are on the meta device because they were offloaded to the cpu.
+Saved activations to /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/base_activations/base_acts_google_gemma-3-27b-it_L32_458d8744b29fca9d_train.pt
+Loaded cached base activations: /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/base_activations/dev_acts_google_gemma-3-27b-it_L32_9f7bf2f55069bbf8.pt
+Releasing extraction model before probe fit ...
+  22.7 GiB allocatable after the release (1.1 GiB of that free at the driver)
+Train/validation: 50 train, 290 validation (base 50+0; generated 0+0; dev 290)
+Staged 0.9 GiB of activations on cuda for the probe fits (no host->device copy per epoch)
+Training probe...
+Epoch 1 - Average loss: 0.7324
+Validation AUROC: 0.54668
+Epoch 2 - Average loss: 0.8721
+Validation AUROC: 0.60264
+Epoch 3 - Average loss: 0.9775
+Validation AUROC: 0.66266
+Epoch 4 - Average loss: 0.3719
+Validation AUROC: 0.72537
+Epoch 5 - Average loss: 0.2175
+Validation AUROC: 0.77115
+Epoch 6 - Average loss: 0.1199
+Validation AUROC: 0.80354
+Epoch 7 - Average loss: 0.0255
+Validation AUROC: 0.82554
+Epoch 8 - Average loss: 0.0020
+Validation AUROC: 0.84029
+Epoch 9 - Average loss: 0.0003
+Validation AUROC: 0.84925
+Epoch 10 - Average loss: 0.0000
+Validation AUROC: 0.85534
+Epoch 11 - Average loss: 0.0000
+Validation AUROC: 0.86000
+Epoch 12 - Average loss: 0.0000
+Validation AUROC: 0.86335
+Epoch 13 - Average loss: 0.0000
+Validation AUROC: 0.86573
+Epoch 14 - Average loss: 0.0000
+Validation AUROC: 0.86623
+Epoch 15 - Average loss: 0.0000
+Validation AUROC: 0.86759
+Epoch 16 - Average loss: 0.0000
+Validation AUROC: 0.86785
+Epoch 17 - Average loss: 0.0000
+Validation AUROC: 0.86832
+Epoch 18 - Average loss: 0.0000
+Validation AUROC: 0.86889
+Epoch 19 - Average loss: 0.0000
+Validation AUROC: 0.86918
+Epoch 20 - Average loss: 0.0000
+Validation AUROC: 0.86811
+Epoch 21 - Average loss: 0.0000
+Validation AUROC: 0.86749
+Epoch 22 - Average loss: 0.0000
+Validation AUROC: 0.86742
+Epoch 23 - Average loss: 0.0000
+Validation AUROC: 0.86761
+Epoch 24 - Average loss: 0.0000
+Validation AUROC: 0.86649
+Epoch 25 - Average loss: 0.0000
+Validation AUROC: 0.86606
+Epoch 26 - Average loss: 0.0000
+Validation AUROC: 0.86540
+Epoch 27 - Average loss: 0.0000
+Validation AUROC: 0.86492
+Epoch 28 - Average loss: 0.0000
+Validation AUROC: 0.86430
+Epoch 29 - Average loss: 0.0000
+Validation AUROC: 0.86309
+Epoch 30 - Average loss: 0.0000
+Validation AUROC: 0.86264
+Epoch 31 - Average loss: 0.0000
+Validation AUROC: 0.86188
+Epoch 32 - Average loss: 0.0000
+Validation AUROC: 0.86093
+Epoch 33 - Average loss: 0.0000
+Validation AUROC: 0.86045
+Epoch 34 - Average loss: 0.0000
+Validation AUROC: 0.85957
+Epoch 35 - Average loss: 0.0000
+Validation AUROC: 0.85926
+Epoch 36 - Average loss: 0.0000
+Validation AUROC: 0.85881
+Epoch 37 - Average loss: 0.0000
+Validation AUROC: 0.85826
+Epoch 38 - Average loss: 0.0000
+Validation AUROC: 0.85772
+Epoch 39 - Average loss: 0.0000
+Validation AUROC: 0.85753
+Epoch 40 - Average loss: 0.0000
+Validation AUROC: 0.85696
+Epoch 41 - Average loss: 0.0000
+Validation AUROC: 0.85710
+Epoch 42 - Average loss: 0.0000
+Validation AUROC: 0.85679
+Epoch 43 - Average loss: 0.0000
+Validation AUROC: 0.85662
+Epoch 44 - Average loss: 0.0000
+Validation AUROC: 0.85677
+Epoch 45 - Average loss: 0.0000
+Validation AUROC: 0.85653
+Epoch 46 - Average loss: 0.0000
+Validation AUROC: 0.85646
+Epoch 47 - Average loss: 0.0000
+Validation AUROC: 0.85674
+Epoch 48 - Average loss: 0.0000
+Validation AUROC: 0.85672
+Epoch 49 - Average loss: 0.0000
+Validation AUROC: 0.85655
+Epoch 50 - Average loss: 0.0000
+Validation AUROC: 0.85662
+Epoch 51 - Average loss: 0.0000
+Validation AUROC: 0.85653
+Epoch 52 - Average loss: 0.0000
+Validation AUROC: 0.85653
+Epoch 53 - Average loss: 0.0000
+Validation AUROC: 0.85674
+Epoch 54 - Average loss: 0.0000
+Validation AUROC: 0.85715
+Epoch 55 - Average loss: 0.0000
+Validation AUROC: 0.85700
+Epoch 56 - Average loss: 0.0000
+Validation AUROC: 0.85662
+Epoch 57 - Average loss: 0.0000
+Validation AUROC: 0.85672
+Epoch 58 - Average loss: 0.0000
+Validation AUROC: 0.85693
+Epoch 59 - Average loss: 0.0000
+Validation AUROC: 0.85698
+Epoch 60 - Average loss: 0.0000
+Validation AUROC: 0.85688
+Epoch 61 - Average loss: 0.0000
+Validation AUROC: 0.85703
+Epoch 62 - Average loss: 0.0000
+Validation AUROC: 0.85700
+Epoch 63 - Average loss: 0.0000
+Validation AUROC: 0.85705
+Epoch 64 - Average loss: 0.0000
+Validation AUROC: 0.85698
+Epoch 65 - Average loss: 0.0000
+Validation AUROC: 0.85712
+Epoch 66 - Average loss: 0.0000
+Validation AUROC: 0.85703
+Epoch 67 - Average loss: 0.0000
+Validation AUROC: 0.85705
+Epoch 68 - Average loss: 0.0000
+Validation AUROC: 0.85712
+Epoch 69 - Average loss: 0.0000
+Validation AUROC: 0.85717
+Early stopping triggered after 69 epochs
+Dev AUROC: dev_ai_dilemmas 0.8677, dev_ant_hh 0.7955, dev_balanced_refusal 0.8542, dev_daily_dilemmas 0.9862 → mean 0.8759
+Saved initial probe to probes/gen_gemma27b_hu_harm_nemotron/probe_iter0.pkl
+Probe: google/gemma-3-27b-it layer 32, classes 'harmful_to_human' / 'not_harmful_to_human'
+
+===== EVALUATING iter0: probes/gen_gemma27b_hu_harm_nemotron/probe_iter0.pkl =====
+[kaggle] eval_ai_dilemmas: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/eval_activations/eval_ai_dilemmas-acts_full.pt
+[kaggle] eval_ant_hh: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/eval_activations/eval_ant_hh-acts_full.pt
+[kaggle] eval_balanced_refusal: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/eval_activations/eval_balanced_refusal-acts_full.pt
+[kaggle] eval_daily_dilemmas: already cached at /workspace/probe_auto_improvement/cache_gen_gemma27b_hu_harm/eval_activations/eval_daily_dilemmas-acts_full.pt
