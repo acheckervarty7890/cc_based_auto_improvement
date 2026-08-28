@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 # Make ``src/`` importable so we can reuse the repo's OpenRouter client.
@@ -52,7 +53,7 @@ from agentic_redteam.openrouter_client import (  # noqa: E402
     make_sync_client,
 )
 
-MODEL = "meta-llama/Llama-3.3-70B-Instruct"
+DEFAULT_MODEL = "meta-llama/Llama-3.3-70B-Instruct"
 
 POS_LABEL = "assistant_follows_the_instruction"
 NEG_LABEL = "assistant_does_not_follow_the_instruction"
@@ -152,24 +153,56 @@ def to_row(item: dict, label: str) -> dict:
     }
 
 
+
+def _create_with_retry(client, model: str, prompt: str, temperature: float,
+                       max_tokens: int, tries: int = 5):
+    """One chat completion, retrying transient OpenRouter/provider failures.
+
+    A 429/5xx from whichever upstream provider OpenRouter routed to is common for
+    the large reasoning models and is not a reason to lose the whole run, so the
+    call is retried on a widening backoff and ``None`` is returned only once the
+    budget is spent — the caller treats that like any other bad batch.
+    """
+    delay = 5.0
+    for attempt in range(1, tries + 1):
+        try:
+            return client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception as exc:  # noqa: BLE001 — any API failure is retryable here
+            print(f"  [warn] request attempt {attempt}/{tries} failed: "
+                  f"{type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr)
+            if attempt == tries:
+                return None
+            time.sleep(delay)
+            delay *= 2
+    return None
+
+
 def generate_for_label(
-    client, label: str, n: int, batch_size: int, temperature: float, max_tokens: int
+    client,
+    label: str,
+    n: int,
+    batch_size: int,
+    temperature: float,
+    max_tokens: int,
+    model: str = DEFAULT_MODEL,
 ) -> list[dict]:
     """Generate ``n`` unique rows for one label, batching until we have enough."""
     rows: list[dict] = []
     seen_users: set[str] = set()
     attempts = 0
-    max_attempts = 2 * (n // max(batch_size, 1) + 2)
+    max_attempts = 4 * (n // max(batch_size, 1) + 2)
     while len(rows) < n and attempts < max_attempts:
         attempts += 1
         want = min(batch_size, n - len(rows))
         prompt = build_prompt(label, want, avoid=sorted(seen_users)[:20])
-        resp = client.chat.completions.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        resp = _create_with_retry(client, model, prompt, temperature, max_tokens)
+        if resp is None:
+            continue
         if not getattr(resp, "choices", None):
             err = extract_openrouter_error(resp) or "no choices in response"
             print(f"  [warn] {label} batch {attempts}: {err}", file=sys.stderr)
@@ -216,6 +249,11 @@ def main() -> None:
         default=10,
         help="Examples requested per LLM call (default 10).",
     )
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"OpenRouter generator model id (default: {DEFAULT_MODEL}).",
+    )
     parser.add_argument("--temperature", type=float, default=1.0)
     parser.add_argument("--max-tokens", type=int, default=4096)
     args = parser.parse_args()
@@ -224,7 +262,10 @@ def main() -> None:
 
     all_rows: list[dict] = []
     for label in (POS_LABEL, NEG_LABEL):
-        print(f"Generating {args.n_per_label} '{label}' examples...", file=sys.stderr)
+        print(
+            f"Generating {args.n_per_label} '{label}' examples with {args.model}...",
+            file=sys.stderr,
+        )
         all_rows.extend(
             generate_for_label(
                 client,
@@ -233,6 +274,7 @@ def main() -> None:
                 args.batch_size,
                 args.temperature,
                 args.max_tokens,
+                args.model,
             )
         )
 
