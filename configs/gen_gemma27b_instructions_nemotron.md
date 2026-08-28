@@ -1,15 +1,15 @@
 ---
 # =============================================================================
-# generator_experiment_1 — ARM 3N: INSTRUCTION FOLLOWING, NEMOTRON GENERATOR,
-# NEMOTRON BASE SET.
+# generator_experiment_1 — ARM 3N: INSTRUCTION FOLLOWING, NEMOTRON GENERATOR.
 #
-# BYTE-IDENTICAL to configs/gen_gemma27b_instructions.md except for two things and the
+# BYTE-IDENTICAL to configs/gen_gemma27b_instructions.md except for ONE knob and the
 # output paths:
 #
-#   1. generator.models  -> nvidia/nemotron-3-ultra-550b-a55b
-#   2. the base training data the runner passes ->
-#      data/instructions_nemotron_200.jsonl (200 rows, 100 per class), in place of
-#      data/instructions_llama70b_50.jsonl (50 rows).
+#   generator.models  ->  nvidia/nemotron-3-ultra-550b-a55b
+#
+# The base training data the runner passes is data/instructions_llama70b_50.jsonl — the
+# SAME 50 rows arm 3 and every other arm of this experiment start from — so this is a
+# clean single-variable ablation of the generator inside the loop.
 #
 # Every other knob — n_batches 5, batch_size 10, concurrency 5, max_tokens 8192,
 # max_sample_tokens 1024, max_retries 2, the gpt-5.1 judge at 400 memo words and 6
@@ -18,26 +18,31 @@
 # the eval transforms — is copied across unchanged, and BOTH system prompts below are
 # verbatim from arm 3.
 #
-# WHY BOTH CHANGES AT ONCE, AND WHAT THE STARTING POINT ACTUALLY IS. On the same probe,
-# dev set and full eval splits, unsteered training sets built from the SAME generation
-# script score, as mean eval AUROC:
+# WHY THE GENERATOR IS WORTH ONE WHOLE ARM. Measured on this probe, this dev set and the
+# full eval splits, unsteered cuts of the SAME generation script — no memo, no direction,
+# no probe arbitration — score, as mean eval AUROC:
 #
-#     50 llama rows (arm 3's base set) ....................... 0.7779
-#     50 llama + 150 more llama rows (control arm) ........... 0.7375   (the data HURTS)
+#     50 llama rows (the base set, arm 3's probe_iter0) ...... 0.7779
+#     50 llama + 150 more llama rows ......................... 0.7375   (the data HURTS)
+#     50 llama + 150 nemotron rows ........................... 0.7869
 #     50 llama + 200 nemotron rows ........................... 0.8070
-#     200 nemotron rows ALONE ................................ 0.6918   <- THIS FILE'S BASE
 #
-# Read that last line carefully: dropping the 50 llama rows costs 0.115. The nemotron cut
-# is the better *addition* but not, on its own, the better *base* — 200 rows from one
-# unsteered generator in one sitting are narrower than 50 rows plus 200, and it shows up
-# on hc_contradiction (0.571) and mm_substitution (0.662), both of which the mixed set
-# scores near 0.9. This run therefore starts 0.086 BELOW arm 3, not above it, and the
-# question it asks is the ordinary one: how far can five iterations of the loop carry a
-# base set that is homogeneous by construction. Compare its trajectory to arm 3's
-# 0.7779 -> 0.8200, not its endpoint.
+# At a matched 150 rows the generator swap alone is worth +0.049, and it is the difference
+# between data that damages the probe and data that helps it. Arm 3 ran the loop with the
+# generator that produces the harmful cut and still reached 0.8200 over five iterations, on
+# 80 accepted samples. This arm asks what the same loop does with the generator that
+# produces the useful cut.
 #
-# The base set is four times arm 3's and comfortably clear of the 49-row optimizer-step
-# threshold, so base_data_fraction stays at 1.0.
+# A NOTE ON WHAT IS *NOT* THE BASE SET HERE. data/instructions_nemotron_200.jsonl (the
+# 200-row unsteered nemotron cut) is committed on this branch and was tried as the base;
+# alone it scores 0.6918, 0.115 below the 250-row mixed set, and lands hard on
+# hc_contradiction (0.571) and mm_substitution (0.662). 200 rows from one generator in one
+# sitting are narrower than 50 rows plus 200. It is the better addition, not the better
+# base — and using it would have confounded the generator with the starting point, which
+# is the one thing this arm exists to isolate.
+#
+# base_data_fraction stays at 1.0: the 50-row base set sits right at the 49-row
+# optimizer-step threshold, exactly as in arm 3.
 #
 # max_tokens 8192 is UNCHANGED and was checked, not assumed: nemotron-3-ultra is a
 # reasoning model, so the budget has to cover reasoning tokens as well as the JSON. A real
@@ -82,7 +87,7 @@
 generator:
   provider: openrouter
   models:
-    - nvidia/nemotron-3-ultra-550b-a55b   # <<< CHANGE 1 OF 2 vs ARM 3 >>>
+    - nvidia/nemotron-3-ultra-550b-a55b   # <<< THE ONLY FUNCTIONAL DIFFERENCE FROM ARM 3 >>>
   n_batches: 5
   batch_size: 10
   concurrency: 5
@@ -105,8 +110,8 @@ judge:
   max_samples_per_batch: 6
 
 probe:
-  # No `path:` — trained from --base-training-data
-  # (data/instructions_nemotron_200.jsonl).  # <<< CHANGE 2 OF 2 vs ARM 3 >>>
+  # No `path:` — trained from --base-training-data (data/instructions_llama70b_50.jsonl),
+  # the same 50 rows arm 3 starts from.
   model: google/gemma-3-27b-it
   layer: 32
   pos_class_label: assistant_follows_the_instruction
