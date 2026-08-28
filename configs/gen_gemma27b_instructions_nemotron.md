@@ -18,19 +18,26 @@
 # the eval transforms — is copied across unchanged, and BOTH system prompts below are
 # verbatim from arm 3.
 #
-# WHY BOTH CHANGES AT ONCE. This is not an ablation of the generator; it is the loop run
-# on top of the best starting point measured so far. On the same probe, dev set and full
-# eval splits, unsteered cuts of the SAME generation script score:
+# WHY BOTH CHANGES AT ONCE, AND WHAT THE STARTING POINT ACTUALLY IS. On the same probe,
+# dev set and full eval splits, unsteered training sets built from the SAME generation
+# script score, as mean eval AUROC:
 #
-#     base probe, 50 llama rows only ................. 0.7779
-#     + 150 more llama rows (control arm) ............ 0.7375   (the data HURTS)
-#     200 nemotron rows, no llama base ............... 0.8070   <- this file's base set
+#     50 llama rows (arm 3's base set) ....................... 0.7779
+#     50 llama + 150 more llama rows (control arm) ........... 0.7375   (the data HURTS)
+#     50 llama + 200 nemotron rows ........................... 0.8070
+#     200 nemotron rows ALONE ................................ 0.6918   <- THIS FILE'S BASE
 #
-# so arm 3's 0.7779 -> 0.8200 over five iterations started 0.029 BELOW where this run
-# starts. The question here is whether the loop can still find accepted batches once the
-# base set is already good, or whether it stalls — which is exactly the regime the three
-# main arms never tested. Note the base set is also four times larger, comfortably clear
-# of the 49-row optimizer-step threshold, so base_data_fraction stays at 1.0.
+# Read that last line carefully: dropping the 50 llama rows costs 0.115. The nemotron cut
+# is the better *addition* but not, on its own, the better *base* — 200 rows from one
+# unsteered generator in one sitting are narrower than 50 rows plus 200, and it shows up
+# on hc_contradiction (0.571) and mm_substitution (0.662), both of which the mixed set
+# scores near 0.9. This run therefore starts 0.086 BELOW arm 3, not above it, and the
+# question it asks is the ordinary one: how far can five iterations of the loop carry a
+# base set that is homogeneous by construction. Compare its trajectory to arm 3's
+# 0.7779 -> 0.8200, not its endpoint.
+#
+# The base set is four times arm 3's and comfortably clear of the 49-row optimizer-step
+# threshold, so base_data_fraction stays at 1.0.
 #
 # max_tokens 8192 is UNCHANGED and was checked, not assumed: nemotron-3-ultra is a
 # reasoning model, so the budget has to cover reasoning tokens as well as the JSON. A real
