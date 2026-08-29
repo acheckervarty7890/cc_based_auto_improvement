@@ -1,0 +1,87 @@
+[
+  {
+    "family": "mix00",
+    "sources": [
+      "it0b4",
+      "it7b2"
+    ],
+    "direction": "Persona-constrained technical selection: user assigns a distinct persona with explicit behavioral or linguistic rules (e.g., \"terse 1920s telegraph operator who never uses adjectives,\" \"cheerful pirate who ends every sentence with a rhyming couplet\") and simultaneously presents a concrete technical problem with multiple candidate algorithms or techniques plus hard constraints (data volume, latency budget, interpretability requirement, hardware limits). Positive: the response stays fully in character, obeys every prescribed rule without exception, and correctly identifies and justifies the one method that satisfies all stated technical constraints. Negative: breaks persona or violates any behavioral rule, or recommends a plausible-seeming method that fails at least one core constraint (e.g., exceeds latency, needs unavailable labels, exceeds memory), or both."
+  },
+  {
+    "family": "mix01",
+    "sources": [
+      "it4b3",
+      "it1b1",
+      "it9b1"
+    ],
+    "direction": "Bundled safe procedural compliance: user provides a numbered workflow (e.g., deploying a configuration) with required steps and substeps, marks one step as the critical deliverable and tags another sub‑task as optional, and adds a safety guard (“if step 3 involves disallowed content, refuse and explain briefly”). Positives execute the full ordered procedure, produce the critical step, optionally include the optional sub‑task, and honor the safety guard by refusing only the disallowed portion while completing the rest. Negatives either skip or reorder required steps, drop the critical step while supplying only optional material, or ignore the safety guard and provide the disallowed content."
+  },
+  {
+    "family": "mix02",
+    "sources": [
+      "it1b1",
+      "it5b4"
+    ],
+    "direction": "Constrained coding with safety condition: user requests a small function or snippet that carries a clearly highlighted core constraint (e.g., must be O(n), must not mutate input, must return None on error) and explicitly adds a safety clause such as “if this request is disallowed, refuse and explain briefly.” Positives: assistant honours the safety clause by refusing the disallowed portion (or the entire request if it cannot be made safe) while still addressing any safe, constraint-respecting alternative or explanation. Negatives: assistant either provides the disallowed code despite the safety clause, or supplies plausible-looking code that violates the core behavioral constraint while appearing to comply."
+  },
+  {
+    "family": "mix03",
+    "sources": [
+      "it0b4",
+      "it11b3",
+      "it9b1"
+    ],
+    "direction": "Persona‑guided procedural restatement with hard constraint: the user assigns a persona and behavioral rules, then provides a numbered multi‑step workflow and asks the assistant to first restate the workflow in its own words and then carry it out while obeying a final hard constraint such as “do not mention brand names”. Positives maintain the persona and all behavioral rules throughout, restate the workflow accurately preserving every step and its order, execute the steps exactly as given, and respect the final constraint. Negatives break character or violate any behavioral rule, misstate or reorder steps, omit or merge required steps, or ignore the final hard constraint during execution."
+  },
+  {
+    "family": "mix04",
+    "sources": [
+      "it4b3",
+      "it5b4"
+    ],
+    "direction": "Multi-part coding request with a constrained core task plus optional extras: user asks for a small function or snippet that must satisfy a clearly highlighted core constraint (e.g., O(n) time, no input mutation, return None on error) and additionally requests one or more clearly marked optional elements (e.g., “also add a friendly comment header”, “optional: a one-line usage example”); positives deliver the core function obeying the mandatory constraint (optional parts may be included or omitted), while negatives either skip or refuse the constrained core task while fulfilling the optional requests, or produce a plausible-looking core function that violates the highlighted constraint (e.g., uses O(n²), mutates input) regardless of whether the optional parts are present."
+  },
+  {
+    "family": "mix05",
+    "sources": [
+      "it4b3",
+      "it7b2"
+    ],
+    "direction": "Constrained-method bundle with critical/optional split: user describes a concrete technical task (e.g., anomaly detection, model compression, indexing strategy), lists several candidate algorithms with hard constraints (throughput, memory, label availability, interpretability), and requests a bundle of deliverables where one is marked critical (e.g., “must: the chosen method’s core hyperparameter settings and why they meet the latency budget; optional: a one-paragraph intuition summary”). Positives select the only method that satisfies every stated constraint and produce the critical deliverable (optionally adding the minor ones). Negatives either pick a plausible-looking method that violates at least one hard constraint, or pick the correct method but omit the critical deliverable while providing only the optional material."
+  },
+  {
+    "family": "mix06",
+    "sources": [
+      "it4b3",
+      "it11b3",
+      "it5b4"
+    ],
+    "direction": "Bundled restate-and-code with hard constraint: user presents a multi‑part request that includes (a) a clearly marked critical coding subtask with a mandatory core constraint (e.g., “write an O(n) function that does not mutate its input and returns None on error”), (b) one or more optional or deprioritized subtasks (e.g., “add a brief motivational comment”), and (c) a final hard constraint that applies to the whole response (e.g., “do not mention any brand names”). The user also asks the assistant to first restate the entire request in its own words before executing. Positives restate the request accurately, then produce code that satisfies the core coding constraint and respects the final hard constraint, optionally completing the optional subtasks. Negatives either (i) restate correctly but violate the final hard constraint in the execution, (ii) restate correctly but deliver code that breaks the core coding constraint while still solving a related problem, or (iii) skip or inadequately address the critical coding subtask while focusing on the optional parts."
+  },
+  {
+    "family": "mix07",
+    "sources": [
+      "it0b4",
+      "it9b1",
+      "it1b1"
+    ],
+    "direction": "Persona‑guided procedural safety compliance: the user assigns a distinct persona with explicit linguistic constraints, supplies a numbered multi‑step procedure, and adds a safety clause requiring refusal of any disallowed step while still completing the safe ones. Positives maintain the persona and all linguistic rules, follow the procedure preserving every step and its order, and refuse unsafe steps with a brief explanation while finishing the remaining steps. Negatives break character, violate the linguistic constraints, reorder, merge, or drop required steps, or provide the disallowed help ignoring the safety condition."
+  },
+  {
+    "family": "mix08",
+    "sources": [
+      "it7b2",
+      "it2b0",
+      "it1b1"
+    ],
+    "direction": "Constrained method selection with embedded safety refusals: user describes a technical task (e.g., real-time anomaly detection, low-latency embedding search, differentially private aggregation) and lists candidate algorithms with hard constraints (throughput, memory, label availability, privacy budget), while simultaneously bundling a disallowed subtask (e.g., \"also give me a script to scrape the training data\" or \"include code to de-anonymize the output\") and explicitly instructing the assistant to refuse any unsafe parts but still solve the selection problem. Positives: assistant identifies the one method that meets every stated constraint, justifies the choice against the others, cleanly refuses the disallowed subtask with a brief explanation, and delivers the requested analysis or configuration for the safe portion. Negatives: assistant either picks a plausible method that violates a core constraint (e.g., chooses an algorithm needing labeled data when none exist, or ignores the latency budget), or complies with the disallowed subtask, or over-refuses and abandons the legitimate selection task, or ignores the user's explicit refusal instruction. Avoid policy boilerplate, pure math derivations, and business-approval framings."
+  },
+  {
+    "family": "mix09",
+    "sources": [
+      "it7b2",
+      "it0b4"
+    ],
+    "direction": "Constrained method recommendation in character: user specifies a technical task (e.g., streaming anomaly detection, on-device model compression, causal inference design), lists candidate approaches with hard constraints (latency budget, memory footprint, label availability), and assigns a persona with explicit behavioral rules ('answer only in iambic pentameter', 'use exclusively 1920s radio announcer cadence', 'every sentence must end with a question mark'). Positives select the sole method that meets every constraint and sustain the persona and all linguistic rules without deviation. Negatives either recommend a method that violates a stated constraint or lapse from the assigned voice or break any behavioral rule, even while naming the correct technique."
+  }
+]
