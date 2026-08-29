@@ -76,6 +76,21 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def load_slot_corpora() -> dict[str, list[tuple[str, list[dict]]]]:
+    """The eight Δdev rank slots, pooled over the seven same-prompt draws.
+
+    ``data/union_slot{k}.jsonl`` holds the family that ranked k-th by Δdev in each of
+    reps 1, 2, 4-8 — 85-105 rows each, so the eight are size-comparable and the only
+    thing that varies is which families the ranking put in that slot.
+    """
+    out: dict[str, list[tuple[str, list[dict]]]] = {}
+    for k in range(1, 9):
+        p = REPO / f"data/union_slot{k}.jsonl"
+        if p.exists():
+            out[f"slot{k}"] = [(r["labels"], _messages(r["inputs"])) for r in _read_jsonl(p)]
+    return out
+
+
 def load_corpora() -> dict[str, list[tuple[str, list[dict]]]]:
     """corpus name → [(label, messages), ...]"""
     corpora: dict[str, list[tuple[str, list[dict]]]] = {}
@@ -129,18 +144,39 @@ def rate(c: Counter, w: str) -> float:
     return 10000.0 * c[w] / total if total else 0.0
 
 
+def _write_csv(path: Path, order: list[str], counts: dict[str, Counter]) -> None:
+    """Every word in any corpus' top-200, with each corpus' count and per-10k rate."""
+    keep: set[str] = set()
+    for name in order:
+        keep.update(w for w, _ in counts[name].most_common(200))
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        wr = csv.writer(fh)
+        wr.writerow(["word"] + [f"{n}_count" for n in order] + [f"{n}_rate_per10k" for n in order])
+        for w in sorted(keep, key=lambda w: -rate(counts["eval"], w)):
+            wr.writerow([w] + [counts[n][w] for n in order]
+                        + [f"{rate(counts[n], w):.2f}" for n in order])
+    print(f"\nwrote {Path(path).resolve()} ({len(keep)} words)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--top", type=int, default=25, help="rows per corpus in the report")
     ap.add_argument("--role", choices=["user", "assistant"], default=None,
                     help="restrict to one speaker (default: both)")
+    ap.add_argument("--slots", action="store_true",
+                    help="analyse the eight Δdev rank slots against dev and eval instead")
     ap.add_argument("--csv", type=Path, default=RUN_DIR / "word_frequency.csv")
     args = ap.parse_args()
 
     corpora = load_corpora()
+    if args.slots:
+        slots = load_slot_corpora()
+        corpora = {**slots, "dev": corpora["dev"], "eval": corpora["eval"]}
+        order = list(slots) + ["dev", "eval"]
+    else:
+        order = ["base", "accepted", "imitated", "eval_pos", "eval_neg", "poison", "dev", "eval"]
     counts = {name: counts_for(docs, args.role) for name, docs in corpora.items()}
-    order = ["base", "accepted", "imitated", "eval_pos", "eval_neg", "poison", "dev", "eval"]
 
     print(f"corpus     docs   content words   vocab   words/doc")
     for name in order:
@@ -187,7 +223,7 @@ def main() -> None:
 
     # Words that most distinguish each generated corpus from eval, by log-odds with a
     # +1 prior: high count AND high rate ratio, so a single freak word can't top it.
-    for name in ("base", "accepted", "imitated", "eval_pos", "eval_neg", "poison"):
+    for name in [n for n in ("base", "accepted", "imitated", "eval_pos", "eval_neg", "poison") if n in counts]:
         c = counts[name]
         tot = sum(c.values())
         scored = sorted(
@@ -200,6 +236,9 @@ def main() -> None:
 
     # The imitations were written FROM the accepted rows, so the sharper question for
     # them is not distance from eval but what they did to their own source vocabulary.
+    if "accepted" not in counts:
+        _write_csv(args.csv, order, counts)
+        return
     ac, im = counts["accepted"], counts["imitated"]
     ac_tot, im_tot = sum(ac.values()), sum(im.values())
     print("\n=== imitated vs its source (accepted): shifts on words common to both ===")
@@ -239,17 +278,7 @@ def main() -> None:
         print(f"{w:<18}{1e4*pc[w]/pt:>8.1f}{1e4*nc[w]/nt:>8.1f}"
               f"{(1e4*pc[w]/pt+1)/(1e4*nc[w]/nt+1):>8.2f}")
 
-    # Long-form CSV: every word that makes any corpus' top-200, with all five rates.
-    keep: set[str] = set()
-    for name in order:
-        keep.update(w for w, _ in counts[name].most_common(200))
-    with args.csv.open("w", newline="", encoding="utf-8") as fh:
-        wr = csv.writer(fh)
-        wr.writerow(["word"] + [f"{n}_count" for n in order] + [f"{n}_rate_per10k" for n in order])
-        for w in sorted(keep, key=lambda w: -rate(counts["eval"], w)):
-            wr.writerow([w] + [counts[n][w] for n in order]
-                        + [f"{rate(counts[n], w):.2f}" for n in order])
-    print(f"\nwrote {args.csv.relative_to(REPO)} ({len(keep)} words)")
+    _write_csv(args.csv, order, counts)
 
 
 if __name__ == "__main__":

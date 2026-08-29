@@ -139,8 +139,10 @@ the 0.8148 floor.** The +0.036 was the upper tail. This also retires the volume
 explanation: rep 2 and rep 3 make the same 112 → ~217 change to the training-set size and
 lose.
 
-What does replicate: **it0b4 is worst in all three draws** (−0.049, −0.016, −0.043) and
-**it1b1 and it4b3 are eval-positive in all three**. Everything in the middle reshuffles.
+~~What does replicate: **it0b4 is worst in all three draws** and **it1b1 and it4b3 are
+eval-positive in all three**.~~ **Retracted — see §7.** Five further draws (reps 4-8) put
+it0b4 at rank 1 in rep 4 and rank 2 in rep 7; across seven draws it is last only twice.
+The three-draw pattern was an artifact.
 Cross-draw correlations are weak — rep1~rep2 Δdev +0.34 / Δeval +0.49; rep1~rep3 +0.84 /
 +0.78; rep2~rep3 +0.28 / +0.52. The prompt-modified draw resembles rep 1 more than the
 identical-prompt draw does, which is the cleanest statement of how far draw noise
@@ -208,11 +210,128 @@ Rep 2's top-5 is the stress test: it admits `it0b4`, worst family in the other t
 because rep 2's own ranking put it 5th. Result +0.0063 — still above the floor, but the
 weakest k=5 cell, and it is what drags k=5 below k=3.
 
+## 7. Seven draws: the ranking does not survive
+
+Reps 4-8 add five more same-prompt draws (rep 3 excluded — it is the no-pairing-hint arm).
+Δdev rank per family, 1 = highest:
+
+| family | rep1 | rep2 | rep4 | rep5 | rep6 | rep7 | rep8 | mean rank | Δdev span |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| it4b3 | 1 | 1 | 6 | 3 | 5 | 4 | 2 | 3.1 | 0.0221 |
+| it1b1 | 3 | 2 | 7 | 1 | 4 | 5 | 1 | 3.3 | 0.0284 |
+| it9b1 | 7 | 3 | 3 | 2 | 1 | 8 | 6 | 4.3 | 0.0544 |
+| it0b4 | 8 | 5 | 1 | 8 | 3 | 2 | 4 | 4.4 | **0.0808** |
+| it7b2 | 6 | 4 | 4 | 5 | 8 | 1 | 7 | 5.0 | 0.0375 |
+| it11b3 | 2 | 8 | 5 | 6 | 2 | 7 | 5 | 5.0 | 0.0475 |
+| it5b4 | 4 | 6 | 2 | 4 | 6 | 6 | 8 | 5.1 | 0.0375 |
+| it2b0 | 5 | 7 | 8 | 7 | 7 | 3 | 3 | 5.7 | 0.0256 |
+
+**Mean pairwise Spearman of the rankings is −0.007** (21 pairs, range −0.69 to +0.71) —
+indistinguishable from reshuffling. it4b3 and it1b1 have the best mean ranks but are top-2
+in only 3 of 7 draws each and fall to 6th/7th once. it0b4 swings 0.0808 in Δdev between
+draws, 16× the single-fit noise floor. Three families occupy both rank 1 and rank 8 across
+the seven.
+
+Union eval across the seven: 0.8504, 0.7983, 0.7842, 0.8049, 0.8331, 0.8084, 0.8083 —
+mean Δeval −0.0023, above floor 2/7, spread 0.066.
+
+## 8. Pooled across draws, the family effects are large and clean
+
+Pooling one family's rows from all seven draws (~85-105 rows) makes the effects legible:
+
+| set | rows | dev | Δdev | eval | Δeval |
+|---|---:|---:|---:|---:|---:|
+| it1b1 alone | 101 | 0.86682 | +0.0358 | **0.85273** | **+0.0379** |
+| it4b3 alone | 84 | 0.81942 | −0.0116 | 0.82940 | +0.0146 |
+| it9b1 alone | 90 | 0.78626 | −0.0448 | **0.77415** | **−0.0407** |
+| it4b3 + it1b1 | 185 | 0.85004 | +0.0190 | **0.85543** | **+0.0406** |
+| + it9b1 | 275 | 0.80324 | −0.0278 | 0.79947 | −0.0153 |
+| rank-1 family of each draw | 88 | 0.86567 | +0.0346 | 0.84834 | +0.0335 |
+| rank-2 family of each draw | 85 | 0.82909 | −0.0020 | 0.81506 | +0.0003 |
+| rank 1+2 | 173 | 0.86679 | +0.0357 | 0.84653 | +0.0317 |
+
+Pooling is where the gain lives: every pooled set is at or above the floor, against 2/7 for
+the single-draw unions. `it4b3 + it1b1` at 0.85543 is the best eval measured in this arm.
+
+**it9b1 is poison** (−0.0407 alone; adding it to the winning pair costs 0.056), **and it had
+the third-best mean Δdev rank of the eight families.** Averaging seven independent estimates
+of a family's worth still gets its sign wrong. The signal is visible at ~90 pooled rows and
+invisible at 12, and re-measuring the 12-row increment does not recover it.
+
+## 9. The rank slots, fitted
+
+Pooling by rank slot instead of by family (85-105 rows each, size-comparable):
+
+| slot | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Δeval | **+0.0335** | +0.0003 | +0.0043 | −0.0262 | +0.0016 | −0.0403 | −0.0106 | −0.0480 |
+| Δdev | +0.0346 | −0.0020 | −0.0166 | −0.0377 | −0.0105 | −0.0935 | −0.0215 | −0.0731 |
+
+corr(slot, Δeval) = −0.80, but it is a step function, not a gradient: slot 1 is the only
+real gain, slots 2/3/5 sit exactly on the floor, and below that the order is scrambled
+(slot 3 > slot 2, slot 5 > slot 4, slot 7 > slot 6). Slot 1 is 52 of its 88 rows (59%)
+it1b1 + it4b3, against 29% for slot 2 — the argmax is *enriched* in the good families
+rather than *identifying* good batches.
+
+## 10. Nothing on the surface predicts the outcome
+
+Across the eight size-matched slot corpora, none of these order the result:
+
+- **Structure** — bulleted %, code-fence %, refusal %, constraint-word %, pairing %, user
+  and assistant length. The only metric with any relationship is the neg/pos length ratio
+  (corr +0.68 with Δeval), and slot 1 is the sole slot above 1.0 and the sole real gain, so
+  it is one point driving the correlation. Slot 6 is the most code-heavy and most
+  constraint-laden slot and the second-worst result.
+- **Vocabulary distance to eval** (`word_frequency.py --slots`) — cosine to eval runs
+  0.114-0.299 across slots with corr +0.48 to Δeval, and it misorders both ends: slot 5 is
+  *closest* to eval (0.299) and scores +0.0016; slot 1 wins while sharing only 7 of eval's
+  top 100 words. Pairwise cosine among the slots is 0.26-0.70 — they are one genre.
+- Within a family, the two ends of a swing can look completely different (it0b4's best draw
+  has 60-char answers and a 0.63 neg/pos ratio; its worst has 166-char answers and 1.08 —
+  cosine 0.209 between them) or completely identical (it9b1's best and worst draws are both
+  100% bulleted with a 1.000 ratio and cosine 0.536, and still differ by 0.054 in Δdev).
+
+## 11. The effect travels with structure, not vocabulary
+
+`scripts/generate_word_swap.py` rewrites every conversation of a slot corpus one at a time,
+rebuilding its subject matter on the other slot's five most one-sided words while keeping
+the turn count, per-turn length, register, formatting and the instruction/reply relation.
+736 calls; 0 label flips, 0 shape violations, 0 duplicates. Four replications per arm:
+
+| arm | rep1 | rep2 | rep3 | rep4 | mean | source |
+|---|---:|---:|---:|---:|---:|---:|
+| slot-1 conversations, slot-8 words | −0.0036 | +0.0247 | +0.0306 | +0.0229 | **+0.0186** | +0.0335 |
+| slot-8 conversations, slot-1 words | −0.0158 | −0.0069 | −0.0369 | −0.0304 | **−0.0225** | −0.0480 |
+
+**All four A replications beat all four B replications**, on eval and on dev, with no
+overlap in range. Each arm keeps 55-60% of its source's effect after its vocabulary is
+entirely replaced. The word-frequency contrast was a marker of which families landed in
+which slot, not a cause.
+
+## 12. The accepted 62 and the generated rows cover each other's failures
+
+| set | rows | dev | eval |
+|---|---:|---:|---:|
+| base only | 50 | 0.7573 | 0.7779 |
+| 62 accepted only | 62 | 0.6250 | 0.6172 |
+| base ∪ slot1 (no accepted) | 138 | 0.80528 | 0.79124 |
+| base ∪ 62 | 112 | 0.83106 | 0.81481 |
+| base ∪ 62 ∪ slot1 | 200 | 0.86567 | 0.84834 |
+
+slot1 is worth +0.0335 **on top of** the accepted 62 and −0.024 **instead of** them. Without
+them it inverts `anthropic_harmless_refusal` (0.3922, i.e. 1−AUROC = 0.608) while improving
+every other split — hc_contradiction 0.9256 vs 0.7452, mm_substitution 0.8741, oig_omission
+0.7673. The accepted 62 alone invert `mm_substitution` (§0) and hold the refusal split up.
+Neither set carries the concept; each covers the other's inverted split. That is why every
+"replace the accepted rows" framing here fails and every "add to them" framing works.
+
 ## Consequences for the loop
 
-- **Replace the absolute `min_auroc_gain` threshold with a rank.** Take the top ~40% of an
-  iteration's batches by Δdev (3 of 8 here). It is above the floor in 3/3 draws where the
-  threshold manages 2/3 and take-everything 1/3, and its spread is 5× tighter.
+- ~~**Replace the absolute `min_auroc_gain` threshold with a rank.**~~ **Weakened by §7-§9.**
+  At n=7 the Δdev ranking has ≈0 rank correlation between draws; top-3 selection worked at
+  n=3 because slot 1 is enriched in the two good families, not because the ranking finds
+  good batches. Taking the top **1** is the only cut that clearly beats the floor (+0.0335
+  vs +0.0003 for the size-matched rank-2 set).
 - **Trust dev to reject, not to accept.** Its bottom end replicates across draws and
   composes predictably; its top end does not.
 - **A single accepted/rejected verdict is not a property of the batch.** Two draws of the
@@ -221,7 +340,15 @@ weakest k=5 cell, and it is what drags k=5 below k=3.
   is n=1 against a between-draw spread of ~0.05. Only the two clearly-harmful arms in §7
   there (−0.038, −0.030) have margin to survive this.
 - **Vocabulary diagnostics do not substitute for a fit.** Neither distance from eval nor
-  the pos/neg lexical signature orders the data the way the probe does.
+  the pos/neg lexical signature orders the data the way the probe does, and §11 shows why:
+  swap a corpus' vocabulary wholesale and its value barely moves.
+- **Measure families across draws, not batches within one.** A family's worth is legible at
+  ~90 pooled rows and invisible at 12; seven averaged 12-row estimates still put the worst
+  family third. If the loop is to select at all, it should pool a direction's output across
+  iterations before judging it.
+- **Track per-split inversions, not just the mean.** Both the accepted rows and the best
+  generated set invert a split when trained alone (§0, §12); the mean hides it and the
+  complementarity that makes the union work is only visible per split.
 
 ## Reproducing
 
@@ -242,5 +369,23 @@ $V scripts/fit_mixed_directions.py --generated data/instructions_like_accepted62
    --families it4b3,it1b1,it9b1 --tag top3rep2                     # §6
 ```
 
-Results CSVs: `like62*_directions_results.csv`, `top{3,5,7}rep{1,2,3}_directions_results.csv`,
-`word_frequency.{txt,csv}`. Probes: `cand_like62*`, `cand_top*`, `gen_accepted_only.pkl`.
+```bash
+# §7-§9 — five more draws, pooled families, the eight rank slots
+for r in 4 5 6 7 8; do
+  $V scripts/generate_like_accepted.py --out data/instructions_like_accepted62_rep$r.jsonl
+  $V scripts/fit_mixed_directions.py --generated data/instructions_like_accepted62_rep$r.jsonl \
+     --score-families --tag like62rep$r
+done
+$V scripts/fit_mixed_directions.py --generated data/union_it1b1.jsonl --tag u_it1b1
+$V scripts/fit_mixed_directions.py --generated data/union_slot1.jsonl --tag u_slot1
+$V scripts/word_frequency.py --slots --top 25 \
+   --csv results_gen_gemma27b_instructions_nemotron/word_frequency_slots.csv   # §10
+$V scripts/generate_word_swap.py                                              # §11
+$V scripts/fit_base_plus.py data/union_slot1.jsonl                            # §12
+```
+
+Results CSVs: `like62*_directions_results.csv`, `top{3,5,7}rep{1,2,3}_*.csv`,
+`u_{it1b1,it4b3,it9b1,fixed2,fixed3,rank1,rank2,rank12,slot1..slot8}_*.csv`,
+`swap_*_directions_results.csv`, `word_frequency{,_slots}.{txt,csv}`. Pooled corpora:
+`data/union_*.jsonl`, `data/swap_*.jsonl`. Probes: `cand_*`, `gen_u_*`, `baseplus_*`,
+`gen_accepted_only.pkl`.
