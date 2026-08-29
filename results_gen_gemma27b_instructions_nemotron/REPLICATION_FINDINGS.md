@@ -327,7 +327,16 @@ Neither set carries the concept; each covers the other's inverted split. That is
 
 ## Consequences for the loop
 
-- ~~**Replace the absolute `min_auroc_gain` threshold with a rank.**~~ **Weakened by §7-§9.**
+> **Superseded in part by `SELECTION_FINDINGS.md`.** A second arm (8 draws imitating the
+> loop's *rejected* near-miss batches) plus 16 pooled per-family fits show that (a) the
+> per-draw and pooled measurements of the same family disagree in sign for 6 of 16
+> families, so §7-§9's rank analysis was measuring noise on both ends; (b) ten selection
+> rules built on measured ΔAUROC land at or below the floor, including "top-1 by Δdev";
+> and (c) the best set found anywhere — eval **0.86254** — is two pooled families plus one
+> arbitrary unselected draw.
+
+- ~~**Replace the absolute `min_auroc_gain` threshold with a rank.**~~ **Weakened by §7-§9,
+  retracted by `SELECTION_FINDINGS.md` §3.**
   At n=7 the Δdev ranking has ≈0 rank correlation between draws; top-3 selection worked at
   n=3 because slot 1 is enriched in the two good families, not because the ranking finds
   good batches. Taking the top **1** is the only cut that clearly beats the floor (+0.0335

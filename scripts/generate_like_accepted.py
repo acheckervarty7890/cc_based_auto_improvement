@@ -37,6 +37,14 @@ DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 ACCEPTED_KEYS = [(0, 4), (1, 1), (2, 0), (4, 3), (5, 4), (7, 2), (9, 1), (11, 3)]
 INJECTED_KEY = (10, 0)
 
+# The eight REJECTED batches whose dev ΔAUROC came closest to zero (-0.0006 .. -0.0069)
+# of the 50 rejected batches carrying all ten samples: the near-misses. Same shape as
+# ACCEPTED_KEYS so `--keys nearmiss` swaps one family set for the other and changes
+# nothing else about the generation.
+NEARMISS_KEYS = [(1, 3), (5, 0), (5, 1), (6, 1), (8, 4), (9, 0), (12, 1), (12, 3)]
+
+KEY_SETS = {"accepted": ACCEPTED_KEYS, "nearmiss": NEARMISS_KEYS}
+
 # The one line about matched pairs is separable: `--no-pairing-hint` drops it entirely
 # rather than replacing it with a discouragement, so the prompt then says nothing about
 # pairing in either direction. Everything else is byte-identical to the default prompt.
@@ -171,10 +179,12 @@ async def main_async(args) -> None:
     print(f"pairing hint in system prompt: {'no' if args.no_pairing_hint else 'yes'}")
 
     latest = latest_batches()
+    keys = KEY_SETS[args.keys]
+    print(f"family set: {args.keys} — " + ", ".join(f"it{i}b{b}" for i, b in keys))
 
-    # Novelty: everything already in the training set, accepted or injected.
+    # Novelty: everything already in the training set, plus the source batches themselves.
     seen: set[str] = set()
-    for k in ACCEPTED_KEYS + [INJECTED_KEY]:
+    for k in list(keys) + ACCEPTED_KEYS + [INJECTED_KEY]:
         for s in latest[k]["samples"]:
             seen.add(key_of(s["messages"]))
     print(f"novelty guard seeded with {len(seen)} existing conversations")
@@ -239,7 +249,7 @@ async def main_async(args) -> None:
             "dup": n_dup, "bad": n_bad, "malformed": malformed,
         }
 
-    await asyncio.gather(*(do_family(it, bk) for it, bk in ACCEPTED_KEYS))
+    await asyncio.gather(*(do_family(it, bk) for it, bk in keys))
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w") as fh:
@@ -257,6 +267,8 @@ def main() -> None:
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--max-tokens", type=int, default=14000)
     ap.add_argument("--concurrency", type=int, default=3)
+    ap.add_argument("--keys", choices=sorted(KEY_SETS), default="accepted",
+                    help="which batch family set to imitate (default: the accepted eight)")
     ap.add_argument("--no-pairing-hint", action="store_true",
                     help="drop the 'prefer matched pairs' rule from the system prompt entirely "
                          "(the prompt then says nothing about pairing either way)")
