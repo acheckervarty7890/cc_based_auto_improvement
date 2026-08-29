@@ -28,6 +28,14 @@ byte-identical to `probe_iter13.pkl` (iteration 12 accepted nothing).
 
 For reference: the run's own peak was `probe_iter8` at 0.8236, and the base probe at 0.7779.
 
+> **Every row above is a single draw.** `REPLICATION_FINDINGS.md` re-runs the 107-sample
+> generation twice more: the three unions span eval 0.798–0.850, so the between-draw
+> spread (~0.05) is larger than most effects in this table. Read single rows as samples,
+> not measurements. That document also reports the 62 accepted trained alone (eval 0.6172),
+> a stop-word-filtered word-frequency analysis of every corpus in play, and a ranked
+> replacement for the `min_auroc_gain` acceptance rule that clears the floor in all three
+> draws.
+
 ## 1. No sample-level property separates accepted from rejected
 
 All 61 scored batches were read (directions plus matched pos/neg pairs) and measured.

@@ -37,7 +37,14 @@ DEFAULT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 ACCEPTED_KEYS = [(0, 4), (1, 1), (2, 0), (4, 3), (5, 4), (7, 2), (9, 1), (11, 3)]
 INJECTED_KEY = (10, 0)
 
-SYSTEM = """You are helping build a labelled training set for a text classifier.
+# The one line about matched pairs is separable: `--no-pairing-hint` drops it entirely
+# rather than replacing it with a discouragement, so the prompt then says nothing about
+# pairing in either direction. Everything else is byte-identical to the default prompt.
+_PAIRING_RULE = """  - Prefer matched pairs: the same user turn appearing twice, once with a compliant assistant
+    turn and once with a violating one.
+"""
+
+SYSTEM_TEMPLATE = """You are helping build a labelled training set for a text classifier.
 
 The classifier reads a conversation between a user and an assistant and predicts one of two labels:
   - assistant_follows_the_instruction
@@ -53,14 +60,17 @@ Rules:
   - Keep the two classes matched on surface features — same domains, same rough length, same
     register. The ONLY thing that should distinguish them is whether the assistant followed
     the user's instruction.
-  - Prefer matched pairs: the same user turn appearing twice, once with a compliant assistant
-    turn and once with a violating one.
-  - Keep every conversation short enough to fit comfortably in 1024 tokens.
+{pairing}  - Keep every conversation short enough to fit comfortably in 1024 tokens.
 
 Reply with a single JSON array and nothing else. Each element:
   {"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}],
    "label": "assistant_follows_the_instruction" | "assistant_does_not_follow_the_instruction"}
 """
+
+
+def build_system(pairing_hint: bool) -> str:
+    # str.replace, not str.format: the template carries literal JSON braces.
+    return SYSTEM_TEMPLATE.replace("{pairing}", _PAIRING_RULE if pairing_hint else "")
 
 
 def latest_batches() -> dict[tuple[int, int], dict]:
@@ -108,14 +118,14 @@ def build_request(rec: dict, n: int, n_shots: int) -> str:
     )
 
 
-async def call_model(client, model: str, prompt: str, max_tokens: int, tries: int = 5) -> str | None:
+async def call_model(client, model: str, system: str, prompt: str, max_tokens: int, tries: int = 5) -> str | None:
     delay = 10.0
     for attempt in range(1, tries + 1):
         try:
             resp = await client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": SYSTEM},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=1.0,
@@ -157,6 +167,9 @@ async def main_async(args) -> None:
     )
     budget.warmup()
 
+    system = build_system(not args.no_pairing_hint)
+    print(f"pairing hint in system prompt: {'no' if args.no_pairing_hint else 'yes'}")
+
     latest = latest_batches()
 
     # Novelty: everything already in the training set, accepted or injected.
@@ -183,7 +196,8 @@ async def main_async(args) -> None:
         async with sem:
             print(f"  [{fam}] requesting {args.per_family} ...")
             text = await call_model(
-                client, args.model, build_request(rec, args.per_family, args.shots), args.max_tokens
+                client, args.model, system,
+                build_request(rec, args.per_family, args.shots), args.max_tokens
             )
         if not text:
             print(f"  [{fam}] FAILED — no reply")
@@ -243,6 +257,9 @@ def main() -> None:
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--max-tokens", type=int, default=14000)
     ap.add_argument("--concurrency", type=int, default=3)
+    ap.add_argument("--no-pairing-hint", action="store_true",
+                    help="drop the 'prefer matched pairs' rule from the system prompt entirely "
+                         "(the prompt then says nothing about pairing either way)")
     ap.add_argument("--out", type=Path, default=REPO / "data/instructions_like_accepted62.jsonl")
     args = ap.parse_args()
     if args.per_family % 2:
