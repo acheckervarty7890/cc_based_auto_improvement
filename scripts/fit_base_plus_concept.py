@@ -31,6 +31,26 @@ class-paired, and the script's one-shot pair makes the harmful class casual/dism
 and the safe class careful — a surface cue the paired splits cannot reward but ant_hh
 does not supply either.
 
+Measured, highstakes:
+
+    base only (50 rows, probe_iter0)             dev 0.89324   eval 0.89974
+    base ∪ highstakes_gptoss_600 (650 rows)      dev 0.93685   eval 0.92776
+
+This concept starts far higher than hu_harm (eval 0.89974 vs 0.85232), so there is much
+less headroom for a generated set to claim. The one eval split gpt-oss does not improve
+is toolace_balanced (0.85566 → 0.84417) while the other three gain 0.02–0.11 — the same
+shape as hu_harm's eval_ant_hh.
+
+Cost note: a highstakes fit is ~20x a hu_harm one on the SAME 650 training rows, and it
+is not the fit that is bigger. The 19.6 GiB dev set takes the whole card, so
+`_to_device_for_fit` leaves the 1.1 GiB training set host-resident and every epoch pays a
+scattered CPU gather + H2D on it: 4.5 ms/sample against hu_harm's 0.19 ms/sample, where
+both sets are staged (1.5 GiB total). That matches the table under `retrain.py`
+(0.16 ms/sample GPU-resident, 18.35 ms/sample host-resident at 11 MB rows; the highstakes
+training rows are ~1.8 MB, and 18.35 × 1.8/11 ≈ 3.0). `_to_device_for_fit` sorts by size
+and is right to — 19.6 GiB moves more bytes than 1.1 GiB — but here the big set is the one
+read once per epoch under no_grad while the small one carries forward+backward.
+
 The eval and dev activations come from Kaggle (`prefetch_*`, the `kaggle:` block of the
 concept's config), so neither is ever extracted locally. Only the generated samples and
 the 50 base rows go through the 27B model, once each, into the shared per-sample cache.
