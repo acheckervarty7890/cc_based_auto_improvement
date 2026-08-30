@@ -35,11 +35,18 @@ Measured, highstakes:
 
     base only (50 rows, probe_iter0)             dev 0.89324   eval 0.89974
     base ∪ highstakes_gptoss_600 (650 rows)      dev 0.93685   eval 0.92776
+    base ∪ highstakes_deepseekv4pro_600 (650)    dev 0.93629   eval 0.93276
 
 This concept starts far higher than hu_harm (eval 0.89974 vs 0.85232), so there is much
-less headroom for a generated set to claim. The one eval split gpt-oss does not improve
-is toolace_balanced (0.85566 → 0.84417) while the other three gain 0.02–0.11 — the same
-shape as hu_harm's eval_ant_hh.
+less headroom for a generated set to claim — and the two generators land much closer
+together here (0.005 apart on eval) than on hu_harm (0.035). Note the dev means are
+effectively tied (0.93685 vs 0.93629) while eval separates them, so on this concept dev
+does not rank the two generators.
+
+toolace_balanced is the split that resists, and it resists BOTH sets — 0.85566 base →
+0.84417 gptoss → 0.83051 deepseek, i.e. it gets monotonically worse as the other three
+improve, and deepseek (the better set overall) hurts it most. The same shape as hu_harm's
+eval_ant_hh, one split down while the rest move.
 
 Cost note: a highstakes fit is ~20x a hu_harm one on the SAME 650 training rows, and it
 is not the fit that is bigger. The 19.6 GiB dev set takes the whole card, so
