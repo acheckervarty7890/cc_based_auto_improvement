@@ -21,6 +21,16 @@ Measured, this setup:
 
     base only (50 rows, probe_iter0)          dev 0.87589   eval 0.85232
     base ∪ hu_harm_gptoss_600 (650 rows)      dev 0.89724   eval 0.87323
+    base ∪ hu_harm_deepseekv4pro_600 (650)    dev 0.93052   eval 0.90852
+
+Both sets were written by the same script, same prompt, same 300/300 split — only the
+generator differs — so the ~0.035 eval gap between them is the generator's. Read the
+per-split numbers before reading the mean: nearly all of both gains sit on
+ai_dilemmas and balanced_refusal, and BOTH sets leave eval_ant_hh flat-to-worse
+(0.737 base → 0.721 gptoss, 0.729 deepseek). ant_hh is the one eval split that is not
+class-paired, and the script's one-shot pair makes the harmful class casual/dismissive
+and the safe class careful — a surface cue the paired splits cannot reward but ant_hh
+does not supply either.
 
 The eval and dev activations come from Kaggle (`prefetch_*`, the `kaggle:` block of the
 arm-2 config), so neither is ever extracted locally. Only the generated samples and the
