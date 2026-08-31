@@ -58,6 +58,26 @@ training rows are ~1.8 MB, and 18.35 × 1.8/11 ≈ 3.0). `_to_device_for_fit` so
 and is right to — 19.6 GiB moves more bytes than 1.1 GiB — but here the big set is the one
 read once per epoch under no_grad while the small one carries forward+backward.
 
+Measured, instructions — the concept where this DOES NOT WORK:
+
+    base only (50 rows, probe_iter0)             dev 0.75728   eval 0.77787
+    base ∪ instructions_gptoss_600 (650 rows)    dev 0.60864   eval 0.66488
+    base ∪ instructions_nemotron_600 (650)       dev 0.69101   eval 0.76176
+
+Both generated sets make the probe WORSE, gpt-oss by 0.113 eval and nemotron by 0.016.
+The labels are not the problem — spot-checked, the negatives are genuine violations. It
+is a distribution mismatch: the generated rows are short synthetic format-compliance
+tasks ("list three colors, comma-separated"), where not-following means a few extra
+words or wrong spacing, while the eval splits test refusal, context drift across turns,
+contradiction of a provided source, omission and answer substitution. The probe learns
+"terse exact-format reply vs chatty reply", which anti-correlates with the eval concept
+— bbq_substitution lands at 0.355/0.371 dev, BELOW chance, for both generators.
+
+So a generated set helping is a property of the concept, not of the method: the same
+script and the same two-turn shape gained 0.021-0.056 on hu_harm and 0.028-0.033 on
+highstakes. Where the generator can only reach a different region of the input space
+than the eval splits occupy, more data is worse than none.
+
 The eval and dev activations come from Kaggle (`prefetch_*`, the `kaggle:` block of the
 concept's config), so neither is ever extracted locally. Only the generated samples and
 the 50 base rows go through the 27B model, once each, into the shared per-sample cache.
