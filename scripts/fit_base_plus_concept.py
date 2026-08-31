@@ -253,11 +253,17 @@ def main() -> None:
                     help="score probe_iter0 (base 50 rows) — the reference point")
     ap.add_argument("--no-base", action="store_true", help="fit the samples alone")
     ap.add_argument("--out", type=Path, default=None)
+    ap.add_argument("--base-data", type=Path, default=None,
+                    help="override the concept's base training JSONL. Every arm so far used "
+                         "the concept's llama70b-written 50 rows, so a non-llama70b arm mixed "
+                         "two generators; point this at that generator's own 50-row set to "
+                         "make the arm single-source.")
     ap.add_argument("--skip-prefetch", action="store_true",
                     help="assume the eval/dev activation caches are already populated")
     args = ap.parse_args()
 
     concept = CONCEPTS[args.concept]
+    base_data = args.base_data or concept.base_data
     if not args.base_only and args.samples is None:
         ap.error("give a samples JSONL, or --base-only")
 
@@ -288,10 +294,12 @@ def main() -> None:
     rows = load_rows(args.samples, concept)
     npos = sum(1 for r in rows if r["labels"] == concept.pos_label)
     prefix = "no base ∪ " if args.no_base else "base ∪ "
+    print(f"base data: {base_data.name}")
     print(f"{prefix}{len(rows)} ({args.samples.name}): "
           f"{npos} {concept.pos_label} / {len(rows) - npos} {concept.neg_label}")
 
-    out = args.out or concept.probe_dir / f"baseplus_{args.samples.stem}.pkl"
+    tag = "" if base_data == concept.base_data else f"_on_{base_data.stem}"
+    out = args.out or concept.probe_dir / f"baseplus_{args.samples.stem}{tag}.pkl"
     warm_sample_activation_cache(
         rows, base_probe_path=concept.base_probe,
         base_activation_cache_dir=concept.base_cache,
@@ -300,7 +308,7 @@ def main() -> None:
     )
     res = retrain_probe(
         samples=rows, base_probe_path=concept.base_probe,
-        base_training_data_path=None if args.no_base else concept.base_data,
+        base_training_data_path=None if args.no_base else base_data,
         new_probe_path=out, dev_data_path=concept.dev_data, seed=SEED,
         base_data_fraction=1.0, base_activation_cache_dir=concept.base_cache,
         combine_consecutive_messages=COMBINE, convert_tool_to_assistant=CONVERT,

@@ -62,7 +62,8 @@ from fit_base_plus_concept import (  # noqa: E402
 SCRATCH_SUBDIR = "subsample_probes"
 
 BASE_FIELDS = [
-    "samples", "n", "draw", "n_pos", "n_neg", "n_training_rows", "dev_mean", "eval_mean",
+    "samples", "base", "n", "draw", "n_pos", "n_neg", "n_training_rows",
+    "dev_mean", "eval_mean",
 ]
 
 
@@ -103,12 +104,19 @@ def draw_subset(rows: list[dict], n: int, stem: str, draw: int, balanced: bool,
     return out
 
 
-def done_keys(csv_path: Path) -> set[tuple[str, int, int]]:
+def done_keys(csv_path: Path, default_base: str) -> set[tuple[str, str, int, int]]:
+    """Finished (base, samples, n, draw) keys.
+
+    The base file is part of the key because the same generated set is fit on two
+    different bases: the concept's llama70b-written 50 rows (every arm up to
+    736c5691) and, for a single-source arm, that generator's own 50. Rows written
+    before the column existed carry the concept default.
+    """
     if not csv_path.exists():
         return set()
     with csv_path.open(newline="", encoding="utf-8") as fh:
         return {
-            (r["samples"], int(r["n"]), int(r["draw"]))
+            (r.get("base") or default_base, r["samples"], int(r["n"]), int(r["draw"]))
             for r in csv.DictReader(fh)
             if r.get("samples")
         }
@@ -124,6 +132,8 @@ def main() -> None:
     ap.add_argument("--draws", type=int, default=8)
     ap.add_argument("--out", type=Path, default=None,
                     help="default: scripts/<concept>_size_curve.csv")
+    ap.add_argument("--base-data", type=Path, default=None,
+                    help="override the concept's base training JSONL (see fit_base_plus_concept.py)")
     ap.add_argument("--unbalanced", action="store_true",
                     help="uniform sample of the set instead of n/2 per class")
     ap.add_argument("--no-resume", action="store_true",
@@ -131,6 +141,7 @@ def main() -> None:
     args = ap.parse_args()
 
     concept = CONCEPTS[args.concept]
+    base_data = args.base_data or concept.base_data
     out_csv = args.out or REPO / f"scripts/{concept.name}_size_curve.csv"
 
     from agentic_redteam.cli import _free_gpu
@@ -140,10 +151,27 @@ def main() -> None:
     scratch = concept.cache_dir / SCRATCH_SUBDIR
     scratch.mkdir(parents=True, exist_ok=True)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
-    seen = set() if args.no_resume else done_keys(out_csv)
+    seen = set() if args.no_resume else done_keys(out_csv, concept.base_data.name)
 
     fields = fields_for(concept)
     fresh = not out_csv.exists() or out_csv.stat().st_size == 0
+    if not fresh:
+        # Append under the header the file already has. The CSVs written before the
+        # `base` column existed do not carry it, and writing the wider row into them
+        # would shift every per-split value one column left rather than failing.
+        with out_csv.open(newline="", encoding="utf-8") as _fh:
+            existing = next(csv.reader(_fh), None)
+        if existing and existing != fields:
+            missing = [f for f in existing if f not in fields]
+            if missing:
+                raise SystemExit(f"{out_csv} has columns this run cannot fill: {missing}")
+            if base_data != concept.base_data:
+                raise SystemExit(
+                    f"{out_csv} predates the `base` column, so its rows are all on "
+                    f"{concept.base_data.name}; write this --base-data run to its own "
+                    f"--out file rather than appending."
+                )
+            fields = existing
     fh = out_csv.open("a", newline="", encoding="utf-8")
     writer = csv.DictWriter(fh, fieldnames=fields)
     if fresh:
@@ -155,7 +183,7 @@ def main() -> None:
         for path in args.samples
         for n in args.sizes
         for d in range(args.draws)
-        if (path.name, n, d) not in seen
+        if (base_data.name, path.name, n, d) not in seen
     ]
     print(f"{len(jobs)} fits to run ({len(seen)} already in {out_csv})", flush=True)
 
@@ -165,10 +193,10 @@ def main() -> None:
         subset = draw_subset(rows, n, path.stem, d, not args.unbalanced, concept)
         npos = sum(1 for r in subset if r["labels"] == concept.pos_label)
         t0 = time.time()
-        out_pkl = scratch / f"{path.stem}_n{n}_d{d}.pkl"
+        out_pkl = scratch / f"{path.stem}_{base_data.stem}_n{n}_d{d}.pkl"
         res = retrain_probe(
             samples=subset, base_probe_path=concept.base_probe,
-            base_training_data_path=concept.base_data, new_probe_path=out_pkl,
+            base_training_data_path=base_data, new_probe_path=out_pkl,
             dev_data_path=concept.dev_data, seed=SEED, base_data_fraction=1.0,
             base_activation_cache_dir=concept.base_cache,
             combine_consecutive_messages=COMBINE, convert_tool_to_assistant=CONVERT,
@@ -181,7 +209,7 @@ def main() -> None:
         )
         ev = {r["dataset"]: float(r["auroc"]) for _, r in df.iterrows()}
         row = {
-            "samples": path.name, "n": n, "draw": d,
+            "samples": path.name, "base": base_data.name, "n": n, "draw": d,
             "n_pos": npos, "n_neg": len(subset) - npos,
             "n_training_rows": res.n_training_samples_total,
             "dev_mean": round(res.dev_auroc["mean"], 5),
