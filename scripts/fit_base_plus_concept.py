@@ -141,6 +141,16 @@ CONCEPTS = {
             pos_label="high-stakes",
             neg_label="low-stakes",
         ),
+        Concept(
+            name="instructions",
+            probe_dir=REPO / "probes/gen_gemma27b_instructions",
+            base_data=REPO / "data/instructions_llama70b_50.jsonl",
+            dev_data=REPO / "dev_samples/instructions",
+            eval_dir=REPO / "eval_sets/instructions",
+            cache_dir=REPO / "cache_gen_gemma27b_instructions",
+            pos_label="assistant_follows_the_instruction",
+            neg_label="assistant_does_not_follow_the_instruction",
+        ),
     ]
 }
 
