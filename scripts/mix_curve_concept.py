@@ -7,14 +7,19 @@ n" — the question the single-generator curves cannot, since every point there 
 source and the blends were never fit.
 
 For each unordered pair of the concept's generators, each n in `--sizes`, and each draw,
-it takes **n/2 rows from each generator, n/4 per generator-and-class**, so a mix is exact
-on both the source split and the class balance. That makes it comparable point-for-point
-with the single-generator curves at the same n, where the only difference is where the
-rows came from. Sizes must therefore be divisible by 4 (validated).
+it takes **n rows from EACH generator, n/2 per generator-and-class** — so `--sizes 100`
+means 100 gptoss + 100 deepseek = 200 training rows, and n=600 uses both sets whole
+(1200 rows). Sizes must be divisible by 2 (validated).
 
-The base is the concept's default (llama70b's 50 rows) — a mix has no "own" base, and
-that base is the shared reference every curve in `<concept>_size_curve.csv` uses, so a
-mix point can be read directly against the single-generator points beside it.
+**No base training data is used at all.** The fit is the mix alone, so what is measured
+is what the generated rows are worth by themselves, with no 50 real rows underneath. The
+earlier finding that a 50-row base can outweigh 600 generated ones is exactly why this
+run removes it. That makes these numbers NOT comparable with `<concept>_size_curve.csv`,
+every point of which sits on a base.
+
+At n = the full set size the draw is the identity — sampling 600 of 600 — so every draw
+would be the same rows and the same fit. Draws beyond the first are skipped there rather
+than burning identical fits.
 
 Draws are seeded on `(pair, n, draw)` with each generator-and-class cell drawn from its
 own stream, so a mix's gptoss half does not move when its partner changes, and adding
@@ -59,7 +64,7 @@ from subsample_curve_concept import fields_for, split_column  # noqa: E402
 SCRATCH_SUBDIR = "mix_probes"
 
 BASE_FIELDS = [
-    "pair", "gen_a", "gen_b", "base", "n", "draw",
+    "pair", "gen_a", "gen_b", "n", "draw",
     "n_pos", "n_neg", "n_training_rows", "dev_mean", "eval_mean",
 ]
 
@@ -74,15 +79,24 @@ def gen_tag(path: Path, concept: Concept) -> str:
     return stem.rsplit("_", 1)[0] if stem.endswith(("_600", "_50")) else stem
 
 
+def is_whole_set(rows: list[dict], n: int, concept: Concept) -> bool:
+    """True when drawing ``n`` from this set takes all of it, so a draw is the identity."""
+    per_cell = n // 2
+    return all(
+        sum(1 for r in rows if r["labels"] == lab) <= per_cell
+        for lab in (concept.pos_label, concept.neg_label)
+    )
+
+
 def draw_mix(rows_a: list[dict], rows_b: list[dict], n: int, tag_a: str, tag_b: str,
              draw: int, concept: Concept) -> list[dict]:
-    """n/2 rows from each set, n/4 per generator-and-class.
+    """``n`` rows from EACH set, n/2 per generator-and-class (so 2n rows total).
 
     Each cell is drawn from its own RNG stream keyed on (tag, class, n, draw), so a
-    generator's half of a mix is identical whichever partner it is paired with — which
+    generator's contribution is identical whichever partner it is paired with — which
     is what lets two mixes sharing a generator be compared without that half moving.
     """
-    per_gen = n // 2
+    per_gen = n
     per_cell = per_gen // 2
     out: list[dict] = []
     for tag, rows in ((tag_a, rows_a), (tag_b, rows_b)):
@@ -123,9 +137,9 @@ def main() -> None:
 
     concept = CONCEPTS[args.concept]
     out_csv = args.out or REPO / f"scripts/{concept.name}_mix_curve.csv"
-    bad = [n for n in args.sizes if n % 4]
+    bad = [n for n in args.sizes if n % 2]
     if bad:
-        ap.error(f"sizes must be divisible by 4 (n/4 per generator-and-class cell): {bad}")
+        ap.error(f"sizes must be divisible by 2 (n/2 per generator-and-class cell): {bad}")
     if len(args.samples) < 2:
         ap.error("give at least two sample files to pair")
 
@@ -155,7 +169,8 @@ def main() -> None:
     for pa, pb in itertools.combinations(args.samples, 2):
         pair = "+".join(sorted((tags[pa], tags[pb])))
         for n in args.sizes:
-            for d in range(args.draws):
+            whole = is_whole_set(loaded[pa], n, concept) and is_whole_set(loaded[pb], n, concept)
+            for d in range(1 if whole else args.draws):
                 if (pair, n, d) not in seen:
                     jobs.append((pa, pb, pair, n, d))
     print(f"{len(jobs)} mix fits to run ({len(seen)} already in {out_csv})", flush=True)
@@ -167,7 +182,8 @@ def main() -> None:
         out_pkl = scratch / f"{pair}_n{n}_d{d}.pkl"
         res = retrain_probe(
             samples=subset, base_probe_path=concept.base_probe,
-            base_training_data_path=concept.base_data, new_probe_path=out_pkl,
+            base_training_data_path=None,   # mix alone — see the module docstring
+            new_probe_path=out_pkl,
             dev_data_path=concept.dev_data, seed=SEED, base_data_fraction=1.0,
             base_activation_cache_dir=concept.base_cache,
             combine_consecutive_messages=COMBINE, convert_tool_to_assistant=CONVERT,
@@ -181,7 +197,7 @@ def main() -> None:
         ev = {r["dataset"]: float(r["auroc"]) for _, r in df.iterrows()}
         row = {
             "pair": pair, "gen_a": tags[pa], "gen_b": tags[pb],
-            "base": concept.base_data.name, "n": n, "draw": d,
+            "n": n, "draw": d,
             "n_pos": npos, "n_neg": len(subset) - npos,
             "n_training_rows": res.n_training_samples_total,
             "dev_mean": round(res.dev_auroc["mean"], 5),
