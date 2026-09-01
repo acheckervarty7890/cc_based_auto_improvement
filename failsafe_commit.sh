@@ -4,7 +4,7 @@
 # RESUMED after the container is wiped.
 #
 # MULTI-STAGE: one poller covers a whole sequence of runs (e.g. both arms of the
-# gpt-oss-base experiment launched by run_gemma27b_hu_harm_gptossbase_arms.sh).
+# deepseek-base experiment launched by run_gemma27b_hu_harm_dsbase_arms.sh).
 # You give it N stages —
 # each a (config, probe-out-dir, log-file) triple, in launch order — and it polls
 # stage 1's artifacts until that run FINISHES, then automatically hands itself
@@ -24,7 +24,7 @@
 # checkpoints on top of it. One experiment (all its stages) per branch.
 #
 # This is a STANDALONE poller: you launch the training yourself (as in
-# run_gemma27b_hu_harm_gptossbase_arms.sh), then start this alongside it. It watches the
+# run_gemma27b_hu_harm_dsbase_arms.sh), then start this alongside it. It watches the
 # ACTIVE stage's --probe-out-dir for red-team **phase markers**
 # (redteam_done_iter*.marker) and newly retrained probes (probe_iter*.pkl) — the
 # exact points cli.py's --resume keys off — and, on every new one, force-adds all
@@ -47,16 +47,16 @@
 # Exit: once the LAST stage finishes, the poller makes a final commit and exits 0.
 # Stopping it early by hand (Ctrl-C / kill) also makes a final commit via the trap.
 #
-# Defaults target the GPT-OSS-SELF-GENERATED-BASE experiment on the human-harm concept with
-# a gemma-3-27b-it (L32) probe, in the order run_gemma27b_hu_harm_gptossbase_arms.sh launches
-# its TWO arms (one attacker, openai/gpt-oss-120b; both carry the cross-iteration memo, and
+# Defaults target the DEEPSEEK-SELF-GENERATED-BASE experiment on the human-harm concept with
+# a gemma-3-27b-it (L32) probe, in the order run_gemma27b_hu_harm_dsbase_arms.sh launches its
+# TWO arms (one attacker, deepseek/deepseek-v4-pro; both carry the cross-iteration memo, and
 # arm 2 adds eval.data_description):
-#   stage 1 (memo)      configs/gptoss120b_hu_harm_gemma27b_gptossbase_itermemo150.md
-#                       probes/hu_harm_gemma27b_gptoss120b_gptossbase_itermemo150
-#                       logs/run_hu_harm_gemma27b_gptoss120b_gptossbase_itermemo150.log
-#   stage 2 (evaldesc)  configs/gptoss120b_hu_harm_gemma27b_gptossbase_itermemo150_evaldesc.md
-#                       probes/hu_harm_gemma27b_gptoss120b_gptossbase_evaldesc
-#                       logs/run_hu_harm_gemma27b_gptoss120b_gptossbase_evaldesc.log
+#   stage 1 (memo)      configs/deepseekv4pro_hu_harm_gemma27b_dsbase_itermemo150.md
+#                       probes/hu_harm_gemma27b_deepseekv4pro_dsbase_itermemo150
+#                       logs/run_hu_harm_gemma27b_deepseekv4pro_dsbase_itermemo150.log
+#   stage 2 (evaldesc)  configs/deepseekv4pro_hu_harm_gemma27b_dsbase_itermemo150_evaldesc.md
+#                       probes/hu_harm_gemma27b_deepseekv4pro_dsbase_evaldesc
+#                       logs/run_hu_harm_gemma27b_deepseekv4pro_dsbase_evaldesc.log
 #
 # NOTE these arms run TEN iterations each, so a stage is long: the poller's per-marker and
 # per-probe checkpoints matter more here than they did on the 5-iteration runs.
@@ -65,11 +65,11 @@
 #
 #   # 0) check out this experiment's branch (the failsafe pushes onto whatever is
 #   #    checked out — it does NOT create or switch branches for you). For this
-#   #    experiment that branch already exists: experiment25_gptoss_base_cloud.
-#   git fetch origin && git checkout experiment25_gptoss_base_cloud
+#   #    experiment that branch already exists: experiment26_deepseek_cloud.
+#   git fetch origin && git checkout experiment26_deepseek_cloud
 #
 #   # 1) launch BOTH arms (the runner runs them sequentially)
-#   nohup bash run_gemma27b_hu_harm_gptossbase_arms.sh > logs/run_gptossbase_arms.out 2>&1 &
+#   nohup bash run_gemma27b_hu_harm_dsbase_arms.sh > logs/run_dsbase_arms.out 2>&1 &
 #
 #   # 2) launch the ONE failsafe — it follows arm 1, then arm 2, then exits.
 #   nohup bash failsafe_commit.sh > logs/failsafe_commit.out 2>&1 &
@@ -85,7 +85,7 @@
 #       --config configs/b.md --probe-out-dir probes/b --log-file logs/b.log
 #
 # To RESUME on a fresh container (check out the same branch you pushed to):
-#   git fetch origin && git checkout experiment25_gptoss_base_cloud
+#   git fetch origin && git checkout experiment26_deepseek_cloud
 #   # then re-run the SAME runner/iterative_retrain.py command with --resume
 #   # (default); it picks up from the latest probe_iterN.pkl and skips red-team
 #   # phases whose markers were committed. Restarting this failsafe on that branch
@@ -101,16 +101,16 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 CONFIGS=(
-    "configs/gptoss120b_hu_harm_gemma27b_gptossbase_itermemo150.md"
-    "configs/gptoss120b_hu_harm_gemma27b_gptossbase_itermemo150_evaldesc.md"
+    "configs/deepseekv4pro_hu_harm_gemma27b_dsbase_itermemo150.md"
+    "configs/deepseekv4pro_hu_harm_gemma27b_dsbase_itermemo150_evaldesc.md"
 )
 PROBE_DIRS=(
-    "probes/hu_harm_gemma27b_gptoss120b_gptossbase_itermemo150"
-    "probes/hu_harm_gemma27b_gptoss120b_gptossbase_evaldesc"
+    "probes/hu_harm_gemma27b_deepseekv4pro_dsbase_itermemo150"
+    "probes/hu_harm_gemma27b_deepseekv4pro_dsbase_evaldesc"
 )
 LOG_FILES=(
-    "logs/run_hu_harm_gemma27b_gptoss120b_gptossbase_itermemo150.log"
-    "logs/run_hu_harm_gemma27b_gptoss120b_gptossbase_evaldesc.log"
+    "logs/run_hu_harm_gemma27b_deepseekv4pro_dsbase_itermemo150.log"
+    "logs/run_hu_harm_gemma27b_deepseekv4pro_dsbase_evaldesc.log"
 )
 
 REMOTE="origin"
