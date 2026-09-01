@@ -391,6 +391,7 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
     config.eval.convert_tool_to_assistant = convert_tool_to_assistant
     # Precedence: --dev-data flag > config validation.dev_data > None (test_size slice).
     dev_data_path = args.dev_data or config.validation.dev_data
+    dev_train_per_iter = config.validation.dev_train_per_iteration if dev_data_path else 0
     contrastive_cache_path = args.probe_out_dir / "contrastive_cache.jsonl"
     # Precedence: --base-activation-cache-dir flag > config output.base_activation_cache_dir
     # > <probe-out-dir>-derived default.
@@ -416,6 +417,21 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             f"Validation: held-out dev data at {dev_data_path} (base training data and "
             "red-team successes train in full; --test-size/--split-field ignored)"
         )
+        if dev_train_per_iter:
+            print(
+                f"Dev rows lent to TRAINING: {dev_train_per_iter} "
+                f"{config.validation.dev_train_unit} per iteration"
+                + (
+                    f" from {config.validation.dev_train_split}"
+                    if config.validation.dev_train_split
+                    else ""
+                )
+                + ", cumulative and nested; up to "
+                f"{dev_train_per_iter * args.iterations} "
+                f"{config.validation.dev_train_unit} reserved out of validation for the "
+                "whole run (saturating at the pool's size), so validation is identical "
+                "at every iteration. The initial probe gets none."
+            )
     if combine_consecutive_messages or convert_tool_to_assistant:
         print(
             "Dataset message transforms (training + eval + red-team scoring): "
@@ -661,12 +677,23 @@ def iterative_retrain_main(argv: list[str] | None = None) -> int:
             test_size=args.test_size,
             split_field=args.split_field,
             dev_data_path=dev_data_path,
+            # Lend dev rows to training, cumulatively: iteration i trains on the first
+            # (i+1) x per_iter rows of a seeded permutation of the dev set, so each
+            # iteration's rows are a prefix of the next one's. The reserve is the whole
+            # run's rows, withheld from validation at EVERY iteration — otherwise the
+            # validation set would shrink as the run went on and its checkpoints would
+            # stop being comparable, which is the one thing --dev-data exists to fix.
+            dev_train_n=dev_train_per_iter * (i + 1),
+            dev_train_reserve=dev_train_per_iter * args.iterations,
+            dev_train_split=config.validation.dev_train_split,
+            dev_train_unit=config.validation.dev_train_unit,
             seed=args.seed,
             base_data_fraction=args.base_data_fraction,
             ensemble_size=ensemble_size,
             base_activation_cache_dir=base_activation_cache_dir,
             combine_consecutive_messages=combine_consecutive_messages,
             convert_tool_to_assistant=convert_tool_to_assistant,
+            eval_data_description=config.eval.data_description,
             verbose=True,
         )
         print(

@@ -172,6 +172,14 @@ class AttackerConfig:
     # view_limit: number of past attempts injected each turn in prompt mode (matches the
     #   tools-mode fallback of 10). Unused in tools mode, where the model picks the count.
     view_limit: int = 10
+    # show_eval_data_description: put `eval.data_description` in the ATTACKER's system
+    #   prompt, as its own section under "## Probe under attack". Off by default, and
+    #   deliberately a knob rather than automatic: the description is otherwise
+    #   judge-side only, so a run that sets it has the memos as the ONLY channel from
+    #   the eval data to the attacker — which is exactly what the evaldesc experiments
+    #   measure. Turning this on removes that constraint, so a run with it on is not
+    #   comparable to one with it off. Inert with no description set.
+    show_eval_data_description: bool = False
     # Dump the exact prompt sent to the attacker each turn to
     # <jsonl>.prompts.jsonl (prompt mode only). Off by default: the file holds
     # every prompt in full, so it grows much faster than the JSONL.
@@ -201,6 +209,21 @@ class JudgeConfig:
     # during a false_negative hunt, or vice versa) from the rolling round memo, so
     # the judge does not write up weaknesses that are unactionable this rotation.
     hide_opposite_direction: bool = True
+    # Enforce `eval.data_description` as a CONSTRAINT at classification time: the
+    # judge additionally decides whether each candidate is the kind of conversation
+    # the classifier is evaluated on, and a candidate that is not is recorded with a
+    # `violated_constraint` tag and refused as a success. Only bites when an
+    # `eval.data_description` is set — with none, nothing is described to constrain
+    # against and every judge prompt is unchanged. Set false to keep the labeller
+    # blind to the eval data, which is what it was before this knob existed.
+    eval_scope_check: bool = True
+    # How the memo writers are told to read `eval.data_description`. False (the
+    # default): it names SEVERAL distinct kinds of conversation, and the memos are
+    # steered for breadth across them. True: it describes ONE kind, and the memos are
+    # steered for depth within that shape (plus the surface-cue confound reading).
+    # Summarizer-only; does nothing without a description. Set it true for a
+    # description that covers a single eval split.
+    single_kind_eval_data: bool = False
 
 
 @dataclass
@@ -244,6 +267,20 @@ class PreprocessingConfig:
     # reusing ones written under the old prompt.
     concept_description: str = ""
     label_guidance: dict[str, str] = field(default_factory=dict)
+    # When true, the SOURCE conversations are dropped after contrastive generation and
+    # only the generated opposite-class partners are kept as training data. Inert
+    # without a preprocessing section (there are no generated partners to keep).
+    #
+    # This exists because the two halves of a couple are not equally useful: measured on
+    # this repo's instruction-following probe, the red-team finds alone trained a
+    # markedly worse probe than their generated partners alone (oig_omission AUROC 0.606
+    # vs 0.793), so "does the find carry the signal, or only its partner?" is a question
+    # the retrain loop can now be asked directly rather than only offline.
+    #
+    # It changes what is TRAINED on, not what is generated: the generator still sees
+    # every find and still writes one partner per find, so the contrastive cache is
+    # shared with a run that has this off.
+    keep_only_generated: bool = False
 
 
 @dataclass
@@ -293,16 +330,17 @@ class EvalConfig:
       full split). ``None`` means "unset in config" so the CLI falls back to
       its ``--eval-max-samples`` default; the ``--eval-max-samples`` flag, when
       passed, overrides this.
-    - ``data_description``: OPTIONAL free text describing what the eval splits
-      hold — in particular the distinct KINDS of conversation the probe is
-      scored on. It changes no data path at all; it is prompt material, handed
+    - ``data_description``: OPTIONAL free text describing what the eval data
+      holds — on this branch, ONE kind of conversation: what its two labels
+      mean, what each side looks like, and any surface cue that runs with the
+      label there. It changes no data path at all; it is prompt material, handed
       to the judge's two SUMMARIZERS (never to its classification prompt, which
       must not learn about the test set) so the rolling and cross-iteration
-      memos are organized around those kinds and name the ones a round or cycle
-      left untouched. The memos are what a later attacker session reads, so this
-      is the one place coverage across the eval splits can be steered. Unset
-      (the default), every judge prompt is byte-identical to what it was before
-      this knob existed.
+      memos are measured against that kind — how much of a round's or cycle's
+      evidence actually had that shape, and what within the shape is still
+      untried. The memos are what a later attacker session reads, so this is the
+      one place coverage can be steered. Unset (the default), every judge prompt
+      is byte-identical to what it was before this knob existed.
     """
 
     combine_consecutive_messages: bool = False
@@ -328,9 +366,32 @@ class ValidationConfig:
 
     The dev data must be disjoint from the eval splits — otherwise the fit selects
     its checkpoint on the test set.
+
+    ``dev_train_per_iteration`` (default 0 = off) moves dev rows the other way: at each
+    retrain, ``dev_train_per_iteration * (iteration + 1)`` dev rows are added to the
+    TRAINING data, cumulatively and nested (the rows trained at iteration k are a prefix
+    of those trained at k+1), so a run measures what a trickle of in-distribution
+    supervision buys against the same red-team schedule. The initial probe gets none.
+
+    Every row that will EVER be trained on is withheld from validation for the whole run
+    — not just from the iteration that trains it — so the validation set is identical at
+    every iteration and the best-epoch checkpoints stay comparable, which is the entire
+    reason ``dev_data`` exists. Nothing is ever both trained and validated on. The draw
+    is a seeded permutation of the concatenated dev set, so it is reproducible and the
+    reserved rows are the same on a resumed run.
     """
 
     dev_data: Path | None = None
+    dev_train_per_iteration: int = 0
+    # Restrict the lending pool to one dev split, by file stem. "" = every dev row is
+    # eligible. Use it to make the ladder in-distribution for the split under study —
+    # a uniform draw over a seven-split dev set puts almost none of its rows in the
+    # early rungs.
+    dev_train_split: str = ""
+    # "rows" | "pairs". On a paired split (one request answered once each way, two rows
+    # with opposite labels) "pairs" lends both halves together, so a rung adds balanced
+    # supervision instead of a class skew. Counts are then in PAIRS, not rows.
+    dev_train_unit: str = "rows"
 
 
 @dataclass
@@ -553,6 +614,20 @@ def load_config(path: str | Path) -> RedteamConfig:
     kg = frontmatter.get("kaggle") or {}
     va = frontmatter.get("validation") or {}
 
+    dev_train_per_iteration = int(va.get("dev_train_per_iteration", 0) or 0)
+    if dev_train_per_iteration < 0:
+        raise ValueError("validation.dev_train_per_iteration must be >= 0")
+    dev_train_unit = str(va.get("dev_train_unit", "rows") or "rows").strip()
+    if dev_train_unit not in ("rows", "pairs"):
+        raise ValueError(
+            f"validation.dev_train_unit must be 'rows' or 'pairs', got {dev_train_unit!r}"
+        )
+    if dev_train_per_iteration and not va.get("dev_data"):
+        raise ValueError(
+            "validation.dev_train_per_iteration needs validation.dev_data — the rows it "
+            "trains on are drawn from that dev set."
+        )
+
     if "models" not in a or not a["models"]:
         raise ValueError("attacker.models must be a non-empty list")
     if int(a.get("sessions_per_model", 1)) < 1:
@@ -687,6 +762,7 @@ def load_config(path: str | Path) -> RedteamConfig:
             assistant_centric=bool(pp.get("assistant_centric", False)),
             concept_description=str(pp.get("concept_description", "") or "").strip(),
             label_guidance=_parse_label_guidance(pp.get("label_guidance")),
+            keep_only_generated=bool(pp.get("keep_only_generated", False)),
         )
 
     return RedteamConfig(
@@ -714,6 +790,9 @@ def load_config(path: str | Path) -> RedteamConfig:
             cross_iteration_memo_word_budget=cross_iteration_memo_word_budget,
             interface=attacker_interface,
             view_limit=int(a.get("view_limit", 10)),
+            show_eval_data_description=bool(
+                a.get("show_eval_data_description", False)
+            ),
             capture_prompts=bool(a.get("capture_prompts", False)),
             batch_submissions=attacker_batch_submissions,
             system_prompt=attacker_prompt,
@@ -726,6 +805,8 @@ def load_config(path: str | Path) -> RedteamConfig:
             confidence_threshold=int(j.get("confidence_threshold", 7)),
             system_prompt=judge_prompt,
             hide_opposite_direction=bool(j.get("hide_opposite_direction", True)),
+            eval_scope_check=bool(j.get("eval_scope_check", True)),
+            single_kind_eval_data=bool(j.get("single_kind_eval_data", False)),
         ),
         probe=ProbeConfig(
             path=_resolve(pr["path"]) if pr.get("path") else None,
@@ -768,5 +849,8 @@ def load_config(path: str | Path) -> RedteamConfig:
         kaggle=kaggle_cfg,
         validation=ValidationConfig(
             dev_data=_resolve(va["dev_data"]) if va.get("dev_data") else None,
+            dev_train_per_iteration=dev_train_per_iteration,
+            dev_train_split=str(va.get("dev_train_split", "") or "").strip(),
+            dev_train_unit=dev_train_unit,
         ),
     )

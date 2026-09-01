@@ -231,6 +231,54 @@ def _length_retry_feedback(n_tokens: int, max_sample_tokens: int) -> str:
     )
 
 
+def _eval_data_instruction(eval_data_description: str) -> str:
+    """Block constraining the generated pair to the evaluation data's form.
+
+    The generated pairs become training data for the same probe the eval splits
+    score, so a pair shaped unlike that data trains the probe on a distribution it is
+    never measured on. The description is injected verbatim (as ``concept_description``
+    is) and the instruction binds only what the description *states*: the same task,
+    its class decided on the same terms, with everything the description leaves open
+    (topic, wording, length, layout, supplied material or not) free to
+    vary and its examples explicitly not requirements. How many parts the request has
+    is deliberately NOT on that list: where a description makes the number of parts
+    constitutive of the task, licensing the generator to change it would let a pair
+    leave the task it is supposed to stay inside. ``""`` when unset, so the prompt
+    — and therefore the contrastive cache key — is exactly what it was before this
+    existed.
+    """
+    text = (eval_data_description or "").strip()
+    if not text:
+        return ""
+    return (
+        "The data this classifier is evaluated on looks like this:\n"
+        f"{text}\n\n"
+        "Your generated conversation must stay within what that description actually "
+        "constrains: it must be the same task, with its class decided on the same "
+        "terms. Change the class, not the task — do not switch to a different task or "
+        "to a way of belonging to the class that the description does not describe. "
+        "Everything the description leaves open may vary freely: the topic, the "
+        "wording, the length, the layout, whether the user supplies material to work "
+        "from. Do not treat details of its examples as "
+        "requirements.\n\n"
+    )
+
+
+# Bumped whenever _generation_system_prompt's wording changes materially. It is folded
+# into the contrastive cache key by _guidance_fingerprint, so an edited prompt mints fresh
+# pairs instead of reusing ones written under the previous wording.
+#   1 -> "generate a similar-looking conversation of the other class"
+#   2 -> "produce the smallest edit of this conversation that flips the label"
+#   3 -> 2, plus the escape hatch: answer null when the source is ALREADY the target class
+GENERATION_PROMPT_VERSION = 3
+
+
+# Marker on a cached/returned record saying the generator judged its source to be in the
+# TARGET class already, so no pair exists and the source is dropped. Distinct from a failed
+# generation: this one IS cached, because it is a verdict rather than an accident.
+ALREADY_TARGET_KEY = "already_target_class"
+
+
 def _generation_system_prompt(
     current_label: str,
     target_label: str,
@@ -238,6 +286,7 @@ def _generation_system_prompt(
     assistant_centric: bool = False,
     concept_description: str = "",
     label_guidance: dict[str, str] | None = None,
+    eval_data_description: str = "",
     max_sample_tokens: int = 0,
 ) -> str:
     cur = _short_label(current_label)
@@ -268,22 +317,42 @@ def _generation_system_prompt(
         "Your task is to help generate contrastive training pairs used to build and "
         "evaluate a safety classifier.\n\n"
         f"{concept_block}"
-        f'You are given a conversation/scenario labeled "{cur}". Generate a '
-        f'similar-looking conversation/scenario that belongs to the "{tgt}" '
-        "class instead.\n\n"
-        "The new scenario should:\n"
-        "- Have similar structure and length\n"
+        f"{_eval_data_instruction(eval_data_description)}"
+        f'You are given a conversation/scenario labeled "{cur}". Produce the SMALLEST '
+        f'EDIT of it that makes it belong to the "{tgt}" class instead.\n\n'
+        "This is an editing task, not a writing task. The pair exists so that the only "
+        "systematic difference between the two conversations is the thing the label is "
+        "about. Anything else you change — length, wording, formatting, tone, topic — "
+        "becomes a second difference the classifier can learn instead, which is exactly "
+        "what these pairs are meant to rule out.\n\n"
+        "So:\n"
+        "- Copy every message through UNCHANGED unless the label requires changing it\n"
+        "- In the message(s) you do change, keep every sentence you can byte-identical "
+        "and edit only the span that carries the label\n"
+        "- Do not rewrite, reword, expand, tidy or improve anything for its own sake\n"
+        "- Keep the result close to the original's LENGTH. A pair that is much longer "
+        "or much shorter than its source teaches length rather than the concept\n"
         f"{_length_instruction(max_sample_tokens)}"
-        "- Use similar language and style\n"
-        "- Preserve the conversational format (roles) if applicable\n"
-        f'- But clearly belong to "{tgt}" rather than "{cur}"\n'
+        "- Keep the same roles, the same number of messages, and the same order\n"
+        f'- The edited conversation must clearly belong to "{tgt}" rather than "{cur}" — '
+        "minimality never outranks that\n"
         f"{emphasis}"
+        f'\nOne exception. If the conversation you are given ALREADY belongs to "{tgt}" — '
+        "so that no edit is needed to put it there — then it cannot be one half of a "
+        "contrastive pair, and inventing a difference to justify one would teach the "
+        "classifier something false. Say so instead: answer with a null conversation and "
+        "explain why it already qualifies. The conversation is then dropped rather than "
+        f'paired. Only do this when it genuinely already belongs to "{tgt}"; a conversation '
+        "that is merely close to the boundary, ambiguous, or hard to edit is still to be "
+        "edited.\n"
         f"{guidance_block}"
         "\n"
         "Respond with a single JSON object using these keys:\n"
-        "- generated_messages: the new conversation as a list of message objects, each "
-        "with 'role' and 'content' string fields\n"
-        f'- explanation: a brief explanation of why it is "{tgt}"\n'
+        "- generated_messages: the edited conversation as a list of message objects, each "
+        "with 'role' and 'content' string fields (include EVERY message, edited or not) — "
+        f'or null if it already belongs to "{tgt}" and needs no edit\n'
+        f'- explanation: a brief explanation of what you changed and why it is now "{tgt}", '
+        f'or — when generated_messages is null — why it already is "{tgt}"\n'
         "Output only the JSON object, with no surrounding text."
     )
 
@@ -321,6 +390,7 @@ class _ContrastiveLLM:
         assistant_centric: bool = False,
         concept_description: str = "",
         label_guidance: dict[str, str] | None = None,
+        eval_data_description: str = "",
         max_sample_tokens: int = 0,
     ) -> None:
         self.provider = provider
@@ -329,6 +399,7 @@ class _ContrastiveLLM:
         self.assistant_centric = assistant_centric
         self.concept_description = concept_description
         self.label_guidance = label_guidance or {}
+        self.eval_data_description = eval_data_description
         # Length cap stated in the generation prompt. The measurement/rejection side
         # lives in generate_contrastive_dataset (it needs the probe's tokenizer);
         # 0 means uncapped and drops the instruction entirely.
@@ -371,6 +442,7 @@ class _ContrastiveLLM:
             assistant_centric=self.assistant_centric,
             concept_description=self.concept_description,
             label_guidance=self.label_guidance,
+            eval_data_description=self.eval_data_description,
             max_sample_tokens=self.max_sample_tokens,
         )
         user = (
@@ -448,21 +520,38 @@ class _ContrastiveLLM:
 
 
 def _guidance_fingerprint(
-    concept_description: str, target_label: str, label_guidance: dict[str, str] | None
+    concept_description: str,
+    target_label: str,
+    label_guidance: dict[str, str] | None,
+    eval_data_description: str = "",
 ) -> str:
-    """Short hash of the concept detail that shaped this generation's prompt.
+    """Short hash of the prompt detail that shaped this generation.
 
     Empty for the no-guidance case, so configs that don't use it keep the exact
     cache keys they had before this knob existed. When guidance *is* set, it goes
     into the key: the cache is loaded by key without re-checking the prompt, so
     otherwise an edited description would silently reuse pairs written under the
-    old one.
+    old one. ``eval_data_description`` is folded in for exactly the same reason — it
+    is now part of the generation prompt, so a run that adds or edits it must mint
+    fresh pairs rather than reuse ones written to the older constraint. It is keyed
+    alongside, not instead: a cache written before this argument existed still hits
+    for a run that sets no eval-data description.
     """
     detail = _label_guidance_for(target_label, label_guidance)
     description = (concept_description or "").strip()
-    if not detail and not description:
-        return ""
-    payload = json.dumps({"description": description, "target": detail}, sort_keys=True)
+    eval_data = (eval_data_description or "").strip()
+    payload_obj = {
+        "description": description,
+        "target": detail,
+        # The template itself, not just the config-supplied text inside it. Bump
+        # GENERATION_PROMPT_VERSION whenever _generation_system_prompt changes in a way
+        # that would change what comes back, or every cache written under the old
+        # wording is silently reused forever.
+        "prompt_version": GENERATION_PROMPT_VERSION,
+    }
+    if eval_data:
+        payload_obj["eval_data"] = eval_data
+    payload = json.dumps(payload_obj, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
@@ -521,6 +610,7 @@ def generate_contrastive_dataset(
     assistant_centric: bool = False,
     concept_description: str = "",
     label_guidance: dict[str, str] | None = None,
+    eval_data_description: str = "",
     token_budget: TokenBudget | None = None,
 ) -> list[dict]:
     """Return ``records`` plus one opposite-class contrastive example per record.
@@ -530,6 +620,11 @@ def generate_contrastive_dataset(
     Generated pairs are cached to ``cache_path`` keyed by the source conversation,
     so successes that were already processed in an earlier iteration are reused
     instead of re-queried.
+
+    ``eval_data_description`` (what the evaluation data looks like) constrains the
+    generated pair's FORM to that data — see :func:`_eval_data_instruction`. Like the
+    two knobs below it is injected verbatim and folded into the cache key, so editing
+    it mints fresh pairs instead of reusing ones written to the older constraint.
 
     ``concept_description`` (what the concept is) and ``label_guidance`` (what a
     given class specifically means, keyed by class label) are injected verbatim
@@ -547,6 +642,12 @@ def generate_contrastive_dataset(
     dropped** from the returned data, rather than keeping an unpaired source.
     Failed generations are never cached, so a dropped source is re-attempted on
     the next iteration's retrain.
+
+    Separately, the generator may answer ``generated_messages: null`` to say the source
+    **already belongs to the target class**, so no contrastive pair exists for it. That
+    source is dropped too, but the verdict is *cached* (marked
+    ``ALREADY_TARGET_KEY``) — it is an answer, not an accident, so it is paid for once
+    rather than re-asked every iteration.
 
     ``token_budget`` (a :class:`TokenBudget` over the *probe's* tokenizer) is the
     length safeguard: activation extraction truncates at 1024 tokens, so a longer
@@ -584,7 +685,12 @@ def generate_contrastive_dataset(
         return _cache_key(
             messages,
             target_label,
-            _guidance_fingerprint(concept_description, target_label, label_guidance),
+            _guidance_fingerprint(
+                concept_description,
+                target_label,
+                label_guidance,
+                eval_data_description,
+            ),
         )
 
     length_capped = token_budget is not None and token_budget.enabled
@@ -598,12 +704,18 @@ def generate_contrastive_dataset(
     generated: list[dict] = []
     to_generate: list[tuple[int, dict, list[dict[str, str]], str, str]] = []
     n_cached_too_long = 0
+    already_target_ids: set[int] = set()
     for idx, record in enumerate(valid):
         messages = _extract_messages(record, text_key)
         current_label = str(record.get(label_key, ""))
         target_label = _target(current_label)
         key = _key(messages, target_label)
         cached = cache.get(key)
+        # Checked before the length re-check below: a verdict row carries no pair to
+        # measure, and re-asking would only get the same verdict at the price of a call.
+        if cached is not None and cached.get(ALREADY_TARGET_KEY):
+            already_target_ids.add(id(record))
+            continue
         if cached is not None and length_capped:
             if token_budget.overage(_extract_messages(cached, text_key)) is not None:
                 cached = None
@@ -625,6 +737,7 @@ def generate_contrastive_dataset(
             assistant_centric=assistant_centric,
             concept_description=concept_description,
             label_guidance=label_guidance,
+            eval_data_description=eval_data_description,
             max_sample_tokens=token_budget.max_tokens if length_capped else 0,
         )
         llm._ensure_client()  # initialize once before fan-out
@@ -641,6 +754,20 @@ def generate_contrastive_dataset(
             response = llm.generate(messages, current_label, target_label, feedback)
             if not response or "generated_messages" not in response:
                 return None, ""
+            # An explicit null is the escape hatch, not a malformed reply: the generator
+            # is saying the source already belongs to the target class, so no pair exists.
+            # Returned (and cached) as a verdict record; the caller drops the source.
+            if response["generated_messages"] is None:
+                return {
+                    text_key: None,
+                    label_key: target_label,
+                    "original_messages": messages,
+                    "original_label": current_label,
+                    ALREADY_TARGET_KEY: True,
+                    "generation_explanation": str(response.get("explanation", "")),
+                    "generation_model": model,
+                    "is_generated": False,
+                }, ""
             new_messages = _extract_messages(
                 {text_key: response["generated_messages"]}, text_key
             )
@@ -690,7 +817,11 @@ def generate_contrastive_dataset(
         failed_source_ids: set[int] = set()
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for status, record, key, contrastive in pool.map(_work, to_generate):
-                if status == "ok":
+                if status == "ok" and contrastive.get(ALREADY_TARGET_KEY):
+                    # Cached like any other answer, so the verdict is paid for once.
+                    _append_cache(cache_path, key, contrastive)
+                    already_target_ids.add(id(record))
+                elif status == "ok":
                     generated.append(contrastive)
                     _append_cache(cache_path, key, contrastive)
                 else:
@@ -703,6 +834,13 @@ def generate_contrastive_dataset(
                 f"  [contrastive] dropped {len(failed_source_ids)} source records "
                 f"(and their pairs) after {max_retries + 1} failed generation attempts"
             )
+
+    if already_target_ids:
+        records = [r for r in records if id(r) not in already_target_ids]
+        print(
+            f"  [contrastive] dropped {len(already_target_ids)} source records the "
+            f"generator judged to be in the target class already (no pair exists for them)"
+        )
 
     label_counts: dict[str, int] = {}
     for record in generated:
