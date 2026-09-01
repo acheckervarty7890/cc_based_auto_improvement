@@ -6,10 +6,15 @@ This answers "is a 50/50 blend of two generators worth more than either alone at
 n" — the question the single-generator curves cannot, since every point there is one
 source and the blends were never fit.
 
-For each unordered pair of the concept's generators, each n in `--sizes`, and each draw,
-it takes **n rows from EACH generator, n/2 per generator-and-class** — so `--sizes 100`
-means 100 gptoss + 100 deepseek = 200 training rows, and n=600 uses both sets whole
-(1200 rows). Sizes must be divisible by 2 (validated).
+For each unordered `--combo-size`-subset of the concept's generators, each n in
+`--sizes`, and each draw, it takes **n rows from EACH generator, n/2 per
+generator-and-class** — so `--combo-size 2 --sizes 100` means 100 gptoss + 100 deepseek =
+200 training rows, and `--combo-size 3 --sizes 600` uses all three sets whole (1800 rows).
+Sizes must be divisible by 2 (validated).
+
+`--combo-size 2` writes `<concept>_mix_curve.csv` and carries `gen_a` / `gen_b` columns;
+any other size writes `<concept>_mix<K>_curve.csv` with a single `gens` column, so the
+two never share a file or a schema.
 
 **No base training data is used at all.** The fit is the mix alone, so what is measured
 is what the generated rows are worth by themselves, with no 50 real rows underneath. The
@@ -63,10 +68,18 @@ from subsample_curve_concept import fields_for, split_column  # noqa: E402
 
 SCRATCH_SUBDIR = "mix_probes"
 
-BASE_FIELDS = [
-    "pair", "gen_a", "gen_b", "n", "draw",
-    "n_pos", "n_neg", "n_training_rows", "dev_mean", "eval_mean",
-]
+def base_fields(k: int) -> list[str]:
+    """Identity columns.
+
+    k=2 is byte-identical to the schema the pair CSVs were written with, so a resumed
+    pair run still appends cleanly; k>2 swaps gen_a/gen_b for one `gens` column and adds
+    `n_gens`, and lands in its own file, so the two schemas never meet.
+    """
+    if k == 2:
+        return ["pair", "gen_a", "gen_b", "n", "draw",
+                "n_pos", "n_neg", "n_training_rows", "dev_mean", "eval_mean"]
+    return ["pair", "gens", "n_gens", "n", "draw",
+            "n_pos", "n_neg", "n_training_rows", "dev_mean", "eval_mean"]
 
 
 def gen_tag(path: Path, concept: Concept) -> str:
@@ -88,18 +101,18 @@ def is_whole_set(rows: list[dict], n: int, concept: Concept) -> bool:
     )
 
 
-def draw_mix(rows_a: list[dict], rows_b: list[dict], n: int, tag_a: str, tag_b: str,
-             draw: int, concept: Concept) -> list[dict]:
-    """``n`` rows from EACH set, n/2 per generator-and-class (so 2n rows total).
+def draw_mix(members: "list[tuple[str, list[dict]]]", n: int, draw: int,
+             concept: Concept) -> list[dict]:
+    """``n`` rows from EACH set, n/2 per generator-and-class (so ``k*n`` rows total).
 
     Each cell is drawn from its own RNG stream keyed on (tag, class, n, draw), so a
-    generator's contribution is identical whichever partner it is paired with — which
-    is what lets two mixes sharing a generator be compared without that half moving.
+    generator's contribution is identical whichever partners it appears with — which is
+    what lets a 3-way mix be differenced against the 2-way mixes inside it, and two
+    mixes sharing a generator be compared without that share moving.
     """
-    per_gen = n
-    per_cell = per_gen // 2
+    per_cell = n // 2
     out: list[dict] = []
-    for tag, rows in ((tag_a, rows_a), (tag_b, rows_b)):
+    for tag, rows in members:
         for label in (concept.pos_label, concept.neg_label):
             pool = [r for r in rows if r["labels"] == label]
             if len(pool) < per_cell:
@@ -107,7 +120,7 @@ def draw_mix(rows_a: list[dict], rows_b: list[dict], n: int, tag_a: str, tag_b: 
                     f"{tag}: need {per_cell} {label} rows for n={n}, have {len(pool)}"
                 )
             out += random.Random(f"{tag}:{label}:{n}:{draw}").sample(pool, per_cell)
-    random.Random(f"{tag_a}+{tag_b}:{n}:{draw}").shuffle(out)
+    random.Random("+".join(t for t, _ in members) + f":{n}:{draw}").shuffle(out)
     return out
 
 
@@ -130,18 +143,23 @@ def main() -> None:
                     help="the concept's generator sets; every unordered pair is fit")
     ap.add_argument("--sizes", type=int, nargs="+", default=[100, 200, 300, 400, 500, 600])
     ap.add_argument("--draws", type=int, default=8)
+    ap.add_argument("--combo-size", type=int, default=2,
+                    help="how many generators per mix (default 2; 3 = all three together)")
     ap.add_argument("--out", type=Path, default=None,
-                    help="default: scripts/<concept>_mix_curve.csv")
+                    help="default: scripts/<concept>_mix_curve.csv for --combo-size 2, "
+                         "else scripts/<concept>_mix<K>_curve.csv")
     ap.add_argument("--no-resume", action="store_true")
     args = ap.parse_args()
 
     concept = CONCEPTS[args.concept]
-    out_csv = args.out or REPO / f"scripts/{concept.name}_mix_curve.csv"
+    k = args.combo_size
+    suffix = "" if k == 2 else str(k)
+    out_csv = args.out or REPO / f"scripts/{concept.name}_mix{suffix}_curve.csv"
     bad = [n for n in args.sizes if n % 2]
     if bad:
         ap.error(f"sizes must be divisible by 2 (n/2 per generator-and-class cell): {bad}")
-    if len(args.samples) < 2:
-        ap.error("give at least two sample files to pair")
+    if not 2 <= k <= len(args.samples):
+        ap.error(f"--combo-size {k} needs between 2 and {len(args.samples)} sample files")
 
     from agentic_redteam.cli import _free_gpu
     from agentic_redteam.evaluation import evaluate_probe
@@ -152,9 +170,9 @@ def main() -> None:
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     seen = set() if args.no_resume else done_keys(out_csv)
 
-    fields = BASE_FIELDS + [f for f in fields_for(concept) if f not in
-                            ("samples", "base", "n", "draw", "n_pos", "n_neg",
-                             "n_training_rows", "dev_mean", "eval_mean")]
+    ident = base_fields(k)
+    fields = ident + [f for f in fields_for(concept) if f not in
+                      ("samples", "base", *ident)]
     fresh = not out_csv.exists() or out_csv.stat().st_size == 0
     fh = out_csv.open("a", newline="", encoding="utf-8")
     writer = csv.DictWriter(fh, fieldnames=fields)
@@ -166,17 +184,18 @@ def main() -> None:
     tags = {p: gen_tag(p, concept) for p in args.samples}
 
     jobs = []
-    for pa, pb in itertools.combinations(args.samples, 2):
-        pair = "+".join(sorted((tags[pa], tags[pb])))
+    for combo in itertools.combinations(args.samples, k):
+        pair = "+".join(sorted(tags[p] for p in combo))
         for n in args.sizes:
-            whole = is_whole_set(loaded[pa], n, concept) and is_whole_set(loaded[pb], n, concept)
+            whole = all(is_whole_set(loaded[p], n, concept) for p in combo)
             for d in range(1 if whole else args.draws):
                 if (pair, n, d) not in seen:
-                    jobs.append((pa, pb, pair, n, d))
+                    jobs.append((combo, pair, n, d))
     print(f"{len(jobs)} mix fits to run ({len(seen)} already in {out_csv})", flush=True)
 
-    for i, (pa, pb, pair, n, d) in enumerate(jobs, 1):
-        subset = draw_mix(loaded[pa], loaded[pb], n, tags[pa], tags[pb], d, concept)
+    for i, (combo, pair, n, d) in enumerate(jobs, 1):
+        members = [(tags[p], loaded[p]) for p in combo]
+        subset = draw_mix(members, n, d, concept)
         npos = sum(1 for r in subset if r["labels"] == concept.pos_label)
         t0 = time.time()
         out_pkl = scratch / f"{pair}_n{n}_d{d}.pkl"
@@ -196,14 +215,17 @@ def main() -> None:
         )
         ev = {r["dataset"]: float(r["auroc"]) for _, r in df.iterrows()}
         row = {
-            "pair": pair, "gen_a": tags[pa], "gen_b": tags[pb],
-            "n": n, "draw": d,
+            "pair": pair, "n": n, "draw": d,
             "n_pos": npos, "n_neg": len(subset) - npos,
             "n_training_rows": res.n_training_samples_total,
             "dev_mean": round(res.dev_auroc["mean"], 5),
             "eval_mean": round(ev["mean"], 5),
             "seconds": round(time.time() - t0, 1),
         }
+        if k == 2:
+            row["gen_a"], row["gen_b"] = tags[combo[0]], tags[combo[1]]
+        else:
+            row["gens"], row["n_gens"] = pair, k
         for split, v in res.dev_auroc.items():
             if split != "mean":
                 row[split_column("dev", split)] = round(v, 5)
