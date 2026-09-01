@@ -123,6 +123,24 @@ fi
 export HUGGING_FACE_HUB_TOKEN="$HF_TOKEN"
 echo ">>> HF token: present (${#HF_TOKEN} chars)"
 
+# --- weight download path ---------------------------------------------------------------------
+# TRANSFER LAYER ONLY — this cannot change a single number the run produces. It fixes how fast
+# the frozen gemma-3-27b-it shards arrive, not what they contain.
+#
+# On a fresh box the HF cache is empty and the ~54 GB of shards come down the default
+# single-threaded python path, measured here at ~213 MB/min = ~4 h before the first activation
+# is extracted. hf_transfer parallelizes the same download.
+#
+# GUARDED on the import: huggingface_hub RAISES when HF_HUB_ENABLE_HF_TRANSFER=1 and the
+# package is missing, which would turn a speedup into a dead run on any box that lacks it.
+if .venv_claude/bin/python -c "import hf_transfer" 2>/dev/null; then
+    export HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}"
+    echo ">>> hf_transfer: enabled (parallel shard download; transfer layer only)"
+else
+    echo ">>> hf_transfer: NOT installed — using the default single-threaded download."
+    echo ">>>   .venv_claude/bin/pip install hf_transfer  to speed up a cold HF cache."
+fi
+
 # --- pin the extraction model's memory budget -----------------------------------------------
 # PLACEMENT ONLY — this cannot change a single number the run produces. It fixes WHERE the
 # frozen extraction LLM's weights live, not what they compute.
