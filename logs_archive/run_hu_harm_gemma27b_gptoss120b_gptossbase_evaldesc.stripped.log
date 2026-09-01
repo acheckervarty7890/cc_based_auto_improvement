@@ -1,0 +1,68 @@
+Preprocessing enabled: filter_dataset + generate_contrastive_dataset (openai/gpt-5.1 via openrouter)
+Deep ensemble enabled: every train/retrain fits 10 probes on the same activations under the pinned training seeds [3699, 14431, 23529, 26229, 26660, 42624, 43521, 54184, 65963, 69051]; their mean score is the probe's score. (--seed still governs the train/val split and eval subsampling.)
+Validation: held-out dev data at /workspace/probe_auto_improvement/dev_samples/hu_ha (base training data and red-team successes train in full; --test-size/--split-field ignored)
+Dataset message transforms (training + eval + red-team scoring): combine_consecutive_messages=True, convert_tool_to_assistant=True
+Training initial probe → probes/hu_harm_gemma27b_gptoss120b_gptossbase_evaldesc/probe_iter0.pkl
+Initial samples before split: 50
+Label distribution (total: 50 examples):
+  negative: 25 examples (50.00%)
+  positive: 25 examples (50.00%)
+Validation set: held-out dev data at /workspace/probe_auto_improvement/dev_samples/hu_ha
+  dev split dev_ai_dilemmas.jsonl: 46 samples
+  dev split dev_ant_hh.jsonl: 44 samples
+  dev split dev_balanced_refusal.jsonl: 134 samples
+  dev split dev_daily_dilemmas.jsonl: 66 samples
+Dev validation samples: 290 (base data all trains, nothing held out)
+Training a 10-member score-averaging deep ensemble (training seeds [3699, 14431, 23529, 26229, 26660, 42624, 43521, 54184, 65963, 69051])
+Loaded cached base activations: /workspace/probe_auto_improvement/results_hu_harm_gemma27b_batch_ablation/base_activations/base_acts_google_gemma-3-27b-it_L32_d6b796f70e201c92_train.pt
+Loaded cached base activations: /workspace/probe_auto_improvement/results_hu_harm_gemma27b_batch_ablation/base_activations/dev_acts_google_gemma-3-27b-it_L32_9f7bf2f55069bbf8.pt
+Train/validation: 50 train, 290 validation (base 50+0; red-team 0+0; dev 0+290)
+Staged 0.9 GiB of activations on cuda for the probe fits (no host->device copy per epoch)
+
+--- Ensemble member 1/10 (training seed 3699) ---
+Training probe...
+Epoch 1 - Average loss: 0.7686
+Validation AUROC: 0.61874
+Epoch 2 - Average loss: 1.2871
+Validation AUROC: 0.69453
+Epoch 3 - Average loss: 1.0566
+Validation AUROC: 0.73691
+Epoch 4 - Average loss: 0.5686
+Validation AUROC: 0.75665
+Epoch 5 - Average loss: 0.5293
+Validation AUROC: 0.78323
+Epoch 6 - Average loss: 0.4858
+Validation AUROC: 0.81482
+Epoch 7 - Average loss: 0.1844
+Validation AUROC: 0.83838
+Epoch 8 - Average loss: 0.0711
+Validation AUROC: 0.85512
+Epoch 9 - Average loss: 0.0183
+Validation AUROC: 0.86288
+Epoch 10 - Average loss: 0.0027
+Validation AUROC: 0.86844
+Epoch 11 - Average loss: 0.0006
+Validation AUROC: 0.87046
+Epoch 12 - Average loss: 0.0000
+Validation AUROC: 0.87108
+Epoch 13 - Average loss: 0.0000
+Validation AUROC: 0.87122
+Epoch 14 - Average loss: 0.0000
+Validation AUROC: 0.87237
+Epoch 15 - Average loss: 0.0000
+Validation AUROC: 0.87073
+Epoch 16 - Average loss: 0.0000
+Validation AUROC: 0.86949
+Epoch 17 - Average loss: 0.0000
+Validation AUROC: 0.86718
+Epoch 18 - Average loss: 0.0000
+Validation AUROC: 0.86447
+Epoch 19 - Average loss: 0.0000
+Validation AUROC: 0.86288
+Epoch 20 - Average loss: 0.0000
+Validation AUROC: 0.86138
+Epoch 21 - Average loss: 0.0000
+Validation AUROC: 0.86002
+Epoch 22 - Average loss: 0.0000
+Validation AUROC: 0.85914
+Epoch 23 - Average loss: 0.0000
