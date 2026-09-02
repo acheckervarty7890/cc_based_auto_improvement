@@ -12,9 +12,9 @@ set -e
 #   arm  attacker                            base data                       eval.data_description
 #   ---  ----------------------------------  ------------------------------  ---------------------
 #    1   nvidia/nemotron-3-ultra-550b-a55b   instructions_nemotron_50.jsonl  unset
-#    2   nvidia/nemotron-3-ultra-550b-a55b   instructions_nemotron_50.jsonl  seven data kinds
+#    2   nvidia/nemotron-3-ultra-550b-a55b   instructions_nemotron_50.jsonl  six data kinds
 #    3   openai/gpt-oss-120b                 instructions_gptoss_50.jsonl    unset
-#    4   openai/gpt-oss-120b                 instructions_gptoss_50.jsonl    seven data kinds
+#    4   openai/gpt-oss-120b                 instructions_gptoss_50.jsonl    six data kinds
 #
 #   arm 1 -> arm 2   what does telling the memo-writer which KINDS of conversation the probe is
 #   arm 3 -> arm 4   scored on buy, on top of carrying a hand-off memo across the iteration
@@ -46,6 +46,18 @@ set -e
 # ARM ORDER IS DELIBERATE: the two nemotron arms run first and the two gpt-oss arms second, so
 # a box that dies half way still leaves ONE COMPLETE PAIR — i.e. one usable contrast — rather
 # than two half-finished ones.
+#
+# THE EVAL AND DEV SETS ARE SIX SPLITS, NOT SEVEN. `oig_omission` is removed from BOTH
+# eval_sets/instructions (1302 -> 1188 rows) and dev_samples/instructions (436 -> 404) on this
+# branch, and from the eval-data description arms 2 and 4 carry. So:
+#   - no comparison CSV here has an oig_omission column, and its mean over splits is a mean over
+#     SIX — not comparable to experiment_instruction_cloud_4..7's mean over seven. Compare per
+#     split, or re-average theirs over the same six.
+#   - the DEV set is a different set, so the fits early-stop against different data and these
+#     are different probes, not merely differently scored ones.
+#   - the dev activation blob is keyed on a content hash of the dev JSONLs, so the six-split dev
+#     set gets its own key and an existing 436-row blob can never be served in its place. The
+#     per-split eval blobs are path-keyed and the removed one is simply never requested.
 #
 # THE SCHEDULE, identical in all four arms and carried from experiment25/26:
 #
@@ -84,7 +96,7 @@ set -e
 # ACTIVATIONS. The shared cache dir (results_instructions_gemma27b_shared/) is the one
 # experiment_instruction_cloud_1/_3/_4/_5/_6/_7 wrote. No cache key mentions the memo knobs,
 # the eval-data description, view_limit, sessions_per_model, ensemble_size or the iteration
-# count, so on a box that ran any of those the EVAL blobs and the 436-row DEV blob are already
+# count, so on a box that ran any of those the EVAL blobs are already
 # warm; on a clean box they are FETCHED FROM KAGGLE (see each config's `kaggle:` section), not
 # recomputed. The BASE blob is keyed on a hash of the base data file, so each attacker's base
 # gets its OWN key: arm 1 computes the nemotron one and arm 2 reuses it, arm 3 computes the

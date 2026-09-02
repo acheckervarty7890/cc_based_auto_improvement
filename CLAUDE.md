@@ -1452,7 +1452,7 @@ its own size, and when only some of them fit, the biggest is the one worth stagi
 not load-bearing. Which set *is* the biggest depends entirely on the configuration — with
 `--dev-data dev_samples/highstakes` the 1908-row dev set (19.6 GiB of gemma-27b
 activations at 10.5 MB/row) dwarfs the training data, while `dev_samples/hu_ha` (290 rows)
-and `dev_samples/instructions` (436) are dwarfed by it, as is every run on the default
+and `dev_samples/instructions` (404) are dwarfed by it, as is every run on the default
 `test_size` split. Pinning either end strands the other: measured on the high-stakes shape
 (666 train / 1908 dev, 24 GiB card), staging the **smaller** set ran 4.3 epochs/min against
 **13.7** for the larger and ~4.0 host-resident — picking wrong gives up nearly the whole
@@ -1672,10 +1672,13 @@ string; any other columns are provenance only.
   `evaluate_probe` scores every row independently regardless.
 - **`eval_sets/instructions/`** — the **instruction-following** probe's splits (a third
   assistant-centric concept: did the assistant's response *follow the user's
-  instruction* or not?). Seven splits, each exactly class-balanced:
+  instruction* or not?). Six splits, each exactly class-balanced:
   `anthropic_harmless_refusal` (200), `bbq_substitution` (200), `hc_context_drift`
-  (194), `hc_contradiction` (200), `mm_substitution` (200), `oig_context_drift` (194),
-  `oig_omission` (114). Labels are `assistant_follows_the_instruction` /
+  (194), `hc_contradiction` (200), `mm_substitution` (200), `oig_context_drift` (194)
+  — 1188 rows. **`oig_omission` (114) was removed from this dir on the
+  `experiment_instruction_last` branch**, together with its dev counterpart, so any eval
+  number, Kaggle blob or comparison CSV that averages over SEVEN splits predates that and is
+  not comparable to a six-split mean. Labels are `assistant_follows_the_instruction` /
   `assistant_does_not_follow_the_instruction` — the split names encode the *failure
   mode* on the negative side (refusal, context drift, contradiction of the provided
   source, omission of requested content, answer substitution). Slim schema: `inputs`,
@@ -1692,7 +1695,8 @@ string; any other columns are provenance only.
 **`dev_samples/`** holds the matching **dev** (validation) sets — one dir per concept,
 same schema and same `labels` strings as that concept's eval dir, and **verified disjoint
 from it**: `highstakes/` (1908 rows: 1028/278/274/328), `hu_ha/` (290: 46/44/134/66),
-`instructions/` (436, 68/68/66/68/68/66/32). Pass the dir to `--dev-data` /
+`instructions/` (404, 68/68/66/68/68/66 — `oig_omission`'s 32 rows removed alongside
+its eval split). Pass the dir to `--dev-data` /
 `validation.dev_data` and it becomes the whole validation set (see the `--dev-data`
 paragraph under "Common commands"). `dev_samples/instructions/` was converted in place
 from the same raw `{conversation, follows_the_instruction}` form `eval_sets/instructions/` was.

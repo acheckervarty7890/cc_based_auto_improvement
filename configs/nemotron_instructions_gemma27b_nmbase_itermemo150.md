@@ -10,9 +10,9 @@
 #     arm  attacker                            base data                       eval.data_description
 #     ---  ----------------------------------  ------------------------------  ---------------------
 #      1   nvidia/nemotron-3-ultra-550b-a55b   instructions_nemotron_50.jsonl  unset   <- THIS FILE
-#      2   nvidia/nemotron-3-ultra-550b-a55b   instructions_nemotron_50.jsonl  seven data kinds
+#      2   nvidia/nemotron-3-ultra-550b-a55b   instructions_nemotron_50.jsonl  six data kinds
 #      3   openai/gpt-oss-120b                 instructions_gptoss_50.jsonl    unset
-#      4   openai/gpt-oss-120b                 instructions_gptoss_50.jsonl    seven data kinds
+#      4   openai/gpt-oss-120b                 instructions_gptoss_50.jsonl    six data kinds
 #
 #   arm 1 -> arm 2   what does telling the memo-writer which KINDS of conversation the probe is
 #   arm 3 -> arm 4   scored on buy, on top of carrying a hand-off memo across the iteration
@@ -46,6 +46,23 @@
 # so the cross-iteration memo is the ONLY thing that crosses from iteration N to N+1, which is
 # what makes ARM 2's single added key attributable.
 #
+# THE EVAL AND DEV SETS ARE SIX SPLITS ON THIS BRANCH, NOT SEVEN. `oig_omission` has been
+# removed from BOTH eval_sets/instructions (1302 -> 1188 rows) and dev_samples/instructions
+# (436 -> 404), and from the eval-data description the evaldesc arms carry. Consequences to
+# know before reading anything against an earlier instruction run:
+#   - No comparison CSV here reports an oig_omission column, and the mean over splits is a
+#     mean over six, so it is NOT comparable to experiment_instruction_cloud_4..7's mean over
+#     seven — compare per split, or re-average theirs over the same six.
+#   - The DEV set is a different set, so the fit early-stops against different data and the
+#     probes are different probes, not merely differently scored. This is upstream of every
+#     number the run produces.
+#   - The dev activation blob is keyed on a content hash of the dev JSONLs, so the six-split
+#     dev set gets its OWN key: an existing 436-row blob is not reused and cannot be served by
+#     mistake. The per-split EVAL blobs are path-keyed and simply never requested for the
+#     removed split. Nothing stale can leak in either direction.
+#   - The `kaggle:` refs below list six datasets each; the published oig-omission blobs still
+#     exist on Kaggle and are simply not fetched.
+#
 # THE SCHEDULE, identical in all four arms and carried unchanged from experiment25/26:
 #
 #     rounds: 5                 4 round-memo updates per error type per iteration
@@ -63,7 +80,7 @@
 # types = 150/iteration, x10 iterations = ~1500 attempts.
 #
 # ACTIVATION CACHES are shared with experiment_instruction_cloud_1/_3/_4/_5/_6/_7 via
-# results_instructions_gemma27b_shared/. The eval blobs and the 436-row dev blob are keyed on
+# results_instructions_gemma27b_shared/. The eval blobs and the 404-row dev blob are keyed on
 # the probe model/layer/splits/transforms only, so they are reused verbatim (and fetched from
 # Kaggle on a cold box — see the `kaggle:` section). The BASE blob is keyed on a hash of the
 # base data file, so each attacker's 50-row base gets its OWN key: arm 1 computes the nemotron
@@ -198,7 +215,7 @@ judge:
                                   #   the memos for BREADTH across them; true = it describes ONE
                                   #   kind, steer for depth within that shape (that is
                                   #   experiment_instruction_cloud_7's design, not this one).
-                                  #   This run's description names seven kinds, so breadth is the
+                                  #   This run's description names six kinds, so breadth is the
                                   #   correct reading. Inert in the memo-only arms, which set no
                                   #   description at all.
 
@@ -269,8 +286,7 @@ kaggle:                            # PRECOMPUTED eval AND dev activations, so ne
                                    #     anku7890/hc-contradiction-gemmaevalpt           (0.23 GB)
                                    #     anku7890/mm-substitution-gemmaevalpt            (0.14 GB)
                                    #     anku7890/oig-context-drift-gemmaevalpt          (0.21 GB)
-                                   #     anku7890/oig-omission-gemmaevalpt               (0.17 GB)
-                                   #   Kaggle's COMPRESSED sizes: ~1.45 GB down, ~4.9 GB landed.
+                                   #   Kaggle's COMPRESSED sizes: ~1.28 GB down, ~4.4 GB landed.
                                    #   Every blob is validated against the probe's model_name/layer and
                                    #   the split's row count before it may be used, and a split that
                                    #   cannot be fetched RAISES rather than silently falling back to
@@ -286,8 +302,7 @@ kaggle:                            # PRECOMPUTED eval AND dev activations, so ne
                                    #     anku7890/hc-contradiction-gemmadevpt           (0.16 GB)
                                    #     anku7890/mm-substitution-gemmadevpt            (0.21 GB)
                                    #     anku7890/oig-context-drift-gemmadevpt          (0.28 GB)
-                                   #     anku7890/oig-omission-gemmadevpt               (0.15 GB)
-                                   #   ~1.31 GB down, assembled into ONE ~2.0 GB blob. The dev cache is
+                                   #   ~1.17 GB down, assembled into ONE ~1.9 GB blob. The dev cache is
                                    #   NOT per split: _load_dev_dataset concatenates the splits into one
                                    #   dataset, so its activations live in a single blob named by a
                                    #   content hash of the dev JSONLs (_dev_activation_cache_path).
@@ -299,7 +314,7 @@ kaggle:                            # PRECOMPUTED eval AND dev activations, so ne
                                    #   phase like the eval prefetch.
 
 validation:
-  dev_data: ../dev_samples/instructions   # the WHOLE validation set is these 436 held-out rows.
+  dev_data: ../dev_samples/instructions   # the WHOLE validation set is these 404 held-out rows.
                                   #   Base data and red-team successes then train in FULL and
                                   #   --test-size / --split-field are ignored (retrain.py forces
                                   #   test_size to 0.0).
@@ -309,11 +324,11 @@ validation:
                                   #   set the probe early-stops against would change shape at every
                                   #   retrain and the best-epoch checkpoints would not be comparable
                                   #   across iterations. Over TEN iterations that drift is worse than it
-                                  #   was over five. These 436 rows do not move, so the checkpoints are
+                                  #   was over five. These 404 rows do not move, so the checkpoints are
                                   #   comparable.
-                                  #   DISJOINT from eval_sets/instructions (verified: 436 vs 1302 rows,
+                                  #   DISJOINT from eval_sets/instructions (verified: 404 vs 1188 rows,
                                   #   zero shared `inputs`), which is what makes it legitimate to
-                                  #   early-stop on one and report the other. Class-balanced (218/218).
+                                  #   early-stop on one and report the other. Class-balanced (202/202).
                                   #   Dev activations get their OWN cache blob in
                                   #   base_activation_cache_dir, keyed on the dev files' bytes +
                                   #   model/layer/transforms (no seed, no test_size — the set is never
@@ -346,7 +361,7 @@ output:
                                   #   touches, so blobs written by those experiments are valid here and
                                   #   vice versa. On a clean box it starts EMPTY and arm 1's first eval
                                   #   fills it FROM KAGGLE (see the `kaggle:` section — a ~1.45 GB
-                                  #   download unpacking to ~4.9 GB, not 1302 forward passes); arms 2-4
+                                  #   download unpacking to ~4.4 GB, not 1188 forward passes); arms 2-4
                                   #   reuse it. Budget the disk.
                                   #   NEVER point two LIVE runs at it — two writers can tear a blob,
                                   #   which is why the runner runs the arms SEQUENTIALLY.
@@ -364,7 +379,7 @@ output:
                                   #   The redteam_acts_* per-conversation cache written into the same dir
                                   #   is content-keyed against a FROZEN LLM, so the four arms' distinct
                                   #   successes get distinct keys — and any conversation two arms happen
-                                  #   to produce is computed once. The dev set's 436-row blob is another
+                                  #   to produce is computed once. The dev set's 404-row blob is another
                                   #   key here, shared by all four. Nothing is ever invalidated: every
                                   #   old key still addresses its old blob.
 ---
