@@ -47,8 +47,10 @@
 # Exit: once the LAST stage finishes, the poller makes a final commit and exits 0.
 # Stopping it early by hand (Ctrl-C / kill) also makes a final commit via the trap.
 #
-# Defaults target the SELF-GENERATED-BASE memo experiment on the HIGH-STAKES concept with a
-# gemma-3-27b-it (L32) probe, in the order run_gemma27b_hs_last_arms.sh launches its FOUR arms
+# Defaults list all EIGHT high-stakes arms in launch order — arms 1-4 from
+# run_gemma27b_hs_last_arms.sh and arms 5-8 from run_gemma27b_hs_last_arms2.sh. The poller
+# SKIPS stages whose comparison CSV already exists, so with arms 1-4 finished it resumes at
+# arm 5 on its own. Probe = gemma-3-27b-it (L32)
 # (two attackers, each on its own base; all four carry the cross-iteration memo, and arms 2
 # and 4 add eval.data_description):
 #   stage 1 (gptoss, memo)       configs/gptoss120b_hs_gemma27b_gptossbase_itermemo150.md
@@ -112,18 +114,30 @@ CONFIGS=(
     "configs/gptoss120b_hs_gemma27b_gptossbase_itermemo150_evaldesc.md"
     "configs/deepseekv4pro_hs_gemma27b_dsbase_itermemo150.md"
     "configs/deepseekv4pro_hs_gemma27b_dsbase_itermemo150_evaldesc.md"
+    "configs/llama70b_hs_gemma27b_llamabase_itermemo150.md"
+    "configs/llama70b_hs_gemma27b_llamabase_itermemo150_evaldesc.md"
+    "configs/nemotron_hs_gemma27b_nemobase_itermemo150.md"
+    "configs/nemotron_hs_gemma27b_nemobase_itermemo150_evaldesc.md"
 )
 PROBE_DIRS=(
     "probes/hs_gemma27b_gptoss120b_gptossbase_itermemo150"
     "probes/hs_gemma27b_gptoss120b_gptossbase_evaldesc"
     "probes/hs_gemma27b_deepseekv4pro_dsbase_itermemo150"
     "probes/hs_gemma27b_deepseekv4pro_dsbase_evaldesc"
+    "probes/hs_gemma27b_llama70b_llamabase_itermemo150"
+    "probes/hs_gemma27b_llama70b_llamabase_evaldesc"
+    "probes/hs_gemma27b_nemotron_nemobase_itermemo150"
+    "probes/hs_gemma27b_nemotron_nemobase_evaldesc"
 )
 LOG_FILES=(
     "logs/run_hs_gemma27b_gptoss120b_gptossbase_itermemo150.log"
     "logs/run_hs_gemma27b_gptoss120b_gptossbase_evaldesc.log"
     "logs/run_hs_gemma27b_deepseekv4pro_dsbase_itermemo150.log"
     "logs/run_hs_gemma27b_deepseekv4pro_dsbase_evaldesc.log"
+    "logs/run_hs_gemma27b_llama70b_llamabase_itermemo150.log"
+    "logs/run_hs_gemma27b_llama70b_llamabase_evaldesc.log"
+    "logs/run_hs_gemma27b_nemotron_nemobase_itermemo150.log"
+    "logs/run_hs_gemma27b_nemotron_nemobase_evaldesc.log"
 )
 
 REMOTE="origin"
