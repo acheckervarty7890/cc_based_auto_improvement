@@ -1164,3 +1164,152 @@ Some parameters are on the meta device because they were offloaded to the cpu.
 [nvidia/nemotron-3-ultra-550b-a55b] batch call 2: parsed 2 conversation(s) of 2 still wanted
 === nvidia/nemotron-3-ultra-550b-a55b done — 2 new successes (total 127); stop_reason=batch_complete ===
 [nvidia/nemotron-3-ultra-550b-a55b] batch call 3: parsed 4 conversation(s) of 4 still wanted
+Note: Environment variable`HF_TOKEN` is set and is the current active token independently from the token you've just configured.
+=== nvidia/nemotron-3-ultra-550b-a55b done — 3 new successes (total 130); stop_reason=batch_complete ===
+=== Iteration 2 memo written for the next iteration (66 attempts, 42 successful) ===
+Released the probe's LLM; 0.6 GiB free on the card
+  false_negative: 42 new successes across 15 model-rounds
+Iteration 2: 47 new successes total
+Red-team successes loaded: 173 → 173 after dropping judge_confidence < 7
+filter_dataset: 173 → 138 records after dropping confounders
+  [contrastive] dropped 5 source records (and their pairs) after 3 failed generation attempts
+Contrastive generation: 133 contrastive examples from 138 source records; label distribution {'high-stakes': 40, 'low-stakes': 93}
+Red-team training samples after preprocessing: 266
+Saved 266 postprocessed red-team samples to probes/hs_gemma27b_nemotron_nemobase_itermemo150/redteam_postprocessed_iter3.jsonl
+Validation set: held-out dev data at /workspace/probe_auto_improvement/dev_samples/highstakes
+  dev split anthropic_hh_balanced.jsonl: 1028 samples
+  dev split mt_balanced.jsonl: 278 samples
+  dev split mts_balanced.jsonl: 274 samples
+  dev split toolace_balanced.jsonl: 328 samples
+Dev validation samples: 1908 (base + red-team data all train, nothing held out)
+Total samples before split: 316 (base 50, red-team 266)
+Loaded cached base activations: /workspace/probe_auto_improvement/results_hs_gemma27b_devval/base_activations/base_acts_google_gemma-3-27b-it_L32_0f3fa3130cc59c5f_train.pt
+Red-team activations: 198 loaded from cache, 68 to compute (chunk size 1) ...
+Loading model for activation extraction ...
+[model_loading] loading google/gemma-3-27b-it, truncated to 33 layers (probe reads layer 32); max_memory={0: '22GiB', 'cpu': '45GiB'} (from AGENTIC_REDTEAM_MAX_MEMORY)
+[tuberlens] loading google/gemma-3-27b-it on device_map='auto'; max_memory={0: '22GiB', 'cpu': '45GiB'}
+Some parameters are on the meta device because they were offloaded to the cpu.
+  [red-team activations] 10/68 (2.7s/sample, ~3 min left)
+  [red-team activations] 20/68 (2.2s/sample, ~2 min left)
+  [red-team activations] 30/68 (2.1s/sample, ~1 min left)
+  [red-team activations] 40/68 (2.0s/sample, ~1 min left)
+  [red-team activations] 50/68 (2.0s/sample, ~1 min left)
+  [red-team activations] 60/68 (1.9s/sample, ~0 min left)
+  [red-team activations] 68/68 (1.9s/sample, ~0 min left)
+Loaded cached base activations: /workspace/probe_auto_improvement/results_hs_gemma27b_devval/base_activations/dev_acts_google_gemma-3-27b-it_L32_bda9f1ed38a63843.pt
+Releasing extraction model before probe fit ...
+  22.5 GiB allocatable after the release (0.6 GiB of that free at the driver)
+Train/validation: 316 train, 1908 validation (base 50+0; red-team 266+0; dev 0+1908)
+Staged 19.6 GiB of activations on cuda for the probe fits (no host->device copy per epoch); 2.6 GiB left on the host — it does not fit in the 3.0 GiB allocatable with a 2.0 GiB reserve (AGENTIC_REDTEAM_FIT_STAGING_RESERVE_GIB to change), and staging it anyway risks paging over PCIe rather than failing cleanly
+Training probe...
+Epoch 1 - Average loss: 0.8668
+Validation AUROC: 0.73183
+Epoch 2 - Average loss: 0.7457
+Validation AUROC: 0.80323
+Epoch 3 - Average loss: 0.6261
+Validation AUROC: 0.84200
+Epoch 4 - Average loss: 0.5567
+Validation AUROC: 0.85498
+Epoch 5 - Average loss: 0.5673
+Validation AUROC: 0.84315
+Epoch 6 - Average loss: 0.4428
+Validation AUROC: 0.86505
+Epoch 7 - Average loss: 0.3727
+Validation AUROC: 0.86058
+Epoch 8 - Average loss: 0.3331
+Validation AUROC: 0.84711
+Epoch 9 - Average loss: 0.2773
+Validation AUROC: 0.84812
+Epoch 10 - Average loss: 0.2405
+Validation AUROC: 0.84626
+Epoch 11 - Average loss: 0.2925
+Validation AUROC: 0.84525
+Epoch 12 - Average loss: 0.2575
+Validation AUROC: 0.84660
+Epoch 13 - Average loss: 0.2062
+Validation AUROC: 0.85252
+Epoch 14 - Average loss: 0.1664
+Validation AUROC: 0.83996
+Epoch 15 - Average loss: 0.1880
+Validation AUROC: 0.83395
+Epoch 16 - Average loss: 0.1777
+Validation AUROC: 0.83549
+Epoch 17 - Average loss: 0.1678
+Validation AUROC: 0.85353
+Epoch 18 - Average loss: 0.1537
+Validation AUROC: 0.86251
+Epoch 19 - Average loss: 0.1223
+Validation AUROC: 0.85038
+Epoch 20 - Average loss: 0.1016
+Validation AUROC: 0.84337
+Epoch 21 - Average loss: 0.1153
+Validation AUROC: 0.83725
+Epoch 22 - Average loss: 0.0833
+Validation AUROC: 0.83637
+Epoch 23 - Average loss: 0.1088
+Validation AUROC: 0.82497
+Epoch 24 - Average loss: 0.0693
+Validation AUROC: 0.81300
+Epoch 25 - Average loss: 0.0852
+Validation AUROC: 0.82560
+Epoch 26 - Average loss: 0.0966
+Validation AUROC: 0.84203
+Epoch 27 - Average loss: 0.0926
+Validation AUROC: 0.83996
+Epoch 28 - Average loss: 0.0894
+Validation AUROC: 0.83492
+Epoch 29 - Average loss: 0.0764
+Validation AUROC: 0.82757
+Epoch 30 - Average loss: 0.0813
+Validation AUROC: 0.83105
+Epoch 31 - Average loss: 0.0645
+Validation AUROC: 0.83097
+Epoch 32 - Average loss: 0.0643
+Validation AUROC: 0.83322
+Epoch 33 - Average loss: 0.0892
+Validation AUROC: 0.84279
+Epoch 34 - Average loss: 0.0843
+Validation AUROC: 0.84708
+Epoch 35 - Average loss: 0.0697
+Validation AUROC: 0.85069
+Epoch 36 - Average loss: 0.0502
+Validation AUROC: 0.84713
+Epoch 37 - Average loss: 0.0613
+Validation AUROC: 0.84799
+Epoch 38 - Average loss: 0.0568
+Validation AUROC: 0.84903
+Epoch 39 - Average loss: 0.0535
+Validation AUROC: 0.85104
+Epoch 40 - Average loss: 0.0617
+Validation AUROC: 0.84841
+Epoch 41 - Average loss: 0.0698
+Validation AUROC: 0.84072
+Epoch 42 - Average loss: 0.0684
+Validation AUROC: 0.83435
+Epoch 43 - Average loss: 0.0561
+Validation AUROC: 0.83704
+Epoch 44 - Average loss: 0.0435
+Validation AUROC: 0.83162
+Epoch 45 - Average loss: 0.0492
+Validation AUROC: 0.83276
+Epoch 46 - Average loss: 0.0381
+Validation AUROC: 0.83703
+Epoch 47 - Average loss: 0.0455
+Validation AUROC: 0.83720
+Epoch 48 - Average loss: 0.0380
+Validation AUROC: 0.83633
+Epoch 49 - Average loss: 0.0540
+Validation AUROC: 0.83736
+Epoch 50 - Average loss: 0.0617
+Validation AUROC: 0.83870
+Epoch 51 - Average loss: 0.0491
+Validation AUROC: 0.84075
+Epoch 52 - Average loss: 0.0393
+Validation AUROC: 0.83461
+Epoch 53 - Average loss: 0.0439
+Validation AUROC: 0.83184
+Epoch 54 - Average loss: 0.0387
+Validation AUROC: 0.83806
+Epoch 55 - Average loss: 0.0271
+Validation AUROC: 0.83697
+Epoch 56 - Average loss: 0.0292
