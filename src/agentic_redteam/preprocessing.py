@@ -110,6 +110,16 @@ def _render_transcript(messages: Sequence[dict[str, str]]) -> str:
 # --------------------------------------------------------------------------- #
 
 
+# A bag-of-words fit needs an actual corpus. ``CountVectorizer(min_df=3, max_df=0.9)``
+# raises ValueError("max_df corresponds to < documents than min_df") as soon as
+# 0.9 * n_docs < 3 — i.e. below four documents — and a confounder filter over a handful
+# of rows is meaningless well before that. Below this many records the step is a no-op,
+# exactly as it is when fewer than two classes are present. This is not hypothetical: a
+# human-harm arm that had found 3 successes in its first 520 attempts died here, in the
+# iteration-0 retrain, taking the whole four-arm run with it.
+MIN_FILTER_RECORDS = 10
+
+
 class BagOfWordsClassifier:
     """A simple bag-of-words classifier for filtering confounded examples."""
 
@@ -148,8 +158,10 @@ def filter_dataset(
 
     Generalized from tuberlens (which hard-coded ``"high-stakes"`` as the
     positive class): ``pos_class_label`` defines the positive class; everything
-    else is treated as negative. If fewer than two classes are present (e.g.
-    single-error-type successes), the records are returned unchanged.
+    else is treated as negative. The records are returned unchanged when the filter
+    cannot be fitted meaningfully: fewer than two classes present (e.g.
+    single-error-type successes), fewer than ``MIN_FILTER_RECORDS`` records, or a
+    vectorizer that rejects the corpus.
     """
     if not records:
         return []
@@ -159,9 +171,22 @@ def filter_dataset(
     )
     if len(np.unique(labels)) < 2:
         return list(records)
+    if len(records) < MIN_FILTER_RECORDS:
+        print(
+            f"filter_dataset: {len(records)} record(s) is below MIN_FILTER_RECORDS "
+            f"({MIN_FILTER_RECORDS}) — skipping the confounder filter"
+        )
+        return list(records)
 
     texts = [_extract_text(record, text_key) for record in records]
-    classifier = BagOfWordsClassifier().fit(texts, labels.tolist())
+    try:
+        classifier = BagOfWordsClassifier().fit(texts, labels.tolist())
+    except ValueError as exc:
+        # Degenerate corpora (every document identical, no term clearing min_df, ...)
+        # make the vectorizer raise. Dropping no records is always a safe answer here;
+        # killing the run is not.
+        print(f"filter_dataset: bag-of-words fit failed ({exc}) — keeping all records")
+        return list(records)
     probs = classifier.predict_proba(texts)
     confidence = np.max(probs, axis=1)
 
