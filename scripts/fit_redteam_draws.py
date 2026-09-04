@@ -79,9 +79,17 @@ def main() -> None:
     if not dev_dir.is_dir():
         raise SystemExit(f"missing dev dir {dev_dir}")
     n_dev = sum(1 for p in dev_dir.glob("*.jsonl") for l in p.read_text().splitlines() if l.strip())
-    csv_path = OUT_RES / "draws_comparison.csv"
+    # THE RESUME KEY IS (arm, draw) AND CARRIES NO FRACTION, so a second grid at a different
+    # --fraction would find every (arm, draw) "already scored" and silently do nothing. Give
+    # each fraction its own CSV and probe dir instead. 0.9 keeps the original unsuffixed names
+    # so the already-committed 64-draw grid stays where it is.
+    suffix = "" if abs(args.fraction - 0.9) < 1e-9 else f"_f{round(args.fraction * 100)}"
+    probe_dir = Path(str(OUT_PROBES) + suffix)
+    probe_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = OUT_RES / f"draws_comparison{suffix}.csv"
     print(f"validation: {args.dev_dir} ({n_dev} rows) | {args.draws} draws x "
-          f"{args.fraction:.0%} of each arm's successes | seed {args.seed}\n")
+          f"{args.fraction:.0%} of each arm's successes | seed {args.seed}\n"
+          f"  -> {csv_path.name} , {probe_dir.name}/\n")
 
     done = set()
     if csv_path.exists():                      # resumable: skip (arm, draw) already scored
@@ -102,9 +110,9 @@ def main() -> None:
                 print(f"--- {arm} draw {d}: already scored, skipping")
                 continue
             rng = random.Random(f"{arm}:{d}:{args.seed}")
-            tag = f"{arm}_d{d}"
+            tag = f"{arm}_d{d}{suffix}"
             paths, n_pool, n_keep = draw_subset(spec, args.fraction, rng, OUT_RES / f"{tag}_probing")
-            probe_out = OUT_PROBES / f"{tag}.pkl"
+            probe_out = probe_dir / f"{tag}.pkl"
             print(f"\n--- {arm} draw {d}  ({spec['label']}): {n_keep} of {n_pool} successes")
             retrain_probe(
                 jsonl_path=paths,
