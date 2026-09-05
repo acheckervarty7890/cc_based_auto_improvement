@@ -13,6 +13,7 @@ sys.path.insert(0, "/workspace/probe_auto_improvement/src")
 from agentic_redteam.retrain import retrain_probe
 from agentic_redteam.evaluation import evaluate_probe
 from agentic_redteam.config import PreprocessingConfig
+from agentic_redteam.circuit_breaker import OpenRouterOutageError
 
 REPO = pathlib.Path("/workspace/probe_auto_improvement")
 S = pathlib.Path("/tmp/claude-1000/-workspace-probe-auto-improvement/642f7272-1606-4ff4-99f1-d98f1bd3bfc4/scratchpad")
@@ -88,5 +89,13 @@ if __name__ == "__main__":
             for draw in range(8):
                 try:
                     run(arm, frac, draw, cfg)
+                except OpenRouterOutageError as exc:
+                    # Never swallow this one (see CLAUDE.md): the contrastive step needs
+                    # OpenRouter, so once the breaker trips every remaining fit would be a
+                    # no-op failure. Stop and leave the finished draws on disk to resume from.
+                    print(f"\n[ABORT] OpenRouter unusable: {exc}", flush=True)
+                    print(f"[ABORT] stopped at {arm['key']} {frac} d{draw}; "
+                          f"finished draws are in {OUT} and are skipped on re-run.", flush=True)
+                    sys.exit(3)
                 except Exception:
                     traceback.print_exc(); print(f"[FAILED] {arm['key']} {frac} d{draw}", flush=True)
