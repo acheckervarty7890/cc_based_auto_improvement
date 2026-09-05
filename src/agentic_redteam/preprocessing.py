@@ -25,6 +25,8 @@ iteration.
 
 from __future__ import annotations
 
+import os
+
 import hashlib
 import json
 import time
@@ -580,6 +582,17 @@ def _guidance_fingerprint(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+CONTRASTIVE_CACHE_ONLY_ENV = "AGENTIC_REDTEAM_CONTRASTIVE_CACHE_ONLY"
+
+
+def _contrastive_cache_only() -> bool:
+    """True when generation is disabled and only cached pairs may be used.
+
+    Default off, so every existing caller behaves exactly as before.
+    """
+    return os.environ.get(CONTRASTIVE_CACHE_ONLY_ENV, "0").strip().lower() not in ("", "0", "false", "no")
+
+
 def _cache_key(
     messages: Sequence[dict[str, str]],
     target_label: str,
@@ -754,6 +767,18 @@ def generate_contrastive_dataset(
             f"  [contrastive] regenerating {n_cached_too_long} cached pairs that exceed "
             f"the {token_budget.max_tokens}-token limit"
         )
+    if to_generate and _contrastive_cache_only():
+        # CACHE-ONLY MODE (AGENTIC_REDTEAM_CONTRASTIVE_CACHE_ONLY=1, default off). Use the pairs
+        # already on disk and generate nothing: the source records without a cached pair are kept
+        # UNPAIRED rather than dropped, so the training set keeps its size and loses only the
+        # opposite-class partner. Exists for offline re-analysis — refitting an old run's data on
+        # a box with no working OpenRouter key — where regenerating pairs would both cost calls
+        # and mint pairs the original run never trained on.
+        print(
+            f"  [contrastive] cache-only: {len(to_generate)} source record(s) have no cached pair "
+            f"— kept unpaired, nothing generated"
+        )
+        to_generate = []
     if to_generate:
         llm = _ContrastiveLLM(
             provider,
