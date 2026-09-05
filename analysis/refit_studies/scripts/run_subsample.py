@@ -62,8 +62,14 @@ def run(arm, frac, draw, cfg):
                   base_training_data_path=REPO / arm["base"], new_probe_path=probe_out,
                   preprocessing=PREP, contrastive_cache_path=cc, min_judge_confidence=7,
                   dev_data_path=cfg["dev"], seed=42, ensemble_size=None,
-                  base_activation_cache_dir=cfg["cache"],
-                  combine_consecutive_messages=True, convert_tool_to_assistant=True, verbose=True)
+        base_activation_cache_dir=cfg["cache"],
+        combine_consecutive_messages=True, convert_tool_to_assistant=True,
+        # The +eval-desc arms generated their contrastive pairs under a prompt that carries
+        # eval.data_description, and that text is folded into the contrastive cache key. Omit it
+        # and every lookup misses: 80% of an arm's records come back unpaired and the pairs get
+        # REGENERATED under a different prompt than the arm used. Pass the arm's own text and the
+        # hit rate is 98-100%.
+        eval_data_description=arm.get("desc", ""), verbose=True)
     df = evaluate_probe(str(probe_out), str(cfg["eval"]), str(cfg["ecache"]), splits=None,
                         max_samples=None, seed=42,
                         combine_consecutive_messages=True, convert_tool_to_assistant=True)
