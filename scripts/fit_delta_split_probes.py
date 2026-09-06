@@ -75,7 +75,36 @@ ARMS = {
     "arm8": _arm("nemotron \u00b7 +eval-desc", "nemotron_hs_gemma27b_nemobase_itermemo150_evaldesc.md",
                  "nemotron_nemobase_evaldesc", "nemobase_evaldesc_probing",
                  "nemotron_nemobase_evaldesc", "highstakes_nemotron_50.jsonl"),
+    # Arms 9-12: `attacker.show_eval_data_description: true`, one per attacker. Each is a
+    # one-key diff from the +eval-desc arm above it (9<-8, 10<-2, 11<-4, 12<-6), so the
+    # PAIR for a draws comparison is that arm, not the memo-only arm.
+    #
+    # NOTE arm9's own comparison CSV covers iter5..iter10 only — its run was interrupted by
+    # an OpenRouter spend cap and the resumed process restarted the in-process eval
+    # accumulator. `csv` is therefore pointed at the rebuilt 11-iteration table (iters 0-4
+    # re-scored from the pickled probes against the cached eval activations; every
+    # overlapping value reproduces exactly). fit_redteam_draws.py does not read `csv` at
+    # all, so this matters only to fit_delta_split_probes.py.
+    "arm9": _arm("nemotron \u00b7 +eval-desc\u2192attacker",
+                 "nemotron_hs_gemma27b_nemobase_evaldesc_attacker.md",
+                 "nemotron_nemobase_evaldesc_attacker", "nemobase_evaldesc_attacker_probing",
+                 "nemotron_nemobase_evaldesc_attacker", "highstakes_nemotron_50.jsonl"),
+    "arm10": _arm("gpt-oss \u00b7 +eval-desc\u2192attacker",
+                  "gptoss120b_hs_gemma27b_gptossbase_evaldesc_attacker.md",
+                  "gptoss120b_gptossbase_evaldesc_attacker", "gptossbase_evaldesc_attacker_probing",
+                  "gptoss120b_gptossbase_evaldesc_attacker", "highstakes_gptoss_50.jsonl"),
+    "arm11": _arm("deepseek \u00b7 +eval-desc\u2192attacker",
+                  "deepseekv4pro_hs_gemma27b_dsbase_evaldesc_attacker.md",
+                  "deepseekv4pro_dsbase_evaldesc_attacker", "dsbase_evaldesc_attacker_probing",
+                  "deepseekv4pro_dsbase_evaldesc_attacker", "highstakes_deepseekv4pro_50.jsonl"),
+    "arm12": _arm("llama70b \u00b7 +eval-desc\u2192attacker",
+                  "llama70b_hs_gemma27b_llamabase_evaldesc_attacker.md",
+                  "llama70b_llamabase_evaldesc_attacker", "llamabase_evaldesc_attacker_probing",
+                  "llama70b_llamabase_evaldesc_attacker", "highstakes_llama70b_50.jsonl"),
 }
+# arm9's rebuilt full-iteration table (see the note above).
+ARMS["arm9"]["csv"] = (ROOT / "results_hs_gemma27b_nemotron_nemobase_evaldesc_attacker"
+                       / "nemobase_evaldesc_attacker_comparison_full.csv")
 
 
 def probe_means(spec) -> dict[int, float]:
