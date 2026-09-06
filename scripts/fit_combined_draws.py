@@ -37,7 +37,7 @@ one pool, draws are seeded on (combo, draw, --seed) so a re-run extends the grid
 of recomputing it, and each --fraction gets its own CSV and probe dir.
 """
 from __future__ import annotations
-import argparse, csv, importlib.util, json, random, shutil, statistics as st, sys
+import argparse, csv, importlib.util, itertools, json, random, shutil, statistics as st, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,14 +57,51 @@ EVAL_DIR = ROOT / "eval_sets/highstakes"
 BASE = "data/highstakes_combined_200.jsonl"          # union of the four disjoint 50-row bases
 TEMPLATE_PROBE = Path(fds.ARMS["arm1"]["probes"]) / "probe_iter0.pkl"
 
-COMBOS = {
-    "combo_memo": dict(label="ALL 4 · memo", arms=["arm1", "arm3", "arm5", "arm7"],
-                       config=ROOT / "configs/gptoss120b_hs_gemma27b_gptossbase_itermemo150.md"),
-    "combo_desc": dict(label="ALL 4 · +eval-desc", arms=["arm2", "arm4", "arm6", "arm8"],
-                       config=ROOT / "configs/gptoss120b_hs_gemma27b_gptossbase_itermemo150_evaldesc.md"),
-    "combo_att": dict(label="ALL 4 · +eval-desc→attacker", arms=["arm10", "arm11", "arm12", "arm9"],
-                      config=ROOT / "configs/gptoss120b_hs_gemma27b_gptossbase_evaldesc_attacker.md"),
+# The four attackers, and the arm that ran each of them under each configuration. Subsets
+# are named by these one-letter codes in this fixed order (memo_gd, desc_gln, ...), so a
+# subset's name is stable regardless of how it was enumerated.
+ATTACKERS = ["g", "d", "l", "n"]
+ATTACKER_NAMES = {"g": "gpt-oss", "d": "deepseek", "l": "llama70b", "n": "nemotron"}
+GROUPS = {
+    "memo": dict(label="memo",
+                 config=ROOT / "configs/gptoss120b_hs_gemma27b_gptossbase_itermemo150.md",
+                 arms={"g": "arm1", "d": "arm3", "l": "arm5", "n": "arm7"}),
+    "desc": dict(label="+eval-desc",
+                 config=ROOT / "configs/gptoss120b_hs_gemma27b_gptossbase_itermemo150_evaldesc.md",
+                 arms={"g": "arm2", "d": "arm4", "l": "arm6", "n": "arm8"}),
+    "att": dict(label="+eval-desc\u2192attacker",
+                config=ROOT / "configs/gptoss120b_hs_gemma27b_gptossbase_evaldesc_attacker.md",
+                arms={"g": "arm10", "d": "arm11", "l": "arm12", "n": "arm9"}),
 }
+
+
+def build_combos(sizes) -> dict:
+    """Every subset of `sizes` attackers, in every configuration.
+
+    THE BASE IS HELD AT ALL 200 ROWS FOR EVERY SUBSET SIZE — deliberately, and it is the
+    one thing here that is not the "what would a practitioner have had" choice. Someone who
+    ran two attackers would have had those two 50-row bases, not four; but then base size
+    would move with subset size and the k-curve would confound the two. Fixing the base
+    leaves the red-team pool as the ONLY thing that varies with k, which is the variable
+    under study. It costs nothing in fidelity — the four base cuts are disjoint samples of
+    one source distribution, not attacker-specific data — and it means every subset reuses
+    the single cached 200-row activation blob instead of extracting its own.
+
+    k=4 keeps the names combo_memo / combo_desc / combo_att the first grid wrote, so those
+    rows stay addressable and are skipped on resume rather than recomputed."""
+    combos = {}
+    for g, gs in GROUPS.items():
+        for k in sizes:
+            for codes in itertools.combinations(ATTACKERS, k):
+                name = f"combo_{g}" if k == len(ATTACKERS) else f"{g}_{''.join(codes)}"
+                who = "ALL 4" if k == len(ATTACKERS) else "+".join(ATTACKER_NAMES[c] for c in codes)
+                combos[name] = dict(label=f"{who} \u00b7 {gs['label']}",
+                                    arms=[gs["arms"][c] for c in codes],
+                                    config=gs["config"], group=g, k=k, codes="".join(codes))
+    return combos
+
+
+COMBOS = build_combos([4])          # rebuilt from --sizes in main()
 
 
 def seed_contrastive_cache(combo: str, arms: list[str], dst: Path) -> int:
@@ -121,7 +158,10 @@ def draw_subset(arms: list[str], frac: float, rng: random.Random, out_prefix: Pa
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--combos", nargs="+", default=list(COMBOS), choices=list(COMBOS))
+    ap.add_argument("--combos", nargs="+", default=None,
+                    help="subset names (e.g. memo_gd desc_gln); default: every subset of --sizes")
+    ap.add_argument("--sizes", nargs="+", type=int, default=[4], choices=[1, 2, 3, 4],
+                    help="attacker-subset sizes to enumerate (default 4 = the whole rotation)")
     ap.add_argument("--draws", type=int, default=8)
     ap.add_argument("--fraction", type=float, default=0.9)
     ap.add_argument("--seed", type=int, default=42)
@@ -130,6 +170,17 @@ def main() -> None:
                     help="also fit the 200-row base ALONE (no red-team data) as the reference "
                          "line every combo is read against; written as combo 'base' draw 0")
     args = ap.parse_args()
+
+    global COMBOS
+    COMBOS = build_combos(sorted(set(args.sizes)))
+    if args.combos:
+        COMBOS = build_combos([1, 2, 3, 4])
+        unknown = [c for c in args.combos if c not in COMBOS]
+        if unknown:
+            raise SystemExit(f"unknown combos {unknown}; known: {' '.join(COMBOS)}")
+        wanted = list(args.combos)
+    else:
+        wanted = list(COMBOS)
 
     OUT_PROBES.mkdir(parents=True, exist_ok=True)
     OUT_RES.mkdir(parents=True, exist_ok=True)
@@ -153,7 +204,7 @@ def main() -> None:
     if csv_path.exists():
         with csv_path.open() as fh:
             for row in csv.reader(fh):
-                if len(row) > 2 and (row[0] in COMBOS or row[0] == "base"):
+                if len(row) > 2 and row[0] not in ("combo", ""):
                     done.add((row[0], row[1]))
 
     def score(probe_out: Path, cfg, tag: str, combo: str, d: int, n_keep: int, n_pool: int):
@@ -189,11 +240,14 @@ def main() -> None:
         )
         score(probe_out, cfg, "base_only", "base", 0, 0, 0)
 
-    for combo in args.combos:
+    for combo in wanted:
         spec = COMBOS[combo]
         cfg = load_config(spec["config"])
-        cache = OUT_RES / f"{combo}_contrastive_cache.jsonl"
-        n_seed = seed_contrastive_cache(combo, spec["arms"], cache)
+        # ONE CACHE PER CONFIGURATION, shared by all of its subsets. The keys are content
+        # hashes, so a subset can only ever read entries minted from its own conversations;
+        # sharing just means the pair a triple mints is already there when a pair needs it.
+        cache = OUT_RES / f"combo_{spec['group']}_contrastive_cache.jsonl"
+        n_seed = seed_contrastive_cache(combo, [GROUPS[spec["group"]]["arms"][c] for c in ATTACKERS], cache)
         print(f"\n### {combo} ({spec['label']}): arms {'+'.join(spec['arms'])}, "
               f"contrastive cache {n_seed} rows")
         for d in range(args.draws):
@@ -231,17 +285,18 @@ def main() -> None:
     if csv_path.exists():
         with csv_path.open() as fh:
             for row in csv.reader(fh):
-                if len(row) > 5 and (row[0] in COMBOS or row[0] == "base") and row[4] == "mean":
+                if len(row) > 5 and row[0] not in ("combo", "") and row[4] == "mean":
                     vals.setdefault(row[0], []).append(float(row[5]))
     if vals:
-        print(f"\n{'configuration':30}{'draws':>7}{'mean':>10}{'sd':>9}{'min':>10}{'max':>10}{'range':>9}")
-        for c in ["base"] + list(COMBOS):
+        print(f"\n{'configuration':38}{'draws':>7}{'mean':>10}{'sd':>9}{'min':>10}{'max':>10}{'range':>9}")
+        allc = build_combos([1, 2, 3, 4])
+        for c in ["base"] + list(allc):
             v = vals.get(c, [])
             if not v:
                 continue
             sd = st.stdev(v) if len(v) > 1 else float("nan")
-            lbl = "200-row base only" if c == "base" else COMBOS[c]["label"]
-            print(f"{lbl:30}{len(v):7d}{st.mean(v):10.5f}{sd:9.5f}"
+            lbl = "200-row base only" if c == "base" else allc[c]["label"]
+            print(f"{lbl:38}{len(v):7d}{st.mean(v):10.5f}{sd:9.5f}"
                   f"{min(v):10.5f}{max(v):10.5f}{max(v)-min(v):9.5f}")
 
 
